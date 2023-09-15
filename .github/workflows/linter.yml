@@ -1,0 +1,43 @@
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+name: Linter
+
+permissions:
+  contents: read
+
+jobs:
+  golint:
+    name: Golint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: '^1.19'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            libpcap-dev \
+            llvm \
+            libbpf-dev \
+            linux-headers-$(uname -r)
+
+      - name: Generate eBPF object files and Go bindings
+        run: make bpf
+
+      - name: Go lint
+        uses: golangci/golangci-lint-action@v2
+        with:
+          version: latest
+          args: --timeout=10m
