@@ -35,7 +35,7 @@ jobs:
           ./install-capstone.sh
 
       - name: Generate eBPF object files and Go bindings
-        run: make bpf
+        run: make bpf && make
 
       - name: Go lint
         uses: golangci/golangci-lint-action@v2
