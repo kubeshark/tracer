@@ -17,9 +17,9 @@ import (
 
 var numberRegex = regexp.MustCompile("[0-9]+")
 
-func UpdateTargets(tls *Tracer, pods *[]v1.Pod, procfs string) error {
+func UpdateTargets(pods *[]v1.Pod) error {
 	containerIds := buildContainerIdsMap(pods)
-	containerPids, err := findContainerPids(procfs, containerIds)
+	containerPids, err := findContainerPids(tracer.procfs, containerIds)
 
 	if err != nil {
 		return err
@@ -27,15 +27,15 @@ func UpdateTargets(tls *Tracer, pods *[]v1.Pod, procfs string) error {
 
 	log.Info().Interface("pids", containerPids).Send()
 
-	tls.ClearPids()
+	tracer.ClearPids()
 
 	// TODO: CAUSES INITIAL MEMORY SPIKE
 	for pid := range containerPids {
-		if err := tls.AddSSLLibPid(procfs, pid); err != nil {
+		if err := tracer.AddSSLLibPid(tracer.procfs, pid); err != nil {
 			LogError(err)
 		}
 
-		if err := tls.AddGoPid(procfs, pid); err != nil {
+		if err := tracer.AddGoPid(tracer.procfs, pid); err != nil {
 			LogError(err)
 		}
 	}

@@ -28,6 +28,7 @@ type Tracer struct {
 	poller          *tlsPoller
 	bpfLogger       *bpfLogger
 	registeredPids  sync.Map
+	procfs          string
 }
 
 func (t *Tracer) Init(
