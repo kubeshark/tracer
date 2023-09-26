@@ -20,19 +20,10 @@ var dataDir = "data"
 var RunID int64
 
 func InitDataDir() {
-	body, err := os.ReadFile("/etc/machine-id")
-	newDataDir := dataDir
-	if err == nil {
-		machineId := strings.TrimSpace(string(body))
-		log.Info().Str("id", machineId).Msg("Machine ID is:")
-		newDataDir = fmt.Sprintf("%s/%s", dataDir, machineId)
-	}
-
-	err = os.MkdirAll(newDataDir, os.ModePerm)
+	err := os.MkdirAll(dataDir, os.ModePerm)
 	if err != nil {
-		log.Error().Err(err).Str("data-dir", newDataDir).Msg("Unable to create the new data directory:")
+		log.Error().Err(err).Str("data-dir", dataDir).Msg("Unable to create the new data directory:")
 	} else {
-		dataDir = newDataDir
 		log.Info().Str("data-dir", dataDir).Msg("Set the data directory to:")
 	}
 
