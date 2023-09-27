@@ -51,6 +51,11 @@ func (watcher *Watcher) watchConfigMap(ctx context.Context) error {
 				return errors.New("error in kubectl endpoint watch")
 			}
 			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
+
+			err, _ = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
+			if err != nil {
+				log.Error().Err(err).Send()
+			}
 		case <-ctx.Done():
 			w.Stop()
 			return nil
