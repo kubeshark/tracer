@@ -21,7 +21,7 @@ type Watcher struct {
 	namespaces   []string
 	isStarted    bool
 	errOut       chan error
-	callback     func(pods *[]v1.Pod) error
+	callback     func(pods []v1.Pod) error
 }
 
 func (watcher *Watcher) Start(ctx context.Context, clusterMode bool) {

@@ -17,7 +17,7 @@ import (
 
 var numberRegex = regexp.MustCompile("[0-9]+")
 
-func UpdateTargets(pods *[]v1.Pod) error {
+func UpdateTargets(pods []v1.Pod) error {
 	containerIds := buildContainerIdsMap(pods)
 	containerPids, err := findContainerPids(tracer.procfs, containerIds)
 
@@ -87,10 +87,10 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[uint3
 	return result, nil
 }
 
-func buildContainerIdsMap(pods *[]v1.Pod) map[string]v1.Pod {
+func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
 	result := make(map[string]v1.Pod)
 
-	for _, pod := range *pods {
+	for _, pod := range pods {
 		for _, container := range pod.Status.ContainerStatuses {
 			parsedUrl, err := url.Parse(container.ContainerID)
 

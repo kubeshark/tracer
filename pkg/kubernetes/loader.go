@@ -7,7 +7,7 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-func NewFromInCluster(errOut chan error, callback func(pods *[]v1.Pod) error) *Watcher {
+func NewFromInCluster(errOut chan error, callback func(pods []v1.Pod) error) *Watcher {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		log.Warn().Err(err).Send()

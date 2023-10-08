@@ -109,7 +109,7 @@ func updateCurrentlyTargetedPods(
 	clientSet *kubernetes.Clientset,
 	regex *regexp.Regexp,
 	namespaces []string,
-	callback func(pods *[]v1.Pod) error,
+	callback func(pods []v1.Pod) error,
 ) (err error, changesFound bool) {
 	if matchingPods, err := listAllRunningPodsMatchingRegex(ctx, clientSet, regex, namespaces); err != nil {
 		return err, false
@@ -125,6 +125,7 @@ func updateCurrentlyTargetedPods(
 
 		if len(addedPods) > 0 || len(removedPods) > 0 {
 			SetTargetedPods(podsToTarget)
+			callback(podsToTarget)
 		}
 		return nil, false
 	}
