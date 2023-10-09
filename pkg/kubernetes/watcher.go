@@ -52,7 +52,7 @@ func (watcher *Watcher) watchConfigMap(ctx context.Context) error {
 			}
 			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
 
-			err, _ = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
+			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
 			if err != nil {
 				log.Error().Err(err).Send()
 			}
@@ -91,7 +91,7 @@ func (watcher *Watcher) watchPods(ctx context.Context) error {
 
 			log.Debug().Str("event", string(event.Type)).Str("pod-name", pod.Name).Str("namespace", pod.Namespace).Send()
 
-			err, _ = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
+			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
 			if err != nil {
 				log.Error().Err(err).Send()
 			}

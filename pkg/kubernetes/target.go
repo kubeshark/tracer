@@ -110,23 +110,25 @@ func updateCurrentlyTargetedPods(
 	regex *regexp.Regexp,
 	namespaces []string,
 	callback func(pods []v1.Pod) error,
-) (err error, changesFound bool) {
-	if matchingPods, err := listAllRunningPodsMatchingRegex(ctx, clientSet, regex, namespaces); err != nil {
-		return err, false
-	} else {
-		podsToTarget := excludeSelfPods(matchingPods)
-		addedPods, removedPods := getPodArrayDiff(GetTargetedPods(), podsToTarget)
-		for _, addedPod := range addedPods {
-			log.Info().Msg(fmt.Sprintf("Targeted pod: %s", fmt.Sprintf(Green, addedPod.Name)))
-		}
-		for _, removedPod := range removedPods {
-			log.Info().Msg(fmt.Sprintf("Untargeted pod: %s", fmt.Sprintf(Red, removedPod.Name)))
-		}
-
-		if len(addedPods) > 0 || len(removedPods) > 0 {
-			SetTargetedPods(podsToTarget)
-			callback(podsToTarget)
-		}
-		return nil, false
+) (err error) {
+	var matchingPods []v1.Pod
+	if matchingPods, err = listAllRunningPodsMatchingRegex(ctx, clientSet, regex, namespaces); err != nil {
+		return
 	}
+
+	podsToTarget := excludeSelfPods(matchingPods)
+	addedPods, removedPods := getPodArrayDiff(GetTargetedPods(), podsToTarget)
+	for _, addedPod := range addedPods {
+		log.Info().Msg(fmt.Sprintf("Targeted pod: %s", fmt.Sprintf(Green, addedPod.Name)))
+	}
+	for _, removedPod := range removedPods {
+		log.Info().Msg(fmt.Sprintf("Untargeted pod: %s", fmt.Sprintf(Red, removedPod.Name)))
+	}
+
+	if len(addedPods) > 0 || len(removedPods) > 0 {
+		SetTargetedPods(podsToTarget)
+		err = callback(podsToTarget)
+	}
+
+	return
 }
