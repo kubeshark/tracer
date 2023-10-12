@@ -19,8 +19,9 @@ var numberRegex = regexp.MustCompile("[0-9]+")
 
 func UpdateTargets(pods []v1.Pod) error {
 	containerIds := buildContainerIdsMap(pods)
-	containerPids, err := findContainerPids(tracer.procfs, containerIds)
+	log.Info().Interface("container-ids", containerIds).Send()
 
+	containerPids, err := findContainerPids(tracer.procfs, containerIds)
 	if err != nil {
 		return err
 	}
@@ -47,7 +48,6 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[uint3
 	result := make(map[uint32]v1.Pod)
 
 	pids, err := os.ReadDir(procfs)
-
 	if err != nil {
 		return result, err
 	}
@@ -64,20 +64,20 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[uint3
 		}
 
 		cgroup, err := getProcessCgroup(procfs, pid.Name())
-
 		if err != nil {
+			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't get the cgroup of process.")
 			continue
 		}
 
 		pod, ok := containerIds[cgroup]
-
 		if !ok {
+			log.Warn().Str("pid", pid.Name()).Str("cgroup", cgroup).Msg("Couldn't find the pod for the given cgroup of pid.")
 			continue
 		}
 
 		pidNumber, err := strconv.Atoi(pid.Name())
-
 		if err != nil {
+			log.Warn().Str("pid", pid.Name()).Msg("Unable to convert the process id to integer.")
 			continue
 		}
 
@@ -93,7 +93,6 @@ func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
 	for _, pod := range pods {
 		for _, container := range pod.Status.ContainerStatuses {
 			parsedUrl, err := url.Parse(container.ContainerID)
-
 			if err != nil {
 				log.Warn().Msg(fmt.Sprintf("Expecting URL like container ID %v", container.ContainerID))
 				continue
@@ -110,10 +109,8 @@ func getProcessCgroup(procfs string, pid string) (string, error) {
 	fpath := fmt.Sprintf("%s/%s/cgroup", procfs, pid)
 
 	bytes, err := os.ReadFile(fpath)
-
 	if err != nil {
-		log.Warn().Msg(fmt.Sprintf("Error reading cgroup file %s - %v", fpath, err))
-		return "", err
+		return "", errors.Errorf("Error reading cgroup file %s - %v", fpath, err)
 	}
 
 	lines := strings.Split(string(bytes), "\n")
