@@ -19,7 +19,7 @@ var numberRegex = regexp.MustCompile("[0-9]+")
 
 func UpdateTargets(pods []v1.Pod) error {
 	containerIds := buildContainerIdsMap(pods)
-	log.Info().Interface("container-ids", containerIds).Send()
+	log.Debug().Interface("container-ids", containerIds).Send()
 
 	containerPids, err := findContainerPids(tracer.procfs, containerIds)
 	if err != nil {
@@ -115,6 +115,11 @@ func getProcessCgroup(procfs string, pid string) (string, error) {
 
 	lines := strings.Split(string(bytes), "\n")
 	cgrouppath := extractCgroup(lines)
+
+	if strings.Contains(cgrouppath, "-") {
+		parts := strings.Split(cgrouppath, "-")
+		cgrouppath = parts[len(parts)-1]
+	}
 
 	if cgrouppath == "" {
 		return "", errors.Errorf("Cgroup path not found for %s, %s", pid, lines)
