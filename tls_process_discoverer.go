@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,7 +27,7 @@ func UpdateTargets(pods []v1.Pod) error {
 		return err
 	}
 
-	log.Info().Interface("pids", containerPids).Send()
+	log.Info().Interface("pids", reflect.ValueOf(containerPids).MapKeys()).Send()
 
 	tracer.ClearPids()
 
