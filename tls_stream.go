@@ -11,7 +11,6 @@ import (
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/misc/ethernet"
-	"github.com/kubeshark/tracer/misc/wcap"
 	"github.com/rs/zerolog/log"
 )
 
@@ -161,7 +160,7 @@ func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket
 	data := buf.Bytes()
 	info := t.createCaptureInfo(data)
 
-	t.poller.sorter.SendSortedPacket(&wcap.SortedPacket{
+	t.poller.sorter.SendSortedPacket(&SortedPacket{
 		PCAP: t.pcapId,
 		CI:   info,
 		Data: data,

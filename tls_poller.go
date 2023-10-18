@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/golang-lru/simplelru"
 	"github.com/kubeshark/ebpf/perf"
 	"github.com/kubeshark/tracer/misc"
-	"github.com/kubeshark/tracer/misc/wcap"
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,7 +33,7 @@ func newTlsPoller(
 	tls *Tracer,
 	procfs string,
 ) (*tlsPoller, error) {
-	sortedPackets := make(chan *wcap.SortedPacket, misc.PacketChannelBufferSize)
+	sortedPackets := make(chan *SortedPacket, misc.PacketChannelBufferSize)
 	poller := &tlsPoller{
 		tls:          tls,
 		streams:      make(map[string]*tlsStream),

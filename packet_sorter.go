@@ -9,9 +9,14 @@ import (
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
-	"github.com/kubeshark/tracer/misc/wcap"
 	"github.com/rs/zerolog/log"
 )
+
+type SortedPacket struct {
+	PCAP string
+	CI   gopacket.CaptureInfo
+	Data []byte
+}
 
 type MasterPcap struct {
 	file   *os.File
@@ -28,11 +33,11 @@ func (m *MasterPcap) WritePacket(ci gopacket.CaptureInfo, data []byte) (err erro
 
 type PacketSorter struct {
 	masterPcap    *MasterPcap
-	sortedPackets chan<- *wcap.SortedPacket
+	sortedPackets chan<- *SortedPacket
 }
 
 func NewPacketSorter(
-	sortedPackets chan<- *wcap.SortedPacket,
+	sortedPackets chan<- *SortedPacket,
 ) *PacketSorter {
 	s := &PacketSorter{
 		sortedPackets: sortedPackets,
@@ -76,7 +81,7 @@ func (s *PacketSorter) initMasterPcap() {
 	}
 }
 
-func (s *PacketSorter) SendSortedPacket(sortedPacket *wcap.SortedPacket) {
+func (s *PacketSorter) SendSortedPacket(sortedPacket *SortedPacket) {
 	s.sortedPackets <- sortedPacket
 }
 
