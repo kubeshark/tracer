@@ -30,7 +30,6 @@ type tlsStream struct {
 	poller      *tlsPoller
 	key         string
 	id          int64
-	pcapId      string
 	itemCount   int64
 	isClosed    bool
 	client      *tlsReader
@@ -53,11 +52,6 @@ func (t *tlsStream) getId() int64 {
 
 func (t *tlsStream) setId(id int64) {
 	t.id = id
-	t.pcapId = misc.BuildPcapFilename(t.id)
-}
-
-func (t *tlsStream) GetPcapId() string {
-	return t.pcapId
 }
 
 func (t *tlsStream) GetIndex() int64 {
@@ -159,12 +153,6 @@ func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket
 
 	data := buf.Bytes()
 	info := t.createCaptureInfo(data)
-
-	t.poller.sorter.SendSortedPacket(&SortedPacket{
-		PCAP: t.pcapId,
-		CI:   info,
-		Data: data,
-	})
 
 	err = t.poller.sorter.GetMasterPcap().WritePacket(info, data)
 	if err != nil {

@@ -13,7 +13,6 @@ import (
 )
 
 type SortedPacket struct {
-	PCAP string
 	CI   gopacket.CaptureInfo
 	Data []byte
 }
@@ -79,10 +78,6 @@ func (s *PacketSorter) initMasterPcap() {
 			}
 		}
 	}
-}
-
-func (s *PacketSorter) SendSortedPacket(sortedPacket *SortedPacket) {
-	s.sortedPackets <- sortedPacket
 }
 
 func (s *PacketSorter) GetMasterPcap() *MasterPcap {
