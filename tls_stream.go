@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"net"
 	"strconv"
 	"sync"
@@ -27,15 +26,14 @@ func (l *tlsLayers) swap() {
 }
 
 type tlsStream struct {
-	poller      *tlsPoller
-	key         string
-	id          int64
-	itemCount   int64
-	isClosed    bool
-	client      *tlsReader
-	server      *tlsReader
-	layers      *tlsLayers
-	clientHello bool
+	poller    *tlsPoller
+	key       string
+	id        int64
+	itemCount int64
+	isClosed  bool
+	client    *tlsReader
+	server    *tlsReader
+	layers    *tlsLayers
 	sync.Mutex
 }
 
@@ -125,10 +123,6 @@ func (t *tlsStream) writeData(data []byte, reader *tlsReader) {
 }
 
 func (t *tlsStream) writeLayers(data []byte, isClient bool, sentLen uint32) {
-	if isClient && !t.clientHello {
-		t.writeClientHello()
-	}
-
 	t.writePacket(
 		layers.LayerTypeEthernet,
 		t.layers.ethernet,
@@ -158,26 +152,6 @@ func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")
 	}
-}
-
-func (t *tlsStream) writeClientHello() {
-	data, err := hex.DecodeString(misc.ClientHelloBasicPacket)
-	if err != nil {
-		log.Error().Err(err).Send()
-	}
-
-	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Lazy)
-	outgoingPacket := packet.Data()
-
-	info := t.createCaptureInfo(outgoingPacket)
-
-	err = t.poller.sorter.GetMasterPcap().WritePacket(info, outgoingPacket)
-	if err != nil {
-		log.Error().Err(err).Msg("Error writing PCAP:")
-	}
-
-	t.doTcpSeqAckWalk(true, uint32(len(data)))
-	t.clientHello = true
 }
 
 func (t *tlsStream) createCaptureInfo(data []byte) gopacket.CaptureInfo {
