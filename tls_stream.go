@@ -166,15 +166,13 @@ func (t *tlsStream) writeClientHello() {
 		log.Error().Err(err).Send()
 	}
 
-	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Lazy)
-	outgoingPacket := packet.Data()
-
-	info := t.createCaptureInfo(outgoingPacket)
-
-	err = t.poller.sorter.GetMasterPcap().WritePacket(info, outgoingPacket)
-	if err != nil {
-		log.Error().Err(err).Msg("Error writing PCAP:")
-	}
+	t.writePacket(
+		layers.LayerTypeEthernet,
+		t.layers.ethernet,
+		t.layers.ipv4,
+		t.layers.tcp,
+		gopacket.Payload(data),
+	)
 
 	t.doTcpSeqAckWalk(true, uint32(len(data)))
 	t.clientHello = true
