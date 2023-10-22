@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"syscall"
 
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/gopacket/layers"
@@ -52,7 +53,11 @@ func (s *PacketSorter) initMasterPcap() {
 	var file *os.File
 	var writer *pcapgo.Writer
 	if _, err = os.Stat(misc.GetMasterPcapPath()); errors.Is(err, os.ErrNotExist) {
-		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_CREATE|os.O_WRONLY, 0644)
+		err = syscall.Mkfifo(misc.GetMasterPcapPath(), 0666)
+		if err != nil {
+			log.Error().Err(err).Msg("Couldn't create the named pipe:")
+		}
+		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_APPEND|os.O_WRONLY, os.ModeNamedPipe)
 		if err != nil {
 			log.Error().Err(err).Msg("Couldn't create master PCAP:")
 		} else {
@@ -67,7 +72,7 @@ func (s *PacketSorter) initMasterPcap() {
 			}
 		}
 	} else {
-		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_APPEND|os.O_WRONLY, 0644)
+		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_APPEND|os.O_WRONLY, os.ModeNamedPipe)
 		if err != nil {
 			log.Error().Err(err).Msg("Couldn't open master PCAP:")
 		} else {
