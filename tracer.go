@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
-	"github.com/kubeshark/ebpf/rlimit"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 )
@@ -15,9 +15,9 @@ const GlobalWorkerPid = 0
 
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
 
-//go:generate go run github.com/kubeshark/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
 
-//go:generate go run github.com/kubeshark/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
 	bpfObjects      tracerObjects
