@@ -98,6 +98,9 @@ BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 
+// mysql
+BPF_PERF_OUTPUT(mysql_queries);
+
 // OpenSSL specific
 BPF_LRU_HASH(openssl_write_context, __u64, struct ssl_info);
 BPF_LRU_HASH(openssl_read_context, __u64, struct ssl_info);
