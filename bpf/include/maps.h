@@ -63,6 +63,18 @@ struct goid_offsets {
     __u64 goid_offset;
 };
 
+// mysql command structure as part of the COM_DATA union
+//
+// https://github.com/mysql/mysql-server/blob/trunk/include/mysql/com_data.h
+//
+// COM_QUERY_DATA (COM_QUERY=3) starts with a *command and length, and
+// we get those two fields here
+struct mysql_command {
+  char *command;
+  __u64 length;
+};
+
+
 const struct goid_offsets *unused __attribute__((unused));
 
 // Heap-like area for eBPF programs - stack size limited to 512 bytes, we must use maps for bigger (chunk) objects.
@@ -99,6 +111,15 @@ BPF_PERF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 
 // mysql
+//
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, int);
+	__type(value, char[1024]);
+} mysql_command_heap SEC(".maps");
+
+
 BPF_PERF_OUTPUT(mysql_queries);
 
 // OpenSSL specific

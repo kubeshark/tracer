@@ -81,7 +81,7 @@ func main() {
 			fmt.Println(err)
 			break
 		}
-		fmt.Println(rec)
+		fmt.Println(string(rec.RawSample))
 	}
 
 }

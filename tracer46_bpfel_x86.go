@@ -84,6 +84,7 @@ type tracer46ProgramSpecs struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
+	ServerCommandProbe            *ebpf.ProgramSpec `ebpf:"server_command_probe"`
 	SslRead                       *ebpf.ProgramSpec `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.ProgramSpec `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.ProgramSpec `ebpf:"ssl_ret_read"`
@@ -121,6 +122,8 @@ type tracer46MapSpecs struct {
 	GoidOffsetsMap           *ebpf.MapSpec `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.MapSpec `ebpf:"heap"`
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
+	MysqlCommandHeap         *ebpf.MapSpec `ebpf:"mysql_command_heap"`
+	MysqlQueries             *ebpf.MapSpec `ebpf:"mysql_queries"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.MapSpec `ebpf:"openssl_write_context"`
 	PidsMap                  *ebpf.MapSpec `ebpf:"pids_map"`
@@ -158,6 +161,8 @@ type tracer46Maps struct {
 	GoidOffsetsMap           *ebpf.Map `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.Map `ebpf:"heap"`
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
+	MysqlCommandHeap         *ebpf.Map `ebpf:"mysql_command_heap"`
+	MysqlQueries             *ebpf.Map `ebpf:"mysql_queries"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.Map `ebpf:"openssl_write_context"`
 	PidsMap                  *ebpf.Map `ebpf:"pids_map"`
@@ -178,6 +183,8 @@ func (m *tracer46Maps) Close() error {
 		m.GoidOffsetsMap,
 		m.Heap,
 		m.LogBuffer,
+		m.MysqlCommandHeap,
+		m.MysqlQueries,
 		m.OpensslReadContext,
 		m.OpensslWriteContext,
 		m.PidsMap,
@@ -196,6 +203,7 @@ type tracer46Programs struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
+	ServerCommandProbe            *ebpf.Program `ebpf:"server_command_probe"`
 	SslRead                       *ebpf.Program `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.Program `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.Program `ebpf:"ssl_ret_read"`
@@ -226,6 +234,7 @@ func (p *tracer46Programs) Close() error {
 		p.GoCryptoTlsAbiInternalReadEx,
 		p.GoCryptoTlsAbiInternalWrite,
 		p.GoCryptoTlsAbiInternalWriteEx,
+		p.ServerCommandProbe,
 		p.SslRead,
 		p.SslReadEx,
 		p.SslRetRead,
