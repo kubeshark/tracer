@@ -44,9 +44,6 @@ setcap:
 run: setcap ## Run the program. Requires Hub being available on port 8898
 	./tracer -debug
 
-run-pcap: setcap ## Run the program with a PCAP file. Requires Hub being available on port 8898
-	./tracer -f ./import -port 8897 -debug
-
 run-race: setcap ## -race flag requires the GODEBUG=netdns=go
 	GODEBUG=netdns=go ./tracer -debug
 
