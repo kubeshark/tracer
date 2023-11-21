@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/tracer/misc"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 )
@@ -33,6 +34,30 @@ func UpdateTargets(pods []v1.Pod) error {
 
 	// TODO: CAUSES INITIAL MEMORY SPIKE
 	for pid := range containerPids {
+		if err := tracer.AddSSLLibPid(tracer.procfs, pid); err != nil {
+			LogError(err)
+		}
+
+		if err := tracer.AddGoPid(tracer.procfs, pid); err != nil {
+			LogError(err)
+		}
+	}
+
+	return nil
+}
+
+func UpdateTargetsHost(cmdLineRegex *regexp.Regexp) error {
+	hostPids, err := findContainerPidsHost(tracer.procfs, cmdLineRegex)
+	if err != nil {
+		return err
+	}
+
+	log.Info().Interface("pids", hostPids).Send()
+
+	tracer.ClearPids()
+
+	// TODO: CAUSES INITIAL MEMORY SPIKE
+	for _, pid := range hostPids {
 		if err := tracer.AddSSLLibPid(tracer.procfs, pid); err != nil {
 			LogError(err)
 		}
@@ -83,6 +108,49 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[uint3
 		}
 
 		result[uint32(pidNumber)] = pod
+	}
+
+	return result, nil
+}
+
+func findContainerPidsHost(procfs string, cmdLineRegex *regexp.Regexp) ([]uint32, error) {
+	var result []uint32
+
+	pids, err := os.ReadDir(procfs)
+	if err != nil {
+		return result, err
+	}
+
+	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Msg("Starting TLS auto discoverer:")
+
+	for _, pid := range pids {
+		if !pid.IsDir() {
+			continue
+		}
+
+		if !numberRegex.MatchString(pid.Name()) {
+			continue
+		}
+
+		pidNumber, err := strconv.Atoi(pid.Name())
+		if err != nil {
+			log.Warn().Str("pid", pid.Name()).Msg("Unable to convert the process id to integer.")
+			continue
+		}
+
+		if cmdLineRegex != nil {
+			cmdLine, err := misc.GetProcCmdLine(pid.Name())
+			if err != nil {
+				log.Warn().Err(err).Str("pid", pid.Name()).Msg("Unable to get pid cmdline.")
+				continue
+			}
+
+			if !cmdLineRegex.MatchString(cmdLine) {
+				continue
+			}
+		}
+
+		result = append(result, uint32(pidNumber))
 	}
 
 	return result, nil
