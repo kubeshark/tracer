@@ -9,6 +9,8 @@ import (
 	"os"
 	"runtime"
 
+	"errors"
+
 	"github.com/Masterminds/semver"
 	"github.com/cilium/ebpf/link"
 	"github.com/knightsc/gapstone"
@@ -88,7 +90,7 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 	}, nil
 }
 
-func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
+func getGStructOffset(exe *ElfFile) (gStructOffset uint64, err error) {
 	// This is a bit arcane. Essentially:
 	// - If the program is pure Go, it can do whatever it wants, and puts the G
 	//   pointer at %fs-8 on 64 bit.
@@ -144,7 +146,7 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 	return
 }
 
-func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, err error) {
+func getGoidOffset(elfFile *ElfFile) (goidOffset uint64, gStructOffset uint64, err error) {
 	var dwarfData *dwarf.Data
 	dwarfData, err = elfFile.DWARF()
 	if err != nil {
@@ -237,8 +239,8 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 	}
 	defer fd.Close()
 
-	var elfFile *elf.File
-	elfFile, err = elf.NewFile(fd)
+	var elfFile *ElfFile
+	elfFile, err = NewElfFile(fd)
 	if err != nil {
 		return
 	}
@@ -249,19 +251,15 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		return
 	}
 
-	// extract the raw bytes from the .text section
-	var textSectionData []byte
-	textSectionData, err = textSection.Data()
+	textSectionFile := textSection.Open()
+
+	var syms chan elf.Symbol
+	syms, err = elfFile.SymbolsChan()
 	if err != nil {
 		return
 	}
 
-	var syms []elf.Symbol
-	syms, err = elfFile.Symbols()
-	if err != nil {
-		return
-	}
-	for _, sym := range syms {
+	for sym := range syms {
 		offset := sym.Value
 
 		var lastProg *elf.Prog
@@ -293,7 +291,7 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		symEndingIndex := symStartingIndex + sym.Size
 
 		// collect the bytes of the symbol
-		textSectionDataLen := uint64(len(textSectionData) - 1)
+		textSectionDataLen := uint64(textSection.Size - 1)
 		if symEndingIndex > textSectionDataLen {
 			log.Info().Msg(fmt.Sprintf(
 				"Skipping symbol %v, ending index %v is bigger than text section data length %v",
@@ -303,7 +301,19 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 			))
 			continue
 		}
-		symBytes := textSectionData[symStartingIndex:symEndingIndex]
+		if _, err = textSectionFile.Seek(int64(symStartingIndex), io.SeekStart); err != nil {
+			return
+		}
+		num := int(symEndingIndex - symStartingIndex)
+		var numRead int
+		symBytes := make([]byte, num)
+		numRead, err = textSectionFile.Read(symBytes)
+		if err != nil {
+			return
+		}
+		if numRead != num {
+			err = errors.New("Text section read failed")
+		}
 
 		// disassemble the symbol
 		var instructions []gapstone.Instruction
