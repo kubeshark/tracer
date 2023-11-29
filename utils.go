@@ -7,7 +7,7 @@ import (
 	"github.com/go-errors/errors"
 )
 
-func getSymbol(exe *ElfFile, name string) (*elf.Symbol, error) {
+func getSymbol(exe *elf.File, name string) (*elf.Symbol, error) {
 	var symbols []elf.Symbol
 	var err1, err2 error
 

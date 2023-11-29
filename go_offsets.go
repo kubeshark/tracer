@@ -90,7 +90,7 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 	}, nil
 }
 
-func getGStructOffset(exe *ElfFile) (gStructOffset uint64, err error) {
+func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 	// This is a bit arcane. Essentially:
 	// - If the program is pure Go, it can do whatever it wants, and puts the G
 	//   pointer at %fs-8 on 64 bit.
@@ -146,7 +146,7 @@ func getGStructOffset(exe *ElfFile) (gStructOffset uint64, err error) {
 	return
 }
 
-func getGoidOffset(elfFile *ElfFile) (goidOffset uint64, gStructOffset uint64, err error) {
+func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, err error) {
 	var dwarfData *dwarf.Data
 	dwarfData, err = elfFile.DWARF()
 	if err != nil {
@@ -239,8 +239,8 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 	}
 	defer fd.Close()
 
-	var elfFile *ElfFile
-	elfFile, err = NewElfFile(fd)
+	var elfFile *elf.File
+	elfFile, err = elf.NewFile(fd)
 	if err != nil {
 		return
 	}
@@ -253,13 +253,12 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 
 	textSectionFile := textSection.Open()
 
-	var syms chan elf.Symbol
-	syms, err = elfFile.SymbolsChan()
+	var syms []elf.Symbol
+	syms, err = elfFile.Symbols()
 	if err != nil {
 		return
 	}
-
-	for sym := range syms {
+	for _, sym := range syms {
 		offset := sym.Value
 
 		var lastProg *elf.Prog
