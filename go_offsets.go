@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-
 	"errors"
 
 	"github.com/Masterminds/semver"
