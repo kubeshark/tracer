@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"errors"
 
 	"github.com/Masterminds/semver"
 	"github.com/cilium/ebpf/link"
@@ -249,12 +250,7 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		return
 	}
 
-	// extract the raw bytes from the .text section
-	var textSectionData []byte
-	textSectionData, err = textSection.Data()
-	if err != nil {
-		return
-	}
+	textSectionFile := textSection.Open()
 
 	var syms []elf.Symbol
 	syms, err = elfFile.Symbols()
@@ -293,7 +289,7 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		symEndingIndex := symStartingIndex + sym.Size
 
 		// collect the bytes of the symbol
-		textSectionDataLen := uint64(len(textSectionData) - 1)
+		textSectionDataLen := uint64(textSection.Size - 1)
 		if symEndingIndex > textSectionDataLen {
 			log.Info().Msg(fmt.Sprintf(
 				"Skipping symbol %v, ending index %v is bigger than text section data length %v",
@@ -303,7 +299,20 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 			))
 			continue
 		}
-		symBytes := textSectionData[symStartingIndex:symEndingIndex]
+		if _, err = textSectionFile.Seek(int64(symStartingIndex), io.SeekStart); err != nil {
+			return
+		}
+		num := int(symEndingIndex - symStartingIndex)
+		var numRead int
+		symBytes := make([]byte, num)
+		numRead, err = textSectionFile.Read(symBytes)
+		if err != nil {
+			return
+		}
+		if numRead != num {
+			err = errors.New("Text section read failed")
+			return
+		}
 
 		// disassemble the symbol
 		var instructions []gapstone.Instruction
