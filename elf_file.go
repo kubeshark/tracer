@@ -60,14 +60,14 @@ func (f *ElfFile) getSymbols32Chan(typ elf.SectionType) (chan elf.Symbol, error)
 
 	// The first entry is all zeros.
 	var skip [elf.Sym32Size]byte
-	symtab.Read(skip[:])
+	_, _ = symtab.Read(skip[:])
 
 	ch := make(chan elf.Symbol, 1)
 
 	var sym elf.Sym32
 	for symtab.Len() > 0 {
 		defer close(ch)
-		binary.Read(symtab, f.ByteOrder, &sym)
+		_ = binary.Read(symtab, f.ByteOrder, &sym)
 		str, _ := getString(strdata, int(sym.Name))
 		var symbol elf.Symbol
 		symbol.Name = str
@@ -104,14 +104,14 @@ func (f *ElfFile) getSymbols64Chan(typ elf.SectionType) (chan elf.Symbol, error)
 
 	// The first entry is all zeros.
 	var skip [elf.Sym64Size]byte
-	symtab.Read(skip[:])
+	_, _ = symtab.Read(skip[:])
 
 	ch := make(chan elf.Symbol, 1)
 	go func() {
 		defer close(ch)
 		var sym elf.Sym64
 		for symtab.Len() > 0 {
-			binary.Read(symtab, f.ByteOrder, &sym)
+			_ = binary.Read(symtab, f.ByteOrder, &sym)
 			str, _ := getString(strdata, int(sym.Name))
 			var symbol elf.Symbol
 			symbol.Name = str
@@ -138,13 +138,6 @@ func getString(section []byte, start int) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func stringTable(f *elf.File, link uint32) ([]byte, error) {
-	if link <= 0 || link >= uint32(len(f.Sections)) {
-		return nil, errors.New("section has invalid string table link")
-	}
-	return f.Sections[link].Data()
 }
 
 func (f *ElfFile) stringTable(link uint32) ([]byte, error) {
