@@ -313,6 +313,7 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		}
 		if numRead != num {
 			err = errors.New("Text section read failed")
+			return
 		}
 
 		// disassemble the symbol
