@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
 	"time"
@@ -54,6 +55,14 @@ func run() {
 	watcher := kubernetes.NewFromInCluster(errOut, UpdateTargets)
 	ctx := context.Background()
 	watcher.Start(ctx, clusterMode)
+
+	if clusterMode {
+		nodeName, err := kubernetes.GetThisNodeName(watcher)
+		if err != nil {
+			log.Fatal().Err(err).Send()
+		}
+		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
+	}
 
 	go tracer.PollForLogging()
 	tracer.Poll(streamsMap)
