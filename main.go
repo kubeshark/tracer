@@ -9,6 +9,7 @@ import (
 
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
+	"github.com/kubeshark/tracer/pkg/proc"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/rest"
@@ -24,6 +25,7 @@ var tracer *Tracer
 
 func main() {
 	flag.Parse()
+	proc.Path = *procfs
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Caller().Logger()
@@ -92,6 +94,15 @@ func createTracer(streamsMap *TcpStreamMap) {
 	//
 	if os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID") != "" {
 		if err := tracer.GlobalGoTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID")); err != nil {
+			LogError(err)
+			return
+		}
+	}
+
+	// A quick way to instrument mysqld without PID filtering - used for debuging and troubleshooting
+	//
+	if os.Getenv("KUBESHARK_GLOBAL_MYSQLD_PID") != "" {
+		if err := tracer.GlobalMysqldTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_MYSQLD_PID")); err != nil {
 			LogError(err)
 			return
 		}

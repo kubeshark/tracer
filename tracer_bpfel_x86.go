@@ -84,7 +84,8 @@ type tracerProgramSpecs struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
-	ServerCommandProbe            *ebpf.ProgramSpec `ebpf:"server_command_probe"`
+	MysqlDispatchCommandProbe     *ebpf.ProgramSpec `ebpf:"mysql_dispatch_command_probe"`
+	MysqlRetDispatchCommandProbe  *ebpf.ProgramSpec `ebpf:"mysql_ret_dispatch_command_probe"`
 	SslRead                       *ebpf.ProgramSpec `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.ProgramSpec `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.ProgramSpec `ebpf:"ssl_ret_read"`
@@ -203,7 +204,8 @@ type tracerPrograms struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
-	ServerCommandProbe            *ebpf.Program `ebpf:"server_command_probe"`
+	MysqlDispatchCommandProbe     *ebpf.Program `ebpf:"mysql_dispatch_command_probe"`
+	MysqlRetDispatchCommandProbe  *ebpf.Program `ebpf:"mysql_ret_dispatch_command_probe"`
 	SslRead                       *ebpf.Program `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.Program `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.Program `ebpf:"ssl_ret_read"`
@@ -234,7 +236,8 @@ func (p *tracerPrograms) Close() error {
 		p.GoCryptoTlsAbiInternalReadEx,
 		p.GoCryptoTlsAbiInternalWrite,
 		p.GoCryptoTlsAbiInternalWriteEx,
-		p.ServerCommandProbe,
+		p.MysqlDispatchCommandProbe,
+		p.MysqlRetDispatchCommandProbe,
 		p.SslRead,
 		p.SslReadEx,
 		p.SslRetRead,

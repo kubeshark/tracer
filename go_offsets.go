@@ -13,6 +13,8 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/knightsc/gapstone"
 	"github.com/rs/zerolog/log"
+
+	kself "github.com/kubeshark/tracer/pkg/elf"
 )
 
 type goAbi int
@@ -111,7 +113,7 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 	var tlsg *elf.Symbol
 	switch exe.Machine {
 	case elf.EM_X86_64, elf.EM_386:
-		tlsg, _ = getSymbol(exe, "runtime.tlsg")
+		tlsg, _ = kself.GetELFSymbol(exe, "runtime.tlsg")
 		if tlsg == nil || tls == nil {
 			gStructOffset = ^uint64(PtrSize) + 1 //-ptrSize
 			return
@@ -128,7 +130,7 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 		gStructOffset = ^(memsz) + 1 + tlsg.Value // -tls.Memsz + tlsg.Value
 
 	case elf.EM_AARCH64:
-		tlsg, _ = getSymbol(exe, "runtime.tls_g")
+		tlsg, _ = kself.GetELFSymbol(exe, "runtime.tls_g")
 		if tlsg == nil || tls == nil {
 			gStructOffset = 2 * uint64(PtrSize)
 			return

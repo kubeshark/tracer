@@ -6,6 +6,8 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/cilium/ebpf"
@@ -14,15 +16,18 @@ import (
 )
 
 const (
-	executable = "/usr/sbin/mysqld"
 	symbolName = "dispatch_command"
 )
 
 func main() {
 	// Find the dispatch_command symbol in executable. This is necessary
 	// to figure out the mangled name
+	pid, err := strconv.Atoi(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
 
-	f, err := elf.Open(executable)
+	f, err := elf.Open(fmt.Sprintf("/proc/%d/exe", pid))
 	if err != nil {
 		panic(err)
 	}
@@ -48,8 +53,9 @@ func main() {
 	}
 
 	type TObj struct {
-		Prog *ebpf.Program `ebpf:"server_command_probe"`
-		Map  *ebpf.Map     `ebpf:"mysql_queries"`
+		MysqlDispatchCommandProbe    *ebpf.Program `ebpf:"mysql_dispatch_command_probe"`
+		MysqlRetDispatchCommandProbe *ebpf.Program `ebpf:"mysql_ret_dispatch_command_probe"`
+		Map                          *ebpf.Map     `ebpf:"mysql_queries"`
 	}
 
 	var obj TObj
@@ -58,18 +64,24 @@ func main() {
 		panic(err)
 	}
 
-	executable, err := link.OpenExecutable(executable)
+	executable, err := link.OpenExecutable(fmt.Sprintf("/proc/%d/exe", pid))
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("Executable opened")
 	_ = executable
-	link, err := executable.Uprobe(found[0].Name, obj.Prog, nil)
+	link, err := executable.Uprobe(found[0].Name, obj.MysqlDispatchCommandProbe, nil)
 	if err != nil {
 		panic(err)
 	}
 	defer link.Close()
 	fmt.Println("link", link)
+	retlink, err := executable.Uretprobe(found[0].Name, obj.MysqlRetDispatchCommandProbe, nil)
+	if err != nil {
+		panic(err)
+	}
+	defer retlink.Close()
+	fmt.Println("retlink", retlink)
 	reader, err := perf.NewReader(obj.Map, 4096)
 	if err != nil {
 		panic(err)
