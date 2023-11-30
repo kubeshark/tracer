@@ -23,6 +23,10 @@ func GetDataDir() string {
 	return dataDir
 }
 
+func SetDataDir(v string) {
+	dataDir = v
+}
+
 func GetMasterPcapPath() string {
 	return fmt.Sprintf("%s/tls.pcap", GetDataDir())
 }

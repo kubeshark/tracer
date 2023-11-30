@@ -1,11 +1,14 @@
 package kubernetes
 
 import (
+	"context"
+	"errors"
 	"regexp"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -25,4 +28,19 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp.Regexp, []string) {
 	namespaces := strings.Split(configNamespaces, ",")
 
 	return regex, namespaces
+}
+
+func GetThisNodeName(watcher *Watcher) (name string, err error) {
+	if watcher.clientSet == nil {
+		err = errors.New("K8s API is not available!")
+		return
+	}
+
+	pod, err := watcher.clientSet.CoreV1().Pods(GetSelfNamespace()).Get(context.TODO(), GetSelfPodName(), metav1.GetOptions{})
+	if err != nil {
+		return
+	}
+
+	name = pod.Spec.NodeName
+	return
 }
