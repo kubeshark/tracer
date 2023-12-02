@@ -8,7 +8,6 @@ import (
 )
 
 var dataDir = "data"
-var RunID int64
 
 func InitDataDir() {
 	err := os.MkdirAll(dataDir, os.ModePerm)

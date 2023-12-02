@@ -41,12 +41,6 @@ func main() {
 func run() {
 	log.Info().Msg("Starting tracer...")
 
-	misc.RunID = time.Now().Unix()
-
-	streamsMap := NewTcpStreamMap()
-
-	createTracer(streamsMap)
-
 	_, err := rest.InClusterConfig()
 	clusterMode := err == nil
 	errOut := make(chan error, 100)
@@ -61,6 +55,10 @@ func run() {
 		}
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
 	}
+
+	streamsMap := NewTcpStreamMap()
+
+	createTracer(streamsMap)
 
 	go tracer.PollForLogging()
 	tracer.Poll(streamsMap)
