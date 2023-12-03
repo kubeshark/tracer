@@ -17,6 +17,7 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs 
 		return -1;
 	}
 	if (family != AF_INET) {
+    log_error(ctx, LOG_ERROR_NOT_AF_INET, id, family, 0l);
 		return -1;
 	}
 
@@ -76,6 +77,7 @@ static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info *info_pt
 
 static __always_inline void tcp_kprobe(struct pt_regs *ctx, struct bpf_map_def *map_fd_openssl, struct bpf_map_def *map_fd_go_kernel, struct bpf_map_def *map_fd_go_user_kernel) {
 	long err;
+
 
 	__u64 id = bpf_get_current_pid_tgid();
 

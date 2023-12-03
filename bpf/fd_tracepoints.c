@@ -70,6 +70,7 @@ void sys_enter_read(struct sys_enter_read_write_ctx *ctx) {
 	
 	if (infoPtr != NULL) {
 		fd_tracepoints_handle_openssl(ctx, id, infoPtr, &openssl_read_context, ORIGIN_SYS_ENTER_READ_CODE);
+    return;
 	}
 
 	fd_tracepoints_handle_go(ctx, id, &go_kernel_read_context, ORIGIN_SYS_ENTER_READ_CODE);
@@ -87,6 +88,7 @@ void sys_enter_write(struct sys_enter_read_write_ctx *ctx) {
 	
 	if (infoPtr != NULL) {
 		fd_tracepoints_handle_openssl(ctx, id, infoPtr, &openssl_write_context, ORIGIN_SYS_ENTER_WRITE_CODE);
+    return;
 	}
 
 	fd_tracepoints_handle_go(ctx, id, &go_kernel_write_context, ORIGIN_SYS_ENTER_WRITE_CODE);

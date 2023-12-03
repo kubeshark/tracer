@@ -48,6 +48,7 @@ static __always_inline void ssl_uprobe(struct pt_regs *ctx, void* ssl, void* buf
 	if (!should_target(id >> 32)) {
 		return;
 	}
+
 	
 	struct ssl_info info = lookup_ssl_info(ctx, map_fd, id);
 	
@@ -77,7 +78,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs *ctx, struct bpf_map_de
 	
 	struct ssl_info info;
 	long err = bpf_probe_read(&info, sizeof(struct ssl_info), infoPtr);
-	
+
 	// Do not clean map on purpose, sometimes there are two calls to ssl_read in a raw
 	//	while the first call actually goes to read from socket, and we get the chance
 	//	to find the fd. The other call already have all the information and we don't
@@ -95,10 +96,10 @@ static __always_inline void ssl_uretprobe(struct pt_regs *ctx, struct bpf_map_de
 		return;
 	}
 	
-	if (info.fd == invalid_fd) {
-		log_error(ctx, LOG_ERROR_MISSING_FILE_DESCRIPTOR, id, 0l, 0l);
-		return;
-	}
+	//if (info.fd == invalid_fd) {
+	//	log_error(ctx, LOG_ERROR_MISSING_FILE_DESCRIPTOR, id, 0l, 0l);
+	//	return;
+	//}
 
 	int count_bytes = get_count_bytes(ctx, &info, id);
 	if (count_bytes <= 0) {

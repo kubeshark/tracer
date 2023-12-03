@@ -100,10 +100,12 @@ static __always_inline void output_ssl_chunk(struct pt_regs *ctx, struct ssl_inf
     chunk->len = count_bytes;
     chunk->fd = info->fd;
 
-    if (!add_address_to_chunk(ctx, chunk, id, chunk->fd, info)) {
-        // Without an address, we drop the chunk because there is not much to do with it in Go
-        //
-        return;
+    if (chunk->fd != invalid_fd) { // postgres packets come with invalid fd
+        if (!add_address_to_chunk(ctx, chunk, id, chunk->fd, info)) {
+          // Without an address, we drop the chunk because there is not much to do with it in Go
+          //
+          return;
+        }
     }
 
     send_chunk(ctx, info->buffer, id, chunk);
