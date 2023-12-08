@@ -7,7 +7,6 @@ import (
 	"syscall"
 
 	"github.com/kubeshark/gopacket"
-	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/rs/zerolog/log"
@@ -66,10 +65,8 @@ func (s *PacketSorter) initMasterPcap() {
 				file:   file,
 				writer: writer,
 			}
-			err = writer.WriteFileHeader(uint32(misc.Snaplen), layers.LinkTypeEthernet)
-			if err != nil {
-				log.Error().Err(err).Msg("While writing the PCAP header:")
-			}
+			// Do not write PCAP header. This is a named pipe, and a worker
+			// might be waiting to read from it already
 		}
 	} else {
 		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_APPEND|os.O_WRONLY, os.ModeNamedPipe)
