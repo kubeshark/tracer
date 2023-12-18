@@ -12,6 +12,8 @@ type syscallHooks struct {
 	sysExitWrite    link.Link
 	sysEnterAccept4 link.Link
 	sysExitAccept4  link.Link
+	sysEnterAccept  link.Link
+	sysExitAccept   link.Link
 	sysEnterConnect link.Link
 	sysExitConnect  link.Link
 }
@@ -49,7 +51,19 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *tracerObjects) error {
 		return errors.Wrap(err, 0)
 	}
 
+	s.sysEnterAccept, err = link.Tracepoint("syscalls", "sys_enter_accept", bpfObjects.SysEnterAccept, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
 	s.sysExitAccept4, err = link.Tracepoint("syscalls", "sys_exit_accept4", bpfObjects.SysExitAccept4, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.sysExitAccept, err = link.Tracepoint("syscalls", "sys_exit_accept", bpfObjects.SysExitAccept, nil)
 
 	if err != nil {
 		return errors.Wrap(err, 0)
@@ -93,7 +107,15 @@ func (s *syscallHooks) close() []error {
 		returnValue = append(returnValue, err)
 	}
 
+	if err := s.sysEnterAccept.Close(); err != nil {
+		returnValue = append(returnValue, err)
+	}
+
 	if err := s.sysExitAccept4.Close(); err != nil {
+		returnValue = append(returnValue, err)
+	}
+
+	if err := s.sysExitAccept.Close(); err != nil {
 		returnValue = append(returnValue, err)
 	}
 

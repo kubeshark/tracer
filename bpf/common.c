@@ -18,11 +18,9 @@ static __always_inline int add_address_to_chunk(struct pt_regs *ctx, struct tls_
     conn_flags *flags = bpf_map_lookup_elem(&connection_context, &key);
 
     // Happens when we don't catch the connect / accept (if the connection is created before targeting is started)
-    if (flags == NULL) {
-        return 0;
+    if (flags != NULL) {
+      chunk->flags |= (*flags & FLAGS_IS_CLIENT_BIT);
     }
-
-    chunk->flags |= (*flags & FLAGS_IS_CLIENT_BIT);
 
     bpf_probe_read(&chunk->address_info, sizeof(chunk->address_info), &info->address_info);
 
@@ -103,7 +101,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs *ctx, struct ssl_inf
     if (!add_address_to_chunk(ctx, chunk, id, chunk->fd, info)) {
         // Without an address, we drop the chunk because there is not much to do with it in Go
         //
-        return;
+        //return;
     }
 
     send_chunk(ctx, info->buffer, id, chunk);

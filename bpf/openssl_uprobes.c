@@ -11,6 +11,20 @@ Copyright (C) Kubeshark
 #include "include/pids.h"
 #include "include/common.h"
 
+/*
+  This is how openssl-based ebpf capture works:
+
+  1) Program calls ssl_write / ssl_read
+      * ssl_probe either reuses an existing ssl_info or creates one
+        in openssl_write_context or openssl_read_context
+      * It stores the count and buffer. 
+     
+  2) Eventually, tcp_sendmsg or tcp_recvmsg is called
+      * These calls receive the struct sock *. They capture source/dest addresses
+        which is stored in ssl_info
+
+  3) ssl_retprobes send the unencrypted buffer as a perf event
+*/
 
 static __always_inline int get_count_bytes(struct pt_regs *ctx, struct ssl_info* info, __u64 id) {
     int returnValue = PT_REGS_RC(ctx);
@@ -108,6 +122,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs *ctx, struct bpf_map_de
 	output_ssl_chunk(ctx, &info, count_bytes, id, flags);
 }
 
+
 SEC("uprobe/ssl_write")
 void BPF_KPROBE(ssl_write, void* ssl, void* buffer, int num) {
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_write_context, 0);
@@ -147,3 +162,4 @@ SEC("uretprobe/ssl_read_ex")
 void BPF_KPROBE(ssl_ret_read_ex) {
 	ssl_uretprobe(ctx, &openssl_read_context, FLAGS_IS_READ_BIT);
 }
+

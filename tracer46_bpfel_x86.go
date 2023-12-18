@@ -92,16 +92,20 @@ type tracer46ProgramSpecs struct {
 	SslRetWriteEx                 *ebpf.ProgramSpec `ebpf:"ssl_ret_write_ex"`
 	SslWrite                      *ebpf.ProgramSpec `ebpf:"ssl_write"`
 	SslWriteEx                    *ebpf.ProgramSpec `ebpf:"ssl_write_ex"`
+	SysEnterAccept                *ebpf.ProgramSpec `ebpf:"sys_enter_accept"`
 	SysEnterAccept4               *ebpf.ProgramSpec `ebpf:"sys_enter_accept4"`
 	SysEnterConnect               *ebpf.ProgramSpec `ebpf:"sys_enter_connect"`
 	SysEnterRead                  *ebpf.ProgramSpec `ebpf:"sys_enter_read"`
 	SysEnterWrite                 *ebpf.ProgramSpec `ebpf:"sys_enter_write"`
+	SysExitAccept                 *ebpf.ProgramSpec `ebpf:"sys_exit_accept"`
 	SysExitAccept4                *ebpf.ProgramSpec `ebpf:"sys_exit_accept4"`
 	SysExitConnect                *ebpf.ProgramSpec `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.ProgramSpec `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
+	TcpSendmsgFastopen            *ebpf.ProgramSpec `ebpf:"tcp_sendmsg_fastopen"`
+	TcpSendmsgLocked              *ebpf.ProgramSpec `ebpf:"tcp_sendmsg_locked"`
 }
 
 // tracer46MapSpecs contains maps before they are loaded into the kernel.
@@ -204,16 +208,20 @@ type tracer46Programs struct {
 	SslRetWriteEx                 *ebpf.Program `ebpf:"ssl_ret_write_ex"`
 	SslWrite                      *ebpf.Program `ebpf:"ssl_write"`
 	SslWriteEx                    *ebpf.Program `ebpf:"ssl_write_ex"`
+	SysEnterAccept                *ebpf.Program `ebpf:"sys_enter_accept"`
 	SysEnterAccept4               *ebpf.Program `ebpf:"sys_enter_accept4"`
 	SysEnterConnect               *ebpf.Program `ebpf:"sys_enter_connect"`
 	SysEnterRead                  *ebpf.Program `ebpf:"sys_enter_read"`
 	SysEnterWrite                 *ebpf.Program `ebpf:"sys_enter_write"`
+	SysExitAccept                 *ebpf.Program `ebpf:"sys_exit_accept"`
 	SysExitAccept4                *ebpf.Program `ebpf:"sys_exit_accept4"`
 	SysExitConnect                *ebpf.Program `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.Program `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
+	TcpSendmsgFastopen            *ebpf.Program `ebpf:"tcp_sendmsg_fastopen"`
+	TcpSendmsgLocked              *ebpf.Program `ebpf:"tcp_sendmsg_locked"`
 }
 
 func (p *tracer46Programs) Close() error {
@@ -234,16 +242,20 @@ func (p *tracer46Programs) Close() error {
 		p.SslRetWriteEx,
 		p.SslWrite,
 		p.SslWriteEx,
+		p.SysEnterAccept,
 		p.SysEnterAccept4,
 		p.SysEnterConnect,
 		p.SysEnterRead,
 		p.SysEnterWrite,
+		p.SysExitAccept,
 		p.SysExitAccept4,
 		p.SysExitConnect,
 		p.SysExitRead,
 		p.SysExitWrite,
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
+		p.TcpSendmsgFastopen,
+		p.TcpSendmsgLocked,
 	)
 }
 
