@@ -197,7 +197,7 @@ func setupRLimit() error {
 	err := rlimit.RemoveMemlock()
 
 	if err != nil {
-		return errors.Wrap(err, 0)
+		return errors.New(fmt.Sprintf("%s: %v", "SYS_RESOURCE is required to change rlimits for eBPF", err))
 	}
 
 	return nil
