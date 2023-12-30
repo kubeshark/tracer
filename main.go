@@ -44,7 +44,7 @@ func run() {
 	_, err := rest.InClusterConfig()
 	clusterMode := err == nil
 	errOut := make(chan error, 100)
-	watcher := kubernetes.NewFromInCluster(errOut, UpdateTargets)
+	watcher := kubernetes.NewFromInCluster(errOut, updateTargets)
 	ctx := context.Background()
 	watcher.Start(ctx, clusterMode)
 
@@ -62,9 +62,10 @@ func run() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Couldn't initialize the tracer:")
 	}
+	defer tracer.close()
 
-	go tracer.PollForLogging()
-	tracer.Poll(streamsMap)
+	go tracer.pollForLogging()
+	tracer.poll(streamsMap)
 }
 
 func createTracer(streamsMap *TcpStreamMap) (err error) {
@@ -83,14 +84,14 @@ func createTracer(streamsMap *TcpStreamMap) (err error) {
 	}
 
 	podList := kubernetes.GetTargetedPods()
-	if err = UpdateTargets(podList); err != nil {
+	if err = updateTargets(podList); err != nil {
 		return
 	}
 
 	// A quick way to instrument libssl.so without PID filtering - used for debuging and troubleshooting
 	//
 	if os.Getenv("KUBESHARK_GLOBAL_LIBSSL_PID") != "" {
-		if err = tracer.GlobalSSLLibTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_LIBSSL_PID")); err != nil {
+		if err = tracer.globalSSLLibTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_LIBSSL_PID")); err != nil {
 			return
 		}
 	}
@@ -98,7 +99,7 @@ func createTracer(streamsMap *TcpStreamMap) (err error) {
 	// A quick way to instrument Go `crypto/tls` without PID filtering - used for debuging and troubleshooting
 	//
 	if os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID") != "" {
-		if err = tracer.GlobalGoTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID")); err != nil {
+		if err = tracer.globalGoTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID")); err != nil {
 			return
 		}
 	}

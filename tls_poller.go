@@ -83,7 +83,7 @@ func (p *tlsPoller) poll(streamsMap *TcpStreamMap) {
 			}
 
 			if err := p.handleTlsChunk(chunk, streamsMap); err != nil {
-				LogError(err)
+				logError(err)
 			}
 		case key := <-p.closeStreams:
 			delete(p.streams, key)
@@ -104,7 +104,7 @@ func (p *tlsPoller) pollChunksPerfBuffer(chunks chan<- *tracerTlsChunk) {
 				return
 			}
 
-			LogError(errors.Errorf("Error reading chunks from tls perf, aborting TLS! %v", err))
+			logError(errors.Errorf("Error reading chunks from tls perf, aborting TLS! %v", err))
 			return
 		}
 
@@ -118,7 +118,7 @@ func (p *tlsPoller) pollChunksPerfBuffer(chunks chan<- *tracerTlsChunk) {
 		var chunk tracerTlsChunk
 
 		if err := binary.Read(buffer, binary.LittleEndian, &chunk); err != nil {
-			LogError(errors.Errorf("Error parsing chunk %v", err))
+			logError(errors.Errorf("Error parsing chunk %v", err))
 			continue
 		}
 

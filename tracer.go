@@ -93,24 +93,24 @@ func (t *Tracer) Init(
 	return t.poller.init(&t.bpfObjects, chunksBufferSize)
 }
 
-func (t *Tracer) Poll(streamsMap *TcpStreamMap) {
+func (t *Tracer) poll(streamsMap *TcpStreamMap) {
 	t.poller.poll(streamsMap)
 }
 
-func (t *Tracer) PollForLogging() {
+func (t *Tracer) pollForLogging() {
 	t.bpfLogger.poll()
 }
 
-func (t *Tracer) GlobalSSLLibTarget(procfs string, pid string) error {
+func (t *Tracer) globalSSLLibTarget(procfs string, pid string) error {
 	_pid, err := strconv.Atoi(pid)
 	if err != nil {
 		return err
 	}
 
-	return t.AddSSLLibPid(procfs, uint32(_pid))
+	return t.addSSLLibPid(procfs, uint32(_pid))
 }
 
-func (t *Tracer) GlobalGoTarget(procfs string, pid string) error {
+func (t *Tracer) globalGoTarget(procfs string, pid string) error {
 	_pid, err := strconv.Atoi(pid)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (t *Tracer) GlobalGoTarget(procfs string, pid string) error {
 	return t.targetGoPid(procfs, uint32(_pid))
 }
 
-func (t *Tracer) AddSSLLibPid(procfs string, pid uint32) error {
+func (t *Tracer) addSSLLibPid(procfs string, pid uint32) error {
 	sslLibrary, err := findSsllib(procfs, pid)
 
 	if err != nil {
@@ -132,11 +132,11 @@ func (t *Tracer) AddSSLLibPid(procfs string, pid uint32) error {
 	return t.targetSSLLibPid(pid, sslLibrary)
 }
 
-func (t *Tracer) AddGoPid(procfs string, pid uint32) error {
+func (t *Tracer) addGoPid(procfs string, pid uint32) error {
 	return t.targetGoPid(procfs, pid)
 }
 
-func (t *Tracer) RemovePid(pid uint32) error {
+func (t *Tracer) removePid(pid uint32) error {
 	log.Info().Msg(fmt.Sprintf("Removing PID (pid: %v)", pid))
 
 	pids := t.bpfObjects.tracerMaps.PidsMap
@@ -148,22 +148,22 @@ func (t *Tracer) RemovePid(pid uint32) error {
 	return nil
 }
 
-func (t *Tracer) ClearPids() {
+func (t *Tracer) clearPids() {
 	t.registeredPids.Range(func(key, v interface{}) bool {
 		pid := key.(uint32)
 		if pid == GlobalWorkerPid {
 			return true
 		}
 
-		if err := t.RemovePid(pid); err != nil {
-			LogError(err)
+		if err := t.removePid(pid); err != nil {
+			logError(err)
 		}
 		t.registeredPids.Delete(key)
 		return true
 	})
 }
 
-func (t *Tracer) Close() []error {
+func (t *Tracer) close() []error {
 	returnValue := make([]error, 0)
 
 	if err := t.bpfObjects.Close(); err != nil {
@@ -253,7 +253,7 @@ func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
 	return nil
 }
 
-func LogError(err error) {
+func logError(err error) {
 	var e *errors.Error
 	if errors.As(err, &e) {
 		log.Error().Str("stack", e.ErrorStack()).Send()

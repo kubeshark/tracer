@@ -65,7 +65,7 @@ func (p *bpfLogger) poll() {
 				return
 			}
 
-			LogError(errors.Errorf("Error reading from bpf logger perf buffer, aboring logger! %w", err))
+			logError(errors.Errorf("Error reading from bpf logger perf buffer, aboring logger! %w", err))
 			return
 		}
 
@@ -79,7 +79,7 @@ func (p *bpfLogger) poll() {
 		var log logMessage
 
 		if err := binary.Read(buffer, binary.LittleEndian, &log); err != nil {
-			LogError(errors.Errorf("Error parsing log %v", err))
+			logError(errors.Errorf("Error parsing log %v", err))
 			continue
 		}
 
