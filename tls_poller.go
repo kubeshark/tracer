@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/cilium/ebpf/perf"
 	"github.com/go-errors/errors"
 	"github.com/hashicorp/golang-lru/simplelru"
+	"github.com/kubeshark/ebpf/perf"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/rs/zerolog/log"
 )
