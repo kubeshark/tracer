@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cilium/ebpf"
+	"github.com/kubeshark/ebpf"
 )
 
 type tracer46GoidOffsets struct {
