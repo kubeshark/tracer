@@ -82,7 +82,7 @@ func (s *PacketSorter) initMasterPcap() {
 	}
 }
 
-func (s *PacketSorter) GetMasterPcap() *MasterPcap {
+func (s *PacketSorter) getMasterPcap() *MasterPcap {
 	return s.masterPcap
 }
 

@@ -11,8 +11,8 @@ import (
 	"errors"
 
 	"github.com/Masterminds/semver"
-	"github.com/cilium/ebpf/link"
 	"github.com/knightsc/gapstone"
+	"github.com/kubeshark/ebpf/link"
 	"github.com/rs/zerolog/log"
 )
 

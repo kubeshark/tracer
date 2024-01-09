@@ -26,14 +26,12 @@ func (l *tlsLayers) swap() {
 }
 
 type tlsStream struct {
-	poller    *tlsPoller
-	key       string
-	id        int64
-	itemCount int64
-	isClosed  bool
-	client    *tlsReader
-	server    *tlsReader
-	layers    *tlsLayers
+	poller *tlsPoller
+	key    string
+	id     int64
+	client *tlsReader
+	server *tlsReader
+	layers *tlsLayers
 	sync.Mutex
 }
 
@@ -50,33 +48,6 @@ func (t *tlsStream) getId() int64 {
 
 func (t *tlsStream) setId(id int64) {
 	t.id = id
-}
-
-func (t *tlsStream) GetIndex() int64 {
-	return t.itemCount
-}
-func (t *tlsStream) ShouldWritePackets() bool {
-	return true
-}
-
-func (t *tlsStream) IsSortCapture() bool {
-	return true
-}
-
-func (t *tlsStream) GetIsTargeted() bool {
-	return true
-}
-
-func (t *tlsStream) GetIsClosed() bool {
-	return t.isClosed
-}
-
-func (t *tlsStream) IncrementItemCount() {
-	t.itemCount++
-}
-
-func (t *tlsStream) GetTls() bool {
-	return true
 }
 
 func (t *tlsStream) doTcpHandshake() {
@@ -148,7 +119,7 @@ func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket
 	data := buf.Bytes()
 	info := t.createCaptureInfo(data)
 
-	err = t.poller.sorter.GetMasterPcap().WritePacket(info, data)
+	err = t.poller.sorter.getMasterPcap().WritePacket(info, data)
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")
 	}

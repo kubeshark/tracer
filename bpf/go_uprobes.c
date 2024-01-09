@@ -61,7 +61,7 @@ Capstone Engine: https://www.capstone-engine.org/
 
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
 // Error: reference to .kconfig: not supported
-// See: https://github.com/cilium/ebpf/issues/698
+// See: https://github.com/kubeshark/ebpf/issues/698
 // extern int LINUX_KERNEL_VERSION __kconfig;
 
 enum ABI {

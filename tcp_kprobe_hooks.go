@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/ebpf/link"
 )
 
 type tcpKprobeHooks struct {
