@@ -1,4 +1,4 @@
-FROM golang:1.19-alpine
+FROM golang:1.19-bullseye
 
 ENV CGO_ENABLED=1 GOOS=linux
 RUN apt-get update
@@ -10,5 +10,6 @@ RUN apt-get install -y -q \
     llvm \
     libbpf-dev 
 
+#RUN apk --no-cache update && apk --no-cache add clang llvm libbpf-dev linux-headers
 
 WORKDIR /kubeshark
