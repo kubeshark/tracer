@@ -10,7 +10,6 @@ import (
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
-	"github.com/rs/zerolog/log"
 )
 
 type CbufPcap struct {
