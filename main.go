@@ -15,11 +15,16 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+const (
+	globCbufMax = 10_000
+)
+
 // capture
 var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
 
 // development
 var debug = flag.Bool("debug", false, "Enable debug mode")
+var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular buffer 0 means disabled, max value is %v", globCbufMax))
 
 var tracer *Tracer
 
