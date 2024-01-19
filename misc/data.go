@@ -33,3 +33,7 @@ func GetMasterPcapPath() string {
 func GetCbufPcapPath() string {
 	return fmt.Sprintf("%s/tls_last.pcap", GetDataDir())
 }
+
+func GetPacketSocketPath() string {
+	return fmt.Sprintf("%s/tls.unix", GetDataDir())
+}

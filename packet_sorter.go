@@ -20,23 +20,50 @@ type SortedPacket struct {
 	Data []byte
 }
 
-type MasterPcap struct {
-	file   *os.File
-	writer *pcapgo.Writer
-	sync.Mutex
-}
+func (s *PacketSorter) WritePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
 
-func (m *MasterPcap) WritePacket(ci gopacket.CaptureInfo, data []byte) (err error) {
-	m.Lock()
-	err = m.writer.WritePacket(ci, data)
-	m.Unlock()
+	err = gopacket.SerializeLayers(buf, opts, l...)
+	if err != nil {
+		log.Error().Err(err).Msg("Error serializing packet:")
+		return
+	}
+
+	s.Lock()
+	defer s.Unlock()
+
+	if s.writer != nil {
+		data := buf.Bytes()
+		ci := gopacket.CaptureInfo{
+			Timestamp:     time.Now().UTC(),
+			Length:        len(data),
+			CaptureLength: len(data),
+		}
+
+		err = s.writer.WritePacket(ci, data)
+
+		if err == nil && s.cbufPcap != nil {
+			s.cbufPcap.WritePacket(ci, data)
+		}
+	}
+
+	if s.socketPcap != nil {
+		err = s.socketPcap.WritePacket(buf)
+	}
+
 	return
 }
 
 type PacketSorter struct {
-	masterPcap    *MasterPcap
 	cbufPcap      *CbufPcap
+	socketPcap    *SocketPcap
 	sortedPackets chan<- *SortedPacket
+	writer        *pcapgo.Writer
+	sync.Mutex
 }
 
 func NewPacketSorter(
@@ -46,8 +73,11 @@ func NewPacketSorter(
 		sortedPackets: sortedPackets,
 	}
 
-	s.initMasterPcap()
+	// pcap pipe is opens in sync mode, so do it in a separate goroutine
+	go s.initMasterPcap()
+
 	s.initCbufPcap()
+	s.initSocketPcap()
 
 	return s
 }
@@ -55,7 +85,6 @@ func NewPacketSorter(
 func (s *PacketSorter) initMasterPcap() {
 	var err error
 	var file *os.File
-	var writer *pcapgo.Writer
 	if _, err = os.Stat(misc.GetMasterPcapPath()); errors.Is(err, os.ErrNotExist) {
 		err = syscall.Mkfifo(misc.GetMasterPcapPath(), 0666)
 		if err != nil {
@@ -65,12 +94,10 @@ func (s *PacketSorter) initMasterPcap() {
 		if err != nil {
 			log.Error().Err(err).Msg("Couldn't create master PCAP:")
 		} else {
-			writer = pcapgo.NewWriter(file)
-			s.masterPcap = &MasterPcap{
-				file:   file,
-				writer: writer,
-			}
-			err = writer.WriteFileHeader(uint32(misc.Snaplen), layers.LinkTypeEthernet)
+			s.Lock()
+			defer s.Unlock()
+			s.writer = pcapgo.NewWriter(file)
+			err = s.writer.WriteFileHeader(uint32(misc.Snaplen), layers.LinkTypeEthernet)
 			if err != nil {
 				log.Error().Err(err).Msg("While writing the PCAP header:")
 			}
@@ -80,11 +107,9 @@ func (s *PacketSorter) initMasterPcap() {
 		if err != nil {
 			log.Error().Err(err).Msg("Couldn't open master PCAP:")
 		} else {
-			writer = pcapgo.NewWriter(file)
-			s.masterPcap = &MasterPcap{
-				file:   file,
-				writer: writer,
-			}
+			s.Lock()
+			defer s.Unlock()
+			s.writer = pcapgo.NewWriter(file)
 		}
 	}
 }
@@ -126,12 +151,8 @@ func (s *PacketSorter) initCbufPcap() {
 
 }
 
-func (s *PacketSorter) getMasterPcap() *MasterPcap {
-	return s.masterPcap
-}
-
-func (s *PacketSorter) getCbufPcap() *CbufPcap {
-	return s.cbufPcap
+func (s *PacketSorter) initSocketPcap() {
+	s.socketPcap = NewSocketPcap(misc.GetPacketSocketPath())
 }
 
 func (s *PacketSorter) Close() {
