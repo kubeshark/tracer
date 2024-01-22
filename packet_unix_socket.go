@@ -82,7 +82,7 @@ func (c *SocketPcap) WritePacket(buf gopacket.SerializeBuffer) error {
 		}
 		// clear buffer at the end as soon as it is prepended with specific data
 		defer func() {
-			buf.Clear()
+			_ = buf.Clear()
 		}()
 	}
 	for sock, conn := range c.connections {
