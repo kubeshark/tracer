@@ -152,7 +152,9 @@ func (s *PacketSorter) initCbufPcap() {
 }
 
 func (s *PacketSorter) initSocketPcap() {
-	s.socketPcap = NewSocketPcap(misc.GetPacketSocketPath())
+	unixSocketFile := misc.GetPacketSocketPath()
+	_ = os.Remove(unixSocketFile)
+	s.socketPcap = NewSocketPcap(unixSocketFile)
 }
 
 func (s *PacketSorter) Close() {
