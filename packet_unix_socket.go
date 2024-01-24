@@ -32,19 +32,16 @@ type SocketPcap struct {
 
 func (s *SocketPcapConnection) Run(conn *net.UnixConn, sock *SocketPcap) {
 	for {
-		select {
-		case buf := <-s.writeChannel:
-			_, err := conn.Write(buf)
-			if err != nil {
-				if errors.Is(err, syscall.EPIPE) {
-					log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection closed:")
-				} else {
-					log.Error().Err(err).Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection error:")
-				}
-				sock.Disconnected(conn)
-				return
+		buf := <-s.writeChannel
+		_, err := conn.Write(buf)
+		if err != nil {
+			if errors.Is(err, syscall.EPIPE) {
+				log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection closed:")
+			} else {
+				log.Error().Err(err).Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection error:")
 			}
-
+			sock.Disconnected(conn)
+			return
 		}
 	}
 }
