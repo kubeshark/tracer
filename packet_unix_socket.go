@@ -91,7 +91,7 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 }
 
 func (s *SocketPcap) Connected(conn *net.UnixConn) {
-	ch := make(chan []byte, 8)
+	ch := make(chan []byte, 256)
 	s.Lock()
 	defer s.Unlock()
 	c := &SocketPcapConnection{
