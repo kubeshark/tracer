@@ -28,6 +28,7 @@ type SocketPcap struct {
 	clientsConnected int
 	connections      map[*net.UnixConn]*SocketPcapConnection
 	sync.Mutex
+	maxPktSize int
 }
 
 func (s *SocketPcapConnection) Run(conn *net.UnixConn, sock *SocketPcap) {
@@ -70,6 +71,11 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 	}()
 
 	buf := pkt.Bytes()
+	if len(buf) > s.maxPktSize {
+		s.maxPktSize = len(buf)
+		// temorary logging
+		log.Info().Int("len", s.maxPktSize).Msg("Max packet size:")
+	}
 	for _, conn := range s.connections {
 		copyBuf := make([]byte, len(buf))
 		copy(copyBuf, buf)
