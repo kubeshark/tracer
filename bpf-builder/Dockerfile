@@ -1,4 +1,4 @@
-FROM golang:1.20-bullseye
+FROM golang:1.19-alpine
 
 ENV CGO_ENABLED=1 GOOS=linux
 RUN apt-get update

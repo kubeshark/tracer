@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cilium/ebpf/perf"
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/ebpf/perf"
 	"github.com/rs/zerolog/log"
 )
 
@@ -32,22 +32,17 @@ type bpfLogger struct {
 	logReader *perf.Reader
 }
 
-func newBpfLogger() *bpfLogger {
-	return &bpfLogger{
-		logReader: nil,
-	}
-}
-
-func (p *bpfLogger) init(bpfObjects *tracerObjects, bufferSize int) error {
-	var err error
+func newBpfLogger(bpfObjects *tracerObjects, bufferSize int) (p *bpfLogger, err error) {
+	p = &bpfLogger{}
 
 	p.logReader, err = perf.NewReader(bpfObjects.LogBuffer, bufferSize)
 
 	if err != nil {
-		return errors.Wrap(err, 0)
+		err = errors.Wrap(err, 0)
+		return
 	}
 
-	return nil
+	return
 }
 
 func (p *bpfLogger) close() error {
@@ -65,7 +60,7 @@ func (p *bpfLogger) poll() {
 				return
 			}
 
-			LogError(errors.Errorf("Error reading from bpf logger perf buffer, aboring logger! %w", err))
+			logError(errors.Errorf("Error reading from bpf logger perf buffer, aboring logger! %w", err))
 			return
 		}
 
@@ -79,7 +74,7 @@ func (p *bpfLogger) poll() {
 		var log logMessage
 
 		if err := binary.Read(buffer, binary.LittleEndian, &log); err != nil {
-			LogError(errors.Errorf("Error parsing log %v", err))
+			logError(errors.Errorf("Error parsing log %v", err))
 			continue
 		}
 

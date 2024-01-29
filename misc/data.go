@@ -29,3 +29,7 @@ func SetDataDir(v string) {
 func GetMasterPcapPath() string {
 	return fmt.Sprintf("%s/tls.pcap", GetDataDir())
 }
+
+func GetCbufPcapPath() string {
+	return fmt.Sprintf("%s/tls_last.pcap", GetDataDir())
+}

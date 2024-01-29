@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/ebpf/rlimit"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 )
@@ -15,9 +15,9 @@ const GlobalWorkerPid = 0
 
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
+//go:generate go run github.com/kubeshark/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
+//go:generate go run github.com/kubeshark/ebpf/cmd/bpf2go@v0.9.1 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
 	bpfObjects      tracerObjects
@@ -76,8 +76,8 @@ func (t *Tracer) Init(
 
 	t.sslHooksStructs = make([]sslHooks, 0)
 
-	t.bpfLogger = newBpfLogger()
-	if err := t.bpfLogger.init(&t.bpfObjects, logBufferSize); err != nil {
+	t.bpfLogger, err = newBpfLogger(&t.bpfObjects, logBufferSize)
+	if err != nil {
 		return err
 	}
 
@@ -93,24 +93,24 @@ func (t *Tracer) Init(
 	return t.poller.init(&t.bpfObjects, chunksBufferSize)
 }
 
-func (t *Tracer) Poll(streamsMap *TcpStreamMap) {
+func (t *Tracer) poll(streamsMap *TcpStreamMap) {
 	t.poller.poll(streamsMap)
 }
 
-func (t *Tracer) PollForLogging() {
+func (t *Tracer) pollForLogging() {
 	t.bpfLogger.poll()
 }
 
-func (t *Tracer) GlobalSSLLibTarget(procfs string, pid string) error {
+func (t *Tracer) globalSSLLibTarget(procfs string, pid string) error {
 	_pid, err := strconv.Atoi(pid)
 	if err != nil {
 		return err
 	}
 
-	return t.AddSSLLibPid(procfs, uint32(_pid))
+	return t.addSSLLibPid(procfs, uint32(_pid))
 }
 
-func (t *Tracer) GlobalGoTarget(procfs string, pid string) error {
+func (t *Tracer) globalGoTarget(procfs string, pid string) error {
 	_pid, err := strconv.Atoi(pid)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (t *Tracer) GlobalGoTarget(procfs string, pid string) error {
 	return t.targetGoPid(procfs, uint32(_pid))
 }
 
-func (t *Tracer) AddSSLLibPid(procfs string, pid uint32) error {
+func (t *Tracer) addSSLLibPid(procfs string, pid uint32) error {
 	sslLibrary, err := findSsllib(procfs, pid)
 
 	if err != nil {
@@ -132,11 +132,11 @@ func (t *Tracer) AddSSLLibPid(procfs string, pid uint32) error {
 	return t.targetSSLLibPid(pid, sslLibrary)
 }
 
-func (t *Tracer) AddGoPid(procfs string, pid uint32) error {
+func (t *Tracer) addGoPid(procfs string, pid uint32) error {
 	return t.targetGoPid(procfs, pid)
 }
 
-func (t *Tracer) RemovePid(pid uint32) error {
+func (t *Tracer) removePid(pid uint32) error {
 	log.Info().Msg(fmt.Sprintf("Removing PID (pid: %v)", pid))
 
 	pids := t.bpfObjects.tracerMaps.PidsMap
@@ -148,22 +148,22 @@ func (t *Tracer) RemovePid(pid uint32) error {
 	return nil
 }
 
-func (t *Tracer) ClearPids() {
+func (t *Tracer) clearPids() {
 	t.registeredPids.Range(func(key, v interface{}) bool {
 		pid := key.(uint32)
 		if pid == GlobalWorkerPid {
 			return true
 		}
 
-		if err := t.RemovePid(pid); err != nil {
-			LogError(err)
+		if err := t.removePid(pid); err != nil {
+			logError(err)
 		}
 		t.registeredPids.Delete(key)
 		return true
 	})
 }
 
-func (t *Tracer) Close() []error {
+func (t *Tracer) close() []error {
 	returnValue := make([]error, 0)
 
 	if err := t.bpfObjects.Close(); err != nil {
@@ -197,7 +197,7 @@ func setupRLimit() error {
 	err := rlimit.RemoveMemlock()
 
 	if err != nil {
-		return errors.Wrap(err, 0)
+		return errors.New(fmt.Sprintf("%s: %v", "SYS_RESOURCE is required to change rlimits for eBPF", err))
 	}
 
 	return nil
@@ -253,7 +253,7 @@ func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
 	return nil
 }
 
-func LogError(err error) {
+func logError(err error) {
 	var e *errors.Error
 	if errors.As(err, &e) {
 		log.Error().Str("stack", e.ErrorStack()).Send()
