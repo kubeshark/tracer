@@ -77,7 +77,7 @@ func createTracer(streamsMap *TcpStreamMap) (err error) {
 	tracer = &Tracer{
 		procfs: *procfs,
 	}
-	chunksBufferSize := os.Getpagesize() * 100
+	chunksBufferSize := os.Getpagesize() * 10000
 	logBufferSize := os.Getpagesize()
 
 	if err = tracer.Init(
