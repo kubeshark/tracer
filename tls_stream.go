@@ -4,7 +4,6 @@ import (
 	"net"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/gopacket/layers"
@@ -105,37 +104,11 @@ func (t *tlsStream) writeLayers(data []byte, isClient bool, sentLen uint32) {
 }
 
 func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) {
-	buf := gopacket.NewSerializeBuffer()
-	opts := gopacket.SerializeOptions{
-		FixLengths:       true,
-		ComputeChecksums: true,
-	}
-	err := gopacket.SerializeLayers(buf, opts, l...)
-	if err != nil {
-		log.Error().Err(err).Msg("Error serializing packet:")
-		return
-	}
 
-	data := buf.Bytes()
-	info := t.createCaptureInfo(data)
-
-	err = t.poller.sorter.getMasterPcap().WritePacket(info, data)
+	err := t.poller.sorter.WritePacket(firstLayerType, l...)
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")
 		return
-	}
-
-	cb := t.poller.sorter.getCbufPcap()
-	if cb != nil {
-		cb.WritePacket(info, data)
-	}
-}
-
-func (t *tlsStream) createCaptureInfo(data []byte) gopacket.CaptureInfo {
-	return gopacket.CaptureInfo{
-		Timestamp:     time.Now().UTC(),
-		Length:        len(data),
-		CaptureLength: len(data),
 	}
 }
 

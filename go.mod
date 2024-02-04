@@ -9,6 +9,7 @@ require (
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/ebpf v0.9.1
 	github.com/kubeshark/gopacket v1.1.21
+	github.com/kubeshark/tracerproto v0.0.0-20240202162346-06f7e6156851
 	github.com/moby/moby v20.10.17+incompatible
 	github.com/rs/zerolog v1.29.0
 	k8s.io/api v0.27.2
