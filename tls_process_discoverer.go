@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
@@ -22,7 +23,17 @@ func updateTargets(pods []v1.Pod) error {
 	containerIds := buildContainerIdsMap(pods)
 	log.Debug().Interface("container-ids", containerIds).Send()
 
-	containerPids, err := findContainerPids(tracer.procfs, containerIds)
+	const cgroupV2MagicNumber = 0x63677270
+	isCgroupV2 := false
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/sys/fs/cgroup/", &stat); err != nil {
+		log.Error().Err(err).Msg("read cgroups information failed:")
+	} else if stat.Type == cgroupV2MagicNumber {
+		isCgroupV2 = true
+	}
+
+	containerPids, err := findContainerPids(tracer.procfs, containerIds, isCgroupV2)
+
 	if err != nil {
 		return err
 	}
@@ -45,7 +56,7 @@ func updateTargets(pods []v1.Pod) error {
 	return nil
 }
 
-func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[uint32]v1.Pod, error) {
+func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2 bool) (map[uint32]v1.Pod, error) {
 	result := make(map[uint32]v1.Pod)
 
 	pids, err := os.ReadDir(procfs)
@@ -64,7 +75,7 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[uint3
 			continue
 		}
 
-		cgroup, err := getProcessCgroup(procfs, pid.Name())
+		cgroup, err := getProcessCgroup(procfs, pid.Name(), isCgroupV2)
 		if err != nil {
 			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't get the cgroup of process.")
 			continue
@@ -106,7 +117,7 @@ func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
 	return result
 }
 
-func getProcessCgroup(procfs string, pid string) (string, error) {
+func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (string, error) {
 	fpath := fmt.Sprintf("%s/%s/cgroup", procfs, pid)
 
 	bytes, err := os.ReadFile(fpath)
@@ -115,7 +126,7 @@ func getProcessCgroup(procfs string, pid string) (string, error) {
 	}
 
 	lines := strings.Split(string(bytes), "\n")
-	cgrouppath := extractCgroup(lines)
+	cgrouppath := extractCgroup(lines, isCgroupV2)
 
 	if strings.Contains(cgrouppath, "-") {
 		parts := strings.Split(cgrouppath, "-")
@@ -129,7 +140,15 @@ func getProcessCgroup(procfs string, pid string) (string, error) {
 	return normalizeCgroup(cgrouppath), nil
 }
 
-func extractCgroup(lines []string) string {
+func extractCgroup(lines []string, isCgroupV2 bool) string {
+	if isCgroupV2 {
+		parts := lines
+		parts = strings.Split(parts[0], "/")
+		parts = strings.Split(parts[len(parts)-1], "-")
+		parts = strings.Split(parts[len(parts)-1], ".")
+		return parts[0]
+	}
+
 	if len(lines) == 1 {
 		parts := strings.Split(lines[0], ":")
 		return parts[len(parts)-1]
@@ -147,14 +166,14 @@ func extractCgroup(lines []string) string {
 
 // cgroup in the /proc/<pid>/cgroup may look something like
 //
-//  /system.slice/docker-<ID>.scope
-//  /system.slice/containerd-<ID>.scope
-//  /kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod3beae8e0_164d_4689_a087_efd902d8c2ab.slice/docker-<ID>.scope
-//  /kubepods/besteffort/pod7709c1d5-447c-428f-bed9-8ddec35c93f4/<ID>
+//	/system.slice/docker-<ID>.scope
+//	/system.slice/containerd-<ID>.scope
+//	/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod3beae8e0_164d_4689_a087_efd902d8c2ab.slice/docker-<ID>.scope
+//	/kubepods/besteffort/pod7709c1d5-447c-428f-bed9-8ddec35c93f4/<ID>
 //
 // This function extract the <ID> out of the cgroup path, the <ID> should match
-//	the "Container ID:" field when running kubectl describe pod <POD>
 //
+//	the "Container ID:" field when running kubectl describe pod <POD>
 func normalizeCgroup(cgrouppath string) string {
 	basename := strings.TrimSpace(path.Base(cgrouppath))
 

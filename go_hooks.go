@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
-	"github.com/kubeshark/ebpf/link"
 )
 
 type goHooks struct {
@@ -57,7 +57,7 @@ func (s *goHooks) installHooks(bpfObjects *tracerObjects, ex *link.Executable, o
 	// Symbol points to
 	// [`crypto/tls.(*Conn).Write`](https://github.com/golang/go/blob/go1.17.6/src/crypto/tls/conn.go#L1099)
 	s.goWriteProbe, err = ex.Uprobe(goWriteSymbol, goCryptoTlsWrite, &link.UprobeOptions{
-		Offset: offsets.GoWriteOffset.enter,
+		Address: offsets.GoWriteOffset.enter,
 	})
 
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *goHooks) installHooks(bpfObjects *tracerObjects, ex *link.Executable, o
 
 	for _, offset := range offsets.GoWriteOffset.exits {
 		probe, err := ex.Uprobe(goWriteSymbol, goCryptoTlsWriteEx, &link.UprobeOptions{
-			Offset: offset,
+			Address: offset,
 		})
 
 		if err != nil {
@@ -79,7 +79,7 @@ func (s *goHooks) installHooks(bpfObjects *tracerObjects, ex *link.Executable, o
 	// Symbol points to
 	// [`crypto/tls.(*Conn).Read`](https://github.com/golang/go/blob/go1.17.6/src/crypto/tls/conn.go#L1263)
 	s.goReadProbe, err = ex.Uprobe(goReadSymbol, goCryptoTlsRead, &link.UprobeOptions{
-		Offset: offsets.GoReadOffset.enter,
+		Address: offsets.GoReadOffset.enter,
 	})
 
 	if err != nil {
@@ -88,7 +88,7 @@ func (s *goHooks) installHooks(bpfObjects *tracerObjects, ex *link.Executable, o
 
 	for _, offset := range offsets.GoReadOffset.exits {
 		probe, err := ex.Uprobe(goReadSymbol, goCryptoTlsReadEx, &link.UprobeOptions{
-			Offset: offset,
+			Address: offset,
 		})
 
 		if err != nil {
