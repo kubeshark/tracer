@@ -4,10 +4,10 @@ go 1.19
 
 require (
 	github.com/Masterminds/semver v1.5.0
+	github.com/cilium/ebpf v0.12.3
 	github.com/go-errors/errors v1.4.2
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
-	github.com/kubeshark/ebpf v0.9.1
 	github.com/kubeshark/gopacket v1.1.21
 	github.com/kubeshark/tracerproto v0.0.0-20240202162346-06f7e6156851
 	github.com/moby/moby v20.10.17+incompatible
@@ -39,9 +39,10 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2 // indirect
 	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20220223155221-ee480838109b // indirect
-	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/sys v0.14.1-0.20231108175955-e4099bfacb8c // indirect
 	golang.org/x/term v0.6.0 // indirect
 	golang.org/x/text v0.8.0 // indirect
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8 // indirect
