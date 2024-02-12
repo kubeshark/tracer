@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"debug/dwarf"
 	"debug/elf"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
-	"errors"
 
 	"github.com/Masterminds/semver"
 	"github.com/knightsc/gapstone"
@@ -47,7 +47,13 @@ const (
 )
 
 func findGoOffsets(fpath string) (goOffsets, error) {
-	offsets, goidOffset, gStructOffset, err := getOffsets(fpath)
+
+	offsets := map[string]*goExtendedOffset{
+		goVersionSymbol: nil,
+		goWriteSymbol:   nil,
+		goReadSymbol:    nil,
+	}
+	goidOffset, gStructOffset, err := getOffsets(fpath, offsets)
 	if err != nil {
 		return goOffsets{}, err
 	}
@@ -200,7 +206,7 @@ func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, 
 	return
 }
 
-func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset uint64, gStructOffset uint64, err error) {
+func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, err error) {
 	var engine gapstone.Engine
 	switch runtime.GOARCH {
 	case "amd64":
@@ -230,7 +236,6 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		engine.Mode(),
 	))
 
-	offsets = make(map[string]*goExtendedOffset)
 	var fd *os.File
 	fd, err = os.Open(fpath)
 	if err != nil {
@@ -258,6 +263,9 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 		return
 	}
 	for _, sym := range syms {
+		if _, ok := offsets[sym.Name]; !ok {
+			continue
+		}
 		offset := sym.Value
 
 		var lastProg *elf.Prog
@@ -337,7 +345,7 @@ func getOffsets(fpath string) (offsets map[string]*goExtendedOffset, goidOffset 
 }
 
 func getOffset(offsets map[string]*goExtendedOffset, symbol string) (*goExtendedOffset, error) {
-	if offset, ok := offsets[symbol]; ok {
+	if offset, ok := offsets[symbol]; ok && offset != nil {
 		return offset, nil
 	}
 	return nil, fmt.Errorf("symbol %s: %w", symbol, link.ErrNoSymbol)
