@@ -51,7 +51,6 @@ func run() {
 	errOut := make(chan error, 100)
 	watcher := kubernetes.NewFromInCluster(errOut, updateTargets)
 	ctx := context.Background()
-	watcher.Start(ctx, clusterMode)
 
 	if clusterMode {
 		nodeName, err := kubernetes.GetThisNodeName(watcher)
@@ -63,17 +62,20 @@ func run() {
 
 	streamsMap := NewTcpStreamMap()
 
-	err = createTracer(streamsMap)
+	err = createTracer()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Couldn't initialize the tracer:")
 	}
 	defer tracer.close()
 
 	go tracer.pollForLogging()
+
+	watcher.Start(ctx, clusterMode)
+
 	tracer.poll(streamsMap)
 }
 
-func createTracer(streamsMap *TcpStreamMap) (err error) {
+func createTracer() (err error) {
 	tracer = &Tracer{
 		procfs: *procfs,
 	}
@@ -85,11 +87,6 @@ func createTracer(streamsMap *TcpStreamMap) (err error) {
 		logBufferSize,
 		*procfs,
 	); err != nil {
-		return
-	}
-
-	podList := kubernetes.GetTargetedPods()
-	if err = updateTargets(podList); err != nil {
 		return
 	}
 
