@@ -123,7 +123,7 @@ func (t *Tracer) addSSLLibPid(procfs string, pid uint32) error {
 	sslLibrary, err := findSsllib(procfs, pid)
 
 	if err != nil {
-		log.Warn().Err(err).Int("pid", int(pid)).Msg("PID skipped no libssl.so found:")
+		log.Trace().Err(err).Int("pid", int(pid)).Msg("PID skipped no libssl.so found:")
 		return nil // hide the error on purpose, it's OK for a process to not use libssl.so
 	} else {
 		log.Info().Str("path", sslLibrary).Int("pid", int(pid)).Msg("Found libssl.so:")
