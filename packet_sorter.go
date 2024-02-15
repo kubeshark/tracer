@@ -99,7 +99,7 @@ func (s *PacketSorter) initMasterPcap() {
 			s.writer = pcapgo.NewWriter(file)
 			err = s.writer.WriteFileHeader(uint32(misc.Snaplen), layers.LinkTypeEthernet)
 			if err != nil {
-				log.Error().Err(err).Msg("While writing the PCAP header:")
+			   log.Error().Err(err).Msg("While writing the PCAP header:")		
 			}
 		}
 	} else {
