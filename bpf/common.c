@@ -11,11 +11,11 @@ Copyright (C) Kubeshark
 #include "include/common.h"
 
 
-static __always_inline int add_address_to_chunk(struct pt_regs *ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info) {
+static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info) {
     __u32 pid = id >> 32;
-    __u64 key = (__u64) pid << 32 | fd;
+    __u64 key = (__u64)pid << 32 | fd;
 
-    conn_flags *flags = bpf_map_lookup_elem(&connection_context, &key);
+    conn_flags* flags = bpf_map_lookup_elem(&connection_context, &key);
 
     // Happens when we don't catch the connect / accept (if the connection is created before targeting is started)
     if (flags == NULL) {
@@ -29,7 +29,7 @@ static __always_inline int add_address_to_chunk(struct pt_regs *ctx, struct tls_
     return 1;
 }
 
-static __always_inline void send_chunk_part(struct pt_regs *ctx, __u8* buffer, __u64 id, 
+static __always_inline void send_chunk_part(struct pt_regs* ctx, __u8* buffer, __u64 id,
     struct tls_chunk* chunk, int start, int end) {
     size_t recorded = MIN(end - start, sizeof(chunk->data));
 
@@ -58,14 +58,14 @@ static __always_inline void send_chunk_part(struct pt_regs *ctx, __u8* buffer, _
     bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU, chunk, sizeof(struct tls_chunk));
 }
 
-static __always_inline void send_chunk(struct pt_regs *ctx, __u8* buffer, __u64 id, struct tls_chunk* chunk) {
+static __always_inline void send_chunk(struct pt_regs* ctx, __u8* buffer, __u64 id, struct tls_chunk* chunk) {
     // ebpf loops must be bounded at compile time, we can't use (i < chunk->len / CHUNK_SIZE)
     //
     // 	https://lwn.net/Articles/794934/
     //
     // However we want to run in kernel older than 5.3, hence we use "#pragma unroll" anyway
     //
-    #pragma unroll
+#pragma unroll
     for (int i = 0; i < MAX_CHUNKS_PER_OPERATION; i++) {
         if (chunk->len <= (CHUNK_SIZE * i)) {
             break;
@@ -75,7 +75,7 @@ static __always_inline void send_chunk(struct pt_regs *ctx, __u8* buffer, __u64 
     }
 }
 
-static __always_inline void output_ssl_chunk(struct pt_regs *ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags) {
+static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags) {
     if (count_bytes > (CHUNK_SIZE * MAX_CHUNKS_PER_OPERATION)) {
         log_error(ctx, LOG_ERROR_BUFFER_TOO_BIG, id, count_bytes, 0l);
         return;
@@ -114,8 +114,16 @@ static __always_inline struct ssl_info new_ssl_info() {
     return info;
 }
 
-static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs *ctx, struct bpf_map_def* map_fd, __u64 pid_tgid) {
-    struct ssl_info *infoPtr = bpf_map_lookup_elem(map_fd, &pid_tgid);
+static __always_inline struct go_info new_go_info() {
+    struct go_info info = {
+        .ssl_info = {.fd = invalid_fd, .created_at_nano = bpf_ktime_get_ns()},
+        .called_interface_type = 0,
+    };
+    return info;
+}
+
+static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, struct bpf_map_def* map_fd, __u64 pid_tgid) {
+    struct ssl_info* infoPtr = bpf_map_lookup_elem(map_fd, &pid_tgid);
     struct ssl_info info = new_ssl_info();
 
     if (infoPtr != NULL) {

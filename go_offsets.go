@@ -26,12 +26,13 @@ const (
 const PtrSize int = 8
 
 type goOffsets struct {
-	GoWriteOffset *goExtendedOffset
-	GoReadOffset  *goExtendedOffset
-	GoVersion     string
-	Abi           goAbi
-	GoidOffset    uint64
-	GStructOffset uint64
+	GoWriteOffset   *goExtendedOffset
+	GoReadOffset    *goExtendedOffset
+	GoVersion       string
+	Abi             goAbi
+	GoidOffset      uint64
+	GStructOffset   uint64
+	GoTcpConnOffset uint64
 }
 
 type goExtendedOffset struct {
@@ -44,6 +45,7 @@ const (
 	goVersionSymbol             = "runtime.buildVersion.str" // symbol does not exist in Go (<=1.16)
 	goWriteSymbol               = "crypto/tls.(*Conn).Write"
 	goReadSymbol                = "crypto/tls.(*Conn).Read"
+	goTcpConnSymbol             = "go.itab.*net.TCPConn,net.Conn"
 )
 
 func findGoOffsets(fpath string) (goOffsets, error) {
@@ -53,7 +55,7 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 		goWriteSymbol:   nil,
 		goReadSymbol:    nil,
 	}
-	goidOffset, gStructOffset, err := getOffsets(fpath, offsets)
+	goidOffset, gStructOffset, goTcpConnOffset, err := getOffsets(fpath, offsets)
 	if err != nil {
 		return goOffsets{}, err
 	}
@@ -86,12 +88,13 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 	}
 
 	return goOffsets{
-		GoWriteOffset: writeOffset,
-		GoReadOffset:  readOffset,
-		GoVersion:     goVersion,
-		Abi:           abi,
-		GoidOffset:    goidOffset,
-		GStructOffset: gStructOffset,
+		GoWriteOffset:   writeOffset,
+		GoReadOffset:    readOffset,
+		GoVersion:       goVersion,
+		Abi:             abi,
+		GoidOffset:      goidOffset,
+		GStructOffset:   gStructOffset,
+		GoTcpConnOffset: goTcpConnOffset,
 	}, nil
 }
 
@@ -206,7 +209,7 @@ func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, 
 	return
 }
 
-func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, err error) {
+func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, goTcpConnOffset uint64, err error) {
 	var engine gapstone.Engine
 	switch runtime.GOARCH {
 	case "amd64":
@@ -263,6 +266,9 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 		return
 	}
 	for _, sym := range syms {
+		if sym.Name == goTcpConnSymbol {
+			goTcpConnOffset = sym.Value
+		}
 		if _, ok := offsets[sym.Name]; !ok {
 			continue
 		}

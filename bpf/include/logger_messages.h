@@ -31,6 +31,7 @@ Copyright (C) Kubeshark
 #define LOG_ERROR_READING_SOCKET_SPORT (20)
 #define LOG_ERROR_PUTTING_GO_USER_KERNEL_CONTEXT (21)
 #define LOG_ERROR_GETTING_GO_USER_KERNEL_CONTEXT (22)
+#define LOG_ERROR_GETTING_GO_TCP_CONN_FD (23)
 
 // Sometimes we have the same error, happening from different locations.
 // 	in order to be able to distinct between them in the log, we add an 

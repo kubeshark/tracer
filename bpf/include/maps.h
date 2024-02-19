@@ -25,6 +25,7 @@ Copyright (C) Kubeshark
 //
 
 struct address_info {
+    __be32 family;
     __be32 saddr;
     __be32 daddr;
     __be16 sport;
@@ -49,11 +50,11 @@ struct ssl_info {
     __u32 fd;
     __u64 created_at_nano;
     struct address_info address_info;
-    
+
     // for ssl_write and ssl_read must be zero
     // for ssl_write_ex and ssl_read_ex save the *written/*readbytes pointer. 
     //
-    size_t *count_ptr;
+    size_t* count_ptr;
 };
 
 typedef __u8 conn_flags;
@@ -63,15 +64,24 @@ struct goid_offsets {
     __u64 goid_offset;
 };
 
-const struct goid_offsets *unused __attribute__((unused));
+struct pid_info {
+    __u64 go_tcp_conn_offset;
+};
+
+struct go_info {
+    struct ssl_info ssl_info;
+    __u64 called_interface_type;
+};
+
+const struct goid_offsets* unused __attribute__((unused));
 
 // Heap-like area for eBPF programs - stack size limited to 512 bytes, we must use maps for bigger (chunk) objects.
 //
 struct {
-	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-	__uint(max_entries, 1);
-	__type(key, int);
-	__type(value, struct tls_chunk);
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, struct tls_chunk);
 } heap SEC(".maps");
 
 
@@ -93,7 +103,7 @@ struct {
     BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH)
 
 // Generic
-BPF_HASH(pids_map, __u32, __u32);
+BPF_HASH(pids_map, __u32, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(log_buffer);
@@ -104,8 +114,8 @@ BPF_LRU_HASH(openssl_read_context, __u64, struct ssl_info);
 
 // Go specific
 BPF_HASH(goid_offsets_map, __u32, struct goid_offsets);
-BPF_LRU_HASH(go_write_context, __u64, struct ssl_info);
-BPF_LRU_HASH(go_read_context, __u64, struct ssl_info);
+BPF_LRU_HASH(go_write_context, __u64, struct go_info);
+BPF_LRU_HASH(go_read_context, __u64, struct go_info);
 BPF_LRU_HASH(go_kernel_write_context, __u64, __u32);
 BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);

@@ -1,7 +1,6 @@
 package main
 
 // Must be synced with logger_messages.h
-//
 var bpfLogMessages = []string{
 	/*0000*/ "[%d] Unable to read bytes count from _ex methods [err: %d]",
 	/*0001*/ "[%d] Unable to read ssl buffer [err: %d] [origin: %d]",
@@ -26,4 +25,5 @@ var bpfLogMessages = []string{
 	/*0020*/ "[%d] Unable to read socket sport [err: %d]",
 	/*0021*/ "[%d] Unable to put go user-kernel context [fd: %d] [err: %d]",
 	/*0022*/ "[%d] Unable to get go user-kernel context [fd: %d]]",
+	/*0023*/ "[%d] Unable to get go tcp connection fd info]",
 }
