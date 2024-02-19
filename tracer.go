@@ -73,7 +73,6 @@ func (t *Tracer) Init(
 		if err := loadTracerObjects(&t.bpfObjects, &opts); err != nil {
 			var ve *ebpf.VerifierError
 			if errors.As(err, &ve) {
-				//fmt.Printf("Got verifier error : %+v", ve)
 				log.Error().Msg(fmt.Sprintf("Got verifier error: %+v", ve))
 			}
 			return errors.Wrap(err, 0)
