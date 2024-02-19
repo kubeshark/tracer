@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
 	"github.com/moby/moby/pkg/parsers/kernel"
@@ -29,6 +30,11 @@ type Tracer struct {
 	bpfLogger       *bpfLogger
 	registeredPids  sync.Map
 	procfs          string
+}
+
+// struct pid_info from maps.h
+type pidInfo struct {
+	goTcpConnOffset uint64
 }
 
 func (t *Tracer) Init(
@@ -59,7 +65,16 @@ func (t *Tracer) Init(
 			return errors.Wrap(err, 0)
 		}
 	} else {
-		if err := loadTracerObjects(&t.bpfObjects, nil); err != nil {
+		opts := ebpf.CollectionOptions{
+			Programs: ebpf.ProgramOptions{
+				LogSize: ebpf.DefaultVerifierLogSize * 32,
+			},
+		}
+		if err := loadTracerObjects(&t.bpfObjects, &opts); err != nil {
+			var ve *ebpf.VerifierError
+			if errors.As(err, &ve) {
+				log.Error().Msg(fmt.Sprintf("Got verifier error: %+v", ve))
+			}
 			return errors.Wrap(err, 0)
 		}
 	}
@@ -216,7 +231,7 @@ func (t *Tracer) targetSSLLibPid(pid uint32, sslLibrary string) error {
 
 	pids := t.bpfObjects.tracerMaps.PidsMap
 
-	if err := pids.Put(pid, uint32(1)); err != nil {
+	if err := pids.Put(pid, pidInfo{}); err != nil {
 		return errors.Wrap(err, 0)
 	}
 
@@ -233,7 +248,8 @@ func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
 
 	hooks := goHooks{}
 
-	if err := hooks.installUprobes(&t.bpfObjects, exePath); err != nil {
+	var offsets goOffsets
+	if offsets, err = hooks.installUprobes(&t.bpfObjects, exePath); err != nil {
 		log.Info().Msg(fmt.Sprintf("PID skipped not a Go binary or symbol table is stripped (pid: %v) %v", pid, exePath))
 		return nil // hide the error on purpose, its OK for a process to be not a Go binary or stripped Go binary
 	}
@@ -244,7 +260,7 @@ func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
 
 	pids := t.bpfObjects.tracerMaps.PidsMap
 
-	if err := pids.Put(pid, uint32(1)); err != nil {
+	if err := pids.Put(pid, pidInfo{goTcpConnOffset: offsets.GoTcpConnOffset}); err != nil {
 		return errors.Wrap(err, 0)
 	}
 

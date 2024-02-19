@@ -12,20 +12,23 @@ type goHooks struct {
 	goReadExProbes  []link.Link
 }
 
-func (s *goHooks) installUprobes(bpfObjects *tracerObjects, fpath string) error {
+func (s *goHooks) installUprobes(bpfObjects *tracerObjects, fpath string) (offsets goOffsets, err error) {
 	ex, err := link.OpenExecutable(fpath)
 
 	if err != nil {
-		return errors.Wrap(err, 0)
+		err = errors.Wrap(err, 0)
+		return
 	}
 
-	offsets, err := findGoOffsets(fpath)
+	offsets, err = findGoOffsets(fpath)
 
 	if err != nil {
-		return errors.Wrap(err, 0)
+		err = errors.Wrap(err, 0)
+		return
 	}
 
-	return s.installHooks(bpfObjects, ex, offsets)
+	err = s.installHooks(bpfObjects, ex, offsets)
+	return
 }
 
 func (s *goHooks) installHooks(bpfObjects *tracerObjects, ex *link.Executable, offsets goOffsets) error {

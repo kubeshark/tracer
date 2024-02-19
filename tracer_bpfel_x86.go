@@ -27,6 +27,7 @@ type tracerTlsChunk struct {
 	Fd          uint32
 	Flags       uint32
 	AddressInfo struct {
+		Family uint32
 		Saddr uint32
 		Daddr uint32
 		Sport uint16

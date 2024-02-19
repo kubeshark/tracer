@@ -5,19 +5,20 @@
 #include "include/pids.h"
 #include "include/common.h"
 
-
-static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs *ctx, __u64 id, struct address_info *address_info_ptr) {
+static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs* ctx, __u64 id, struct address_info* address_info_ptr) {
 	long err;
-	struct sock *sk = (struct sock *) PT_REGS_PARM1(ctx);
+	struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
 
 	short unsigned int family;
-	err = bpf_probe_read(&family, sizeof(family), (void *)&sk->__sk_common.skc_family);
+	err = bpf_probe_read(&family, sizeof(family), (void*)&sk->__sk_common.skc_family);
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_SOCKET_FAMILY, id, err, 0l);
 		return -1;
 	}
+	address_info_ptr->family = family;
 	if (family != AF_INET) {
-		return -1;
+		// only IPv4 is supported
+		return 0;
 	}
 
 	// daddr, saddr and dport are in network byte order (big endian)
@@ -27,22 +28,22 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs 
 	__be16 dport;
 	__u16 sport;
 
-	err = bpf_probe_read(&saddr, sizeof(saddr), (void *)&sk->__sk_common.skc_rcv_saddr);
+	err = bpf_probe_read(&saddr, sizeof(saddr), (void*)&sk->__sk_common.skc_rcv_saddr);
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_SOCKET_SADDR, id, err, 0l);
 		return -1;
 	}
-	err = bpf_probe_read(&daddr, sizeof(daddr), (void *)&sk->__sk_common.skc_daddr);
+	err = bpf_probe_read(&daddr, sizeof(daddr), (void*)&sk->__sk_common.skc_daddr);
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_SOCKET_DADDR, id, err, 0l);
 		return -1;
 	}
-	err = bpf_probe_read(&dport, sizeof(dport), (void *)&sk->__sk_common.skc_dport);
+	err = bpf_probe_read(&dport, sizeof(dport), (void*)&sk->__sk_common.skc_dport);
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_SOCKET_DPORT, id, err, 0l);
 		return -1;
 	}
-	err = bpf_probe_read(&sport, sizeof(sport), (void *)&sk->__sk_common.skc_num);
+	err = bpf_probe_read(&sport, sizeof(sport), (void*)&sk->__sk_common.skc_num);
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_SOCKET_SPORT, id, err, 0l);
 		return -1;
@@ -56,40 +57,41 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs 
 	return 0;
 }
 
-static __always_inline void tcp_kprobes_forward_go(struct pt_regs *ctx, __u64 id, __u32 fd, struct address_info address_info, struct bpf_map_def *map_fd_go_user_kernel) {
-		__u32 pid = id >> 32;
-		__u64 key = (__u64) pid << 32 | fd;
+static __always_inline void tcp_kprobes_forward_go(struct pt_regs* ctx, __u64 id, __u32 fd, struct address_info address_info, struct bpf_map_def* map_fd_go_user_kernel) {
+	__u32 pid = id >> 32;
+	__u64 key = (__u64)pid << 32 | fd;
 
-		long err = bpf_map_update_elem(map_fd_go_user_kernel, &key, &address_info, BPF_ANY);
-    if (err != 0) {
-        log_error(ctx, LOG_ERROR_PUTTING_GO_USER_KERNEL_CONTEXT, id, fd, err);
-				return;
-    }
+	long err = bpf_map_update_elem(map_fd_go_user_kernel, &key, &address_info, BPF_ANY);
+	if (err != 0) {
+		log_error(ctx, LOG_ERROR_PUTTING_GO_USER_KERNEL_CONTEXT, id, fd, err);
+		return;
+	}
 }
 
-static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info *info_ptr, struct address_info address_info) {
-		info_ptr->address_info.daddr = address_info.daddr;
-		info_ptr->address_info.saddr = address_info.saddr;
-		info_ptr->address_info.dport = address_info.dport;
-		info_ptr->address_info.sport = address_info.sport;
+static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_ptr, struct address_info address_info) {
+	info_ptr->address_info.family = address_info.family;
+	info_ptr->address_info.daddr = address_info.daddr;
+	info_ptr->address_info.saddr = address_info.saddr;
+	info_ptr->address_info.dport = address_info.dport;
+	info_ptr->address_info.sport = address_info.sport;
 }
 
-static __always_inline void tcp_kprobe(struct pt_regs *ctx, struct bpf_map_def *map_fd_openssl, struct bpf_map_def *map_fd_go_kernel, struct bpf_map_def *map_fd_go_user_kernel) {
+static __always_inline void tcp_kprobe(struct pt_regs* ctx, struct bpf_map_def* map_fd_openssl, struct bpf_map_def* map_fd_go_kernel, struct bpf_map_def* map_fd_go_user_kernel) {
 	long err;
 
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32)) {
+	if (!should_target(id >> 32, NULL)) {
 		return;
 	}
 
-	struct address_info address_info;
+	struct address_info address_info = {};
 	if (0 != tcp_kprobes_get_address_pair_from_ctx(ctx, id, &address_info)) {
 		return;
 	}
 
-	struct ssl_info *info_ptr = bpf_map_lookup_elem(map_fd_openssl, &id);
-	__u32 *fd_ptr;
+	struct ssl_info* info_ptr = bpf_map_lookup_elem(map_fd_openssl, &id);
+	__u32* fd_ptr;
 	if (info_ptr == NULL) {
 		fd_ptr = bpf_map_lookup_elem(map_fd_go_kernel, &id);
 		// Connection is used by a Go program
@@ -102,7 +104,6 @@ static __always_inline void tcp_kprobe(struct pt_regs *ctx, struct bpf_map_def *
 		// Connection is used by openssl lib
 		tcp_kprobes_forward_openssl(info_ptr, address_info);
 	}
-
 }
 
 SEC("kprobe/tcp_sendmsg")
