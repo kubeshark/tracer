@@ -92,17 +92,6 @@ void BPF_KPROBE(tcp_sendmsg) {
 	tcp_kprobe(ctx, &openssl_write_context, &go_kernel_write_context, &go_user_kernel_write_context);
 }
 
-SEC("kprobe/tcp_sendmsg_locked")
-void BPF_KPROBE(tcp_sendmsg_locked) {
-	__u64 id = bpf_get_current_pid_tgid();
-	tcp_kprobe(ctx, &openssl_write_context, &go_kernel_write_context, &go_user_kernel_write_context);
-}
-
-SEC("kprobe/tcp_sendmsg_fastopen")
-void BPF_KPROBE(tcp_sendmsg_fastopen) {
-	__u64 id = bpf_get_current_pid_tgid();
-	tcp_kprobe(ctx, &openssl_write_context, &go_kernel_write_context, &go_user_kernel_write_context);
-}
 
 SEC("kprobe/tcp_recvmsg")
 void BPF_KPROBE(tcp_recvmsg) {

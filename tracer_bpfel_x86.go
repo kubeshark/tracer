@@ -104,8 +104,6 @@ type tracerProgramSpecs struct {
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
-	TcpSendmsgFastopen            *ebpf.ProgramSpec `ebpf:"tcp_sendmsg_fastopen"`
-	TcpSendmsgLocked              *ebpf.ProgramSpec `ebpf:"tcp_sendmsg_locked"`
 }
 
 // tracerMapSpecs contains maps before they are loaded into the kernel.
@@ -220,8 +218,6 @@ type tracerPrograms struct {
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
-	TcpSendmsgFastopen            *ebpf.Program `ebpf:"tcp_sendmsg_fastopen"`
-	TcpSendmsgLocked              *ebpf.Program `ebpf:"tcp_sendmsg_locked"`
 }
 
 func (p *tracerPrograms) Close() error {
@@ -254,8 +250,6 @@ func (p *tracerPrograms) Close() error {
 		p.SysExitWrite,
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
-		p.TcpSendmsgFastopen,
-		p.TcpSendmsgLocked,
 	)
 }
 
