@@ -122,6 +122,12 @@ func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket
 	err = t.poller.sorter.getMasterPcap().WritePacket(info, data)
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")
+		return
+	}
+
+	cb := t.poller.sorter.getCbufPcap()
+	if cb != nil {
+		cb.WritePacket(info, data)
 	}
 }
 

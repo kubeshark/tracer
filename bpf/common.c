@@ -21,6 +21,7 @@ static __always_inline int add_address_to_chunk(struct pt_regs *ctx, struct tls_
     if (flags == NULL) {
       return 0;
     }
+    chunk->flags |= (*flags & FLAGS_IS_CLIENT_BIT);
 
     chunk->flags |= (*flags & FLAGS_IS_CLIENT_BIT);
 
@@ -61,7 +62,7 @@ static __always_inline void send_chunk_part(struct pt_regs *ctx, __u8* buffer, _
 static __always_inline void send_chunk(struct pt_regs *ctx, __u8* buffer, __u64 id, struct tls_chunk* chunk) {
     // ebpf loops must be bounded at compile time, we can't use (i < chunk->len / CHUNK_SIZE)
     //
-    // 	https://lwn.net/Articles/794934/
+    //  https://lwn.net/Articles/794934/
     //
     // However we want to run in kernel older than 5.3, hence we use "#pragma unroll" anyway
     //
@@ -85,7 +86,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs *ctx, struct ssl_inf
     int zero = 0;
 
     // If other thread, running on the same CPU get to this point at the same time like us (context switch)
-    //	the data will be corrupted - protection may be added in the future
+    //  the data will be corrupted - protection may be added in the future
     //
     chunk = bpf_map_lookup_elem(&heap, &zero);
 
