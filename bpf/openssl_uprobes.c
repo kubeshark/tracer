@@ -44,7 +44,7 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, void* buf
 
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32, NULL)) {
+	if (!should_target(id >> 32)) {
 		return;
 	}
 
@@ -63,7 +63,7 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, void* buf
 static __always_inline void ssl_uretprobe(struct pt_regs* ctx, struct bpf_map_def* map_fd, __u32 flags) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32, NULL)) {
+	if (!should_target(id >> 32)) {
 		return;
 	}
 

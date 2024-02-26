@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"runtime"
 
 	"github.com/Masterminds/semver"
@@ -33,11 +34,18 @@ type goOffsets struct {
 	GoidOffset      uint64
 	GStructOffset   uint64
 	GoTcpConnOffset uint64
+	NetConnOffsets  map[string]*netConnOffset
 }
 
 type goExtendedOffset struct {
 	enter uint64
 	exits []uint64
+}
+
+type netConnOffset struct {
+	symbolOffset      uint64
+	socketSysFdOffset int64
+	isGoInterface     uint8
 }
 
 const (
@@ -55,7 +63,8 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 		goWriteSymbol:   nil,
 		goReadSymbol:    nil,
 	}
-	goidOffset, gStructOffset, goTcpConnOffset, err := getOffsets(fpath, offsets)
+
+	goidOffset, gStructOffset, goTcpConnOffset, netConnOffsets, err := getOffsets(fpath, offsets)
 	if err != nil {
 		return goOffsets{}, err
 	}
@@ -95,6 +104,7 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 		GoidOffset:      goidOffset,
 		GStructOffset:   gStructOffset,
 		GoTcpConnOffset: goTcpConnOffset,
+		NetConnOffsets:  netConnOffsets,
 	}, nil
 }
 
@@ -154,7 +164,45 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 	return
 }
 
-func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, err error) {
+func populateNetConnOffset(dwarfData *dwarf.Data, entry *dwarf.Entry, netConnOffsets map[string]*netConnOffset) {
+	if entry.Tag != dwarf.TagStructType {
+		return
+	}
+	attr := entry.Val(dwarf.AttrName)
+	structName, ok := attr.(string)
+	if !ok {
+		return
+	}
+
+	offset, ok := netConnOffsets[structName]
+	if !ok {
+		return
+	}
+
+	typEntry, err := dwarfData.Type(entry.Offset)
+	if err != nil {
+		return
+	}
+	name, ok := typEntry.(*dwarf.StructType)
+	if !ok {
+		return
+	}
+	for _, field := range name.Field {
+		if field.Type.String() == "net.conn" {
+			offset.isGoInterface = 0
+		} else if field.Type.String() == "net.Conn" {
+			offset.isGoInterface = 1
+		} else {
+			continue
+		}
+		// supposing net.conn has only net.netFD field where sysFd is located at offset 0x10(16)
+		offset.socketSysFdOffset = 16 + field.ByteOffset
+		log.Info().Msg(fmt.Sprintf("Found custom socket name: %v type: %v offset: %v", structName, field.Type.String(), offset.socketSysFdOffset))
+		return
+	}
+}
+
+func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) (goidOffset uint64, gStructOffset uint64, err error) {
 	var dwarfData *dwarf.Data
 	dwarfData, err = elfFile.DWARF()
 	if err != nil {
@@ -165,18 +213,22 @@ func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, 
 
 	var runtimeGOffset uint64
 	var seenRuntimeG bool
+	var seenGoid bool
 
 	for {
 		// Read all entries in sequence
 		var entry *dwarf.Entry
 		entry, err = entryReader.Next()
+
 		if err == io.EOF || entry == nil {
 			// We've reached the end of DWARF entries
 			break
 		}
 
+		populateNetConnOffset(dwarfData, entry, netConnOffsets)
+
 		// Check if this entry is a struct
-		if entry.Tag == dwarf.TagStructType {
+		if !seenRuntimeG && entry.Tag == dwarf.TagStructType {
 			// Go through fields
 			for _, field := range entry.Field {
 				if field.Attr == dwarf.AttrName {
@@ -190,7 +242,7 @@ func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, 
 		}
 
 		// Check if this entry is a struct member
-		if seenRuntimeG && entry.Tag == dwarf.TagMember {
+		if !seenGoid && seenRuntimeG && entry.Tag == dwarf.TagMember {
 			// Go through fields
 			for _, field := range entry.Field {
 				if field.Attr == dwarf.AttrName {
@@ -198,18 +250,24 @@ func getGoidOffset(elfFile *elf.File) (goidOffset uint64, gStructOffset uint64, 
 					if val == "goid" {
 						goidOffset = uint64(entry.Offset) - runtimeGOffset - 0x4b
 						gStructOffset, err = getGStructOffset(elfFile)
-						return
+						seenGoid = true
 					}
 				}
 			}
 		}
 	}
 
-	err = fmt.Errorf("goid not found in DWARF")
+	if !seenGoid {
+		err = fmt.Errorf("goid not found in DWARF")
+	}
 	return
 }
 
-func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, goTcpConnOffset uint64, err error) {
+type filterSymbolsCb func(sym string) bool
+
+var regexpNetConn = regexp.MustCompile(`go:itab\.\*([^,]+),net.Conn`)
+
+func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, goTcpConnOffset uint64, netConnOffsets map[string]*netConnOffset, err error) {
 	var engine gapstone.Engine
 	switch runtime.GOARCH {
 	case "amd64":
@@ -265,7 +323,13 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 	if err != nil {
 		return
 	}
+
+	netConnOffsets = make(map[string]*netConnOffset)
 	for _, sym := range syms {
+		matches := regexpNetConn.FindStringSubmatch(sym.Name)
+		if len(matches) == 2 {
+			netConnOffsets[matches[1]] = &netConnOffset{symbolOffset: sym.Value, socketSysFdOffset: -1}
+		}
 		if sym.Name == goTcpConnSymbol {
 			goTcpConnOffset = sym.Value
 		}
@@ -345,7 +409,7 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 		offsets[sym.Name] = extendedOffset
 	}
 
-	goidOffset, gStructOffset, err = getGoidOffset(elfFile)
+	goidOffset, gStructOffset, err = getGoidOffset(elfFile, netConnOffsets)
 
 	return
 }

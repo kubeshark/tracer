@@ -61,7 +61,7 @@ SEC("tracepoint/syscalls/sys_enter_read")
 void sys_enter_read(struct sys_enter_read_write_ctx* ctx) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32, NULL)) {
+	if (!should_target(id >> 32)) {
 		return;
 	}
 
@@ -78,7 +78,7 @@ SEC("tracepoint/syscalls/sys_enter_write")
 void sys_enter_write(struct sys_enter_read_write_ctx* ctx) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32, NULL)) {
+	if (!should_target(id >> 32)) {
 		return;
 	}
 

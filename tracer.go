@@ -21,20 +21,29 @@ const GlobalWorkerPid = 0
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
-	bpfObjects      tracerObjects
-	syscallHooks    syscallHooks
-	tcpKprobeHooks  tcpKprobeHooks
-	sslHooksStructs []sslHooks
-	goHooksStructs  []goHooks
-	poller          *tlsPoller
-	bpfLogger       *bpfLogger
-	registeredPids  sync.Map
-	procfs          string
+	bpfObjects           tracerObjects
+	syscallHooks         syscallHooks
+	tcpKprobeHooks       tcpKprobeHooks
+	sslHooksStructs      []sslHooks
+	goHooksStructs       []goHooks
+	poller               *tlsPoller
+	bpfLogger            *bpfLogger
+	registeredPids       sync.Map
+	registeredPidOffsets sync.Map
+	procfs               string
 }
 
 // struct pid_info from maps.h
 type pidInfo struct {
 	goTcpConnOffset uint64
+	sysFdOffset     int64
+	isInterface     uint64
+}
+
+// struct fd_offset from maps.h
+type pidOffset struct {
+	pid    uint64
+	offset uint64
 }
 
 func (t *Tracer) Init(
@@ -163,6 +172,20 @@ func (t *Tracer) removePid(pid uint32) error {
 	return nil
 }
 
+func (t *Tracer) removePidOffsets(pid uint32, offsets []pidOffset) error {
+	log.Info().Msg(fmt.Sprintf("Removing PID offsets (pid: %v)", pid))
+
+	pidOffsets := t.bpfObjects.tracerMaps.PidsInfo
+
+	for _, o := range offsets {
+		if err := pidOffsets.Delete(o); err != nil {
+			return errors.Wrap(err, 0)
+		}
+	}
+
+	return nil
+}
+
 func (t *Tracer) clearPids() {
 	t.registeredPids.Range(func(key, v interface{}) bool {
 		pid := key.(uint32)
@@ -176,6 +199,21 @@ func (t *Tracer) clearPids() {
 		t.registeredPids.Delete(key)
 		return true
 	})
+
+	t.registeredPidOffsets.Range(func(key, v interface{}) bool {
+		pid := key.(uint32)
+		if pid == GlobalWorkerPid {
+			return true
+		}
+
+		offsets := v.([]pidOffset)
+		if err := t.removePidOffsets(pid, offsets); err != nil {
+			logError(err)
+		}
+		t.registeredPidOffsets.Delete(key)
+		return true
+	})
+
 }
 
 func (t *Tracer) close() []error {
@@ -231,7 +269,7 @@ func (t *Tracer) targetSSLLibPid(pid uint32, sslLibrary string) error {
 
 	pids := t.bpfObjects.tracerMaps.PidsMap
 
-	if err := pids.Put(pid, pidInfo{}); err != nil {
+	if err := pids.Put(pid, uint32(1)); err != nil {
 		return errors.Wrap(err, 0)
 	}
 
@@ -250,7 +288,7 @@ func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
 
 	var offsets goOffsets
 	if offsets, err = hooks.installUprobes(&t.bpfObjects, exePath); err != nil {
-		log.Info().Msg(fmt.Sprintf("PID skipped not a Go binary or symbol table is stripped (pid: %v) %v", pid, exePath))
+		log.Info().Msg(fmt.Sprintf("PID skipped not a Go binary or symbol table is stripped pid: %v %v err: %v", pid, exePath, err))
 		return nil // hide the error on purpose, its OK for a process to be not a Go binary or stripped Go binary
 	}
 
@@ -260,9 +298,28 @@ func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
 
 	pids := t.bpfObjects.tracerMaps.PidsMap
 
-	if err := pids.Put(pid, pidInfo{goTcpConnOffset: offsets.GoTcpConnOffset}); err != nil {
+	if err := pids.Put(pid, uint32(1)); err != nil {
 		return errors.Wrap(err, 0)
 	}
+
+	pidOffsets := make([]pidOffset, 0)
+	pidsInfo := t.bpfObjects.tracerMaps.PidsInfo
+	for _, ncOffset := range offsets.NetConnOffsets {
+		offset := pidOffset{
+			pid:    uint64(pid),
+			offset: ncOffset.symbolOffset,
+		}
+		pi := pidInfo{
+			goTcpConnOffset: offsets.GoTcpConnOffset,
+			sysFdOffset:     ncOffset.socketSysFdOffset,
+			isInterface:     uint64(ncOffset.isGoInterface),
+		}
+		if err := pidsInfo.Put(offset, pi); err != nil {
+			return errors.Wrap(err, 0)
+		}
+		pidOffsets = append(pidOffsets, offset)
+	}
+	t.registeredPidOffsets.Store(pid, pidOffsets)
 
 	t.registeredPids.Store(pid, true)
 
