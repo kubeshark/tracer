@@ -66,11 +66,13 @@ struct goid_offsets {
 
 struct pid_info {
     __u64 go_tcp_conn_offset;
+    __s64 sys_fd_offset;
+    __u64 is_interface;
 };
 
-struct go_info {
-    struct ssl_info ssl_info;
-    __u64 called_interface_type;
+struct pid_offset {
+    __u64 pid;
+    __u64 symbol_offset;
 };
 
 const struct goid_offsets* unused __attribute__((unused));
@@ -103,7 +105,8 @@ struct {
     BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH)
 
 // Generic
-BPF_HASH(pids_map, __u32, struct pid_info);
+BPF_HASH(pids_map, __u32, __u32);
+BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(log_buffer);
@@ -114,8 +117,8 @@ BPF_LRU_HASH(openssl_read_context, __u64, struct ssl_info);
 
 // Go specific
 BPF_HASH(goid_offsets_map, __u32, struct goid_offsets);
-BPF_LRU_HASH(go_write_context, __u64, struct go_info);
-BPF_LRU_HASH(go_read_context, __u64, struct go_info);
+BPF_LRU_HASH(go_write_context, __u64, struct ssl_info);
+BPF_LRU_HASH(go_read_context, __u64, struct ssl_info);
 BPF_LRU_HASH(go_kernel_write_context, __u64, __u32);
 BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);

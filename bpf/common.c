@@ -114,14 +114,6 @@ static __always_inline struct ssl_info new_ssl_info() {
     return info;
 }
 
-static __always_inline struct go_info new_go_info() {
-    struct go_info info = {
-        .ssl_info = {.fd = invalid_fd, .created_at_nano = bpf_ktime_get_ns()},
-        .called_interface_type = 0,
-    };
-    return info;
-}
-
 static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, struct bpf_map_def* map_fd, __u64 pid_tgid) {
     struct ssl_info* infoPtr = bpf_map_lookup_elem(map_fd, &pid_tgid);
     struct ssl_info info = new_ssl_info();

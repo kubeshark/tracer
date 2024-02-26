@@ -15,7 +15,6 @@ static void send_chunk_part(struct pt_regs* ctx, __u8* buffer, __u64 id, struct 
 static void send_chunk(struct pt_regs* ctx, __u8* buffer, __u64 id, struct tls_chunk* chunk);
 static void output_ssl_chunk(struct pt_regs* ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags);
 static struct ssl_info new_ssl_info();
-static struct go_info new_go_info();
 static struct ssl_info lookup_ssl_info(struct pt_regs* ctx, struct bpf_map_def* map_fd, __u64 pid_tgid);
 
 #endif /* __COMMON__ */

@@ -106,7 +106,7 @@ static __always_inline __u32 get_goid_from_thread_local_storage(__u64* goroutine
 }
 #endif
 
-static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ctx, enum ABI abi, __u32* fd, __u64* go_interface_type) {
+static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ctx, enum ABI abi, __u32 pid, __u32* fd) {
     struct go_interface conn;
     long err;
     __u64 addr;
@@ -130,15 +130,43 @@ static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ct
     if (err != 0) {
         return err;
     }
-    *go_interface_type = conn.type;
+    struct pid_offset o = {
+        .pid = pid,
+        .symbol_offset = conn.type,
+    };
 
-    void* net_fd_ptr;
-    err = bpf_probe_read(&net_fd_ptr, sizeof(net_fd_ptr), conn.ptr);
+    void* net_conn_struct_ptr;
+
+    struct pid_info* pi = bpf_map_lookup_elem(&pids_info, &o);
+    if (pi != NULL && pi->sys_fd_offset != -1) {
+        if (pi->is_interface) {
+            // connection socket is interface, read this interface:
+            err = bpf_probe_read(&conn, sizeof(conn), conn.ptr);
+            if (err != 0) {
+                return err;
+            }
+        }
+
+        err = bpf_probe_read(&net_conn_struct_ptr, sizeof(net_conn_struct_ptr), conn.ptr);
+        if (err != 0) {
+            return err;
+        }
+
+        err = bpf_probe_read(fd, sizeof(*fd), net_conn_struct_ptr + pi->sys_fd_offset);
+        if (err != 0) {
+            return err;
+        }
+
+        return 0;
+    }
+
+    err = bpf_probe_read(&net_conn_struct_ptr, sizeof(net_conn_struct_ptr), conn.ptr);
     if (err != 0) {
         return err;
     }
 
-    err = bpf_probe_read(fd, sizeof(*fd), net_fd_ptr + 0x10);
+    // if pids information is not descovered, supposing to find system file descriptor at the offset 0x10
+    err = bpf_probe_read(fd, sizeof(*fd), net_conn_struct_ptr + 0x10);
     if (err != 0) {
         return err;
     }
@@ -149,51 +177,52 @@ static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ct
 static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, struct bpf_map_def* go_context, enum ABI abi) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u64 pid = pid_tgid >> 32;
-    if (!should_target(pid, NULL)) {
+    if (!should_target(pid)) {
         return;
     }
 
-    struct go_info go_info = new_go_info();
-    struct ssl_info* info = &go_info.ssl_info;
+    struct ssl_info info = new_ssl_info();
     long err;
 
 #if defined(bpf_target_arm64)
-    err = bpf_probe_read(&info->buffer_len, sizeof(__u32), (void*)GO_ABI_INTERNAL_PT_REGS_SP(ctx) + 0x18);
+    err = bpf_probe_read(&info.buffer_len, sizeof(__u32), (void*)GO_ABI_INTERNAL_PT_REGS_SP(ctx) + 0x18);
     if (err != 0) {
         log_error(ctx, LOG_ERROR_READING_BYTES_COUNT, pid_tgid, err, ORIGIN_SSL_UPROBE_CODE);
         return;
     }
 #elif defined(bpf_target_x86)
     if (abi == ABI0) {
-        err = bpf_probe_read(&info->buffer_len, sizeof(__u32), (void*)GO_ABI_0_PT_REGS_SP(ctx) + 0x18);
+        err = bpf_probe_read(&info.buffer_len, sizeof(__u32), (void*)GO_ABI_0_PT_REGS_SP(ctx) + 0x18);
         if (err != 0) {
             log_error(ctx, LOG_ERROR_READING_BYTES_COUNT, pid_tgid, err, ORIGIN_SSL_UPROBE_CODE);
             return;
         }
     } else {
-        info->buffer_len = GO_ABI_INTERNAL_PT_REGS_R2(ctx);
+        info.buffer_len = GO_ABI_INTERNAL_PT_REGS_R2(ctx);
     }
 #endif
 
 #if defined(bpf_target_x86)
     if (abi == ABI0) {
-        err = bpf_probe_read(&info->buffer, sizeof(__u32), (void*)GO_ABI_0_PT_REGS_SP(ctx) + 0x11);
+        err = bpf_probe_read(&info.buffer, sizeof(__u32), (void*)GO_ABI_0_PT_REGS_SP(ctx) + 0x11);
         if (err != 0) {
             log_error(ctx, LOG_ERROR_READING_FROM_SSL_BUFFER, pid_tgid, err, ORIGIN_SSL_UPROBE_CODE);
             return;
         }
         // We basically add 00 suffix to the hex address.
-        info->buffer = (void*)((long)info->buffer << 8);
+        info.buffer = (void*)((long)info.buffer << 8);
     } else {
 #endif
-        info->buffer = (void*)GO_ABI_INTERNAL_PT_REGS_R4(ctx);
+        info.buffer = (void*)GO_ABI_INTERNAL_PT_REGS_R4(ctx);
 #if defined(bpf_target_x86)
     }
 #endif
-    if (go_crypto_tls_get_fd_from_tcp_conn(ctx, abi, &info->fd, &go_info.called_interface_type) != 0) {
+    __u32 fd = invalid_fd;
+    if (go_crypto_tls_get_fd_from_tcp_conn(ctx, abi, pid, &fd) != 0) {
         log_error(ctx, LOG_ERROR_GETTING_GO_TCP_CONN_FD, pid_tgid, 0l, 0l);
         return;
     }
+    info.fd = fd;
 
     __u64 goroutine_id;
     if (abi == ABI0) {
@@ -212,7 +241,7 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, struct bpf
         goroutine_id = GO_ABI_INTERNAL_PT_REGS_GP(ctx);
     }
     __u64 pid_fp = pid << 32 | goroutine_id;
-    err = bpf_map_update_elem(go_context, &pid_fp, info, BPF_ANY);
+    err = bpf_map_update_elem(go_context, &pid_fp, &info, BPF_ANY);
 
     if (err != 0) {
         log_error(ctx, LOG_ERROR_PUTTING_SSL_CONTEXT, pid_tgid, err, 0l);
@@ -224,8 +253,7 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, struct bpf
 static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, struct bpf_map_def* go_context, struct bpf_map_def* go_user_kernel_context, __u32 flags, enum ABI abi) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u64 pid = pid_tgid >> 32;
-    struct pid_info* p_info;
-    if (!should_target(pid, &p_info)) {
+    if (!should_target(pid)) {
         return;
     }
 
@@ -246,12 +274,11 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, struct 
         goroutine_id = GO_ABI_INTERNAL_PT_REGS_GP(ctx);
     }
     __u64 pid_fp = pid << 32 | goroutine_id;
-    struct go_info* go_info_ptr = bpf_map_lookup_elem(go_context, &pid_fp);
+    struct ssl_info* info_ptr = bpf_map_lookup_elem(go_context, &pid_fp);
 
-    if (go_info_ptr == NULL) {
+    if (info_ptr == NULL) {
         return;
     }
-    struct ssl_info* info_ptr = &go_info_ptr->ssl_info;
     bpf_map_delete_elem(go_context, &pid_fp);
 
     struct ssl_info info;
@@ -294,11 +321,7 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, struct 
     // but sometimes the uprobe is called twice in a row without the tcp kprobes in between to fill in
     // the entry again. Keeping it in the map and rely on LRU logic.
     if (address_info == NULL) {
-        // Report error only if tls crypto object is not TCP connection (go:itab.*net.TCPConn,net.Conn)
-        if (go_info_ptr->called_interface_type == 0 || go_info_ptr->called_interface_type == p_info->go_tcp_conn_offset)
-        {
-            log_error(ctx, LOG_ERROR_GETTING_GO_USER_KERNEL_CONTEXT, pid_tgid, info_ptr->fd, err);
-        }
+        log_error(ctx, LOG_ERROR_GETTING_GO_USER_KERNEL_CONTEXT, pid_tgid, info_ptr->fd, err);
         return;
     }
 
