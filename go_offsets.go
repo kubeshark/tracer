@@ -263,8 +263,6 @@ func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) 
 	return
 }
 
-type filterSymbolsCb func(sym string) bool
-
 var regexpNetConn = regexp.MustCompile(`go:itab\.\*([^,]+),net.Conn`)
 
 func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, goTcpConnOffset uint64, netConnOffsets map[string]*netConnOffset, err error) {
