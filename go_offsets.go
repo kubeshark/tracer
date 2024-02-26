@@ -250,6 +250,9 @@ func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) 
 					if val == "goid" {
 						goidOffset = uint64(entry.Offset) - runtimeGOffset - 0x4b
 						gStructOffset, err = getGStructOffset(elfFile)
+						if err != nil {
+							return
+						}
 						seenGoid = true
 					}
 				}
