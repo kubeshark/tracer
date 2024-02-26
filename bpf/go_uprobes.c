@@ -142,6 +142,9 @@ static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ct
         if (pi->is_interface) {
             // connection socket is interface, read this interface:
             err = bpf_probe_read(&conn, sizeof(conn), conn.ptr);
+            if (err != 0) {
+                return err;
+            }
         }
 
         err = bpf_probe_read(&net_conn_struct_ptr, sizeof(net_conn_struct_ptr), conn.ptr);
