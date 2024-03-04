@@ -25,7 +25,9 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 			log.Error().Str("pod", pod.Name).Msg("untarget pod is not watched:")
 			continue
 		}
-		p.Untarget(&t.bpfObjects)
+		if err := p.Untarget(&t.bpfObjects); err != nil {
+			return err
+		}
 	}
 
 	for _, pod := range removedWatchedPods {
@@ -33,7 +35,9 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 		if !ok {
 			continue
 		}
-		p.RemoveProbes(&t.bpfObjects)
+		if err := p.RemoveProbes(&t.bpfObjects); err != nil {
+			return err
+		}
 		delete(t.watchingPods, pod.UID)
 	}
 

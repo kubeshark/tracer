@@ -197,7 +197,7 @@ func (p *probesGoTls) InstallProbes(procfs string, bpfObjects *tracerObjects) (b
 func (p *probesGoTls) UninstallProbes(bpfObjects *tracerObjects) error {
 	pidsInfo := bpfObjects.tracerMaps.PidsInfo
 
-	for offset := range p.pidOffsets {
+	for _, offset := range p.pidOffsets {
 		if err := pidsInfo.Delete(offset); err != nil {
 			return errors.Wrap(err, 0)
 		}

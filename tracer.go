@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"sync"
 	"syscall"
 
 	"github.com/cilium/ebpf"
@@ -23,18 +22,16 @@ const GlobalWorkerPid = 0
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
-	bpfObjects           tracerObjects
-	syscallHooks         syscallHooks
-	tcpKprobeHooks       tcpKprobeHooks
-	sslHooksStructs      []sslHooks
-	goHooksStructs       []goHooks
-	poller               *tlsPoller
-	bpfLogger            *bpfLogger
-	registeredPids       sync.Map
-	registeredPidOffsets sync.Map
-	procfs               string
-	isCgroupV2           bool
-	watchingPods         map[types.UID]*podWatcher
+	bpfObjects      tracerObjects
+	syscallHooks    syscallHooks
+	tcpKprobeHooks  tcpKprobeHooks
+	sslHooksStructs []sslHooks
+	goHooksStructs  []goHooks
+	poller          *tlsPoller
+	bpfLogger       *bpfLogger
+	procfs          string
+	isCgroupV2      bool
+	watchingPods    map[types.UID]*podWatcher
 }
 
 // struct pid_info from maps.h
