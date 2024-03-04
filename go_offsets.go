@@ -27,14 +27,13 @@ const (
 const PtrSize int = 8
 
 type goOffsets struct {
-	GoWriteOffset   *goExtendedOffset
-	GoReadOffset    *goExtendedOffset
-	GoVersion       string
-	Abi             goAbi
-	GoidOffset      uint64
-	GStructOffset   uint64
-	GoTcpConnOffset uint64
-	NetConnOffsets  map[string]*netConnOffset
+	GoWriteOffset  *goExtendedOffset
+	GoReadOffset   *goExtendedOffset
+	GoVersion      string
+	Abi            goAbi
+	GoidOffset     uint64
+	GStructOffset  uint64
+	NetConnOffsets map[string]*netConnOffset
 }
 
 type goExtendedOffset struct {
@@ -53,7 +52,6 @@ const (
 	goVersionSymbol             = "runtime.buildVersion.str" // symbol does not exist in Go (<=1.16)
 	goWriteSymbol               = "crypto/tls.(*Conn).Write"
 	goReadSymbol                = "crypto/tls.(*Conn).Read"
-	goTcpConnSymbol             = "go.itab.*net.TCPConn,net.Conn"
 )
 
 func findGoOffsets(fpath string) (goOffsets, error) {
@@ -64,7 +62,7 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 		goReadSymbol:    nil,
 	}
 
-	goidOffset, gStructOffset, goTcpConnOffset, netConnOffsets, err := getOffsets(fpath, offsets)
+	goidOffset, gStructOffset, netConnOffsets, err := getOffsets(fpath, offsets)
 	if err != nil {
 		return goOffsets{}, err
 	}
@@ -97,14 +95,13 @@ func findGoOffsets(fpath string) (goOffsets, error) {
 	}
 
 	return goOffsets{
-		GoWriteOffset:   writeOffset,
-		GoReadOffset:    readOffset,
-		GoVersion:       goVersion,
-		Abi:             abi,
-		GoidOffset:      goidOffset,
-		GStructOffset:   gStructOffset,
-		GoTcpConnOffset: goTcpConnOffset,
-		NetConnOffsets:  netConnOffsets,
+		GoWriteOffset:  writeOffset,
+		GoReadOffset:   readOffset,
+		GoVersion:      goVersion,
+		Abi:            abi,
+		GoidOffset:     goidOffset,
+		GStructOffset:  gStructOffset,
+		NetConnOffsets: netConnOffsets,
 	}, nil
 }
 
@@ -268,7 +265,7 @@ func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) 
 
 var regexpNetConn = regexp.MustCompile(`go:itab\.\*([^,]+),net.Conn`)
 
-func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, goTcpConnOffset uint64, netConnOffsets map[string]*netConnOffset, err error) {
+func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset uint64, gStructOffset uint64, netConnOffsets map[string]*netConnOffset, err error) {
 	var engine gapstone.Engine
 	switch runtime.GOARCH {
 	case "amd64":
@@ -330,9 +327,6 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 		matches := regexpNetConn.FindStringSubmatch(sym.Name)
 		if len(matches) == 2 {
 			netConnOffsets[matches[1]] = &netConnOffset{symbolOffset: sym.Value, socketSysFdOffset: -1}
-		}
-		if sym.Name == goTcpConnSymbol {
-			goTcpConnOffset = sym.Value
 		}
 		if _, ok := offsets[sym.Name]; !ok {
 			continue

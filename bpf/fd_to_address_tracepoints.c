@@ -31,7 +31,7 @@ SEC("tracepoint/syscalls/sys_enter_accept4")
 void sys_enter_accept4(struct sys_enter_accept4_ctx* ctx) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32)) {
+	if (!should_watch(id >> 32)) {
 		return;
 	}
 
@@ -57,7 +57,7 @@ SEC("tracepoint/syscalls/sys_exit_accept4")
 void sys_exit_accept4(struct sys_exit_accept4_ctx* ctx) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32)) {
+	if (!should_watch(id >> 32)) {
 		return;
 	}
 
@@ -124,7 +124,7 @@ SEC("tracepoint/syscalls/sys_enter_connect")
 void sys_enter_connect(struct sys_enter_connect_ctx* ctx) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32)) {
+	if (!should_watch(id >> 32)) {
 		return;
 	}
 
@@ -151,7 +151,7 @@ SEC("tracepoint/syscalls/sys_exit_connect")
 void sys_exit_connect(struct sys_exit_connect_ctx* ctx) {
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32)) {
+	if (!should_watch(id >> 32)) {
 		return;
 	}
 

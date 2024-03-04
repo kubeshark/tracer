@@ -13,13 +13,25 @@ import (
 
 var targetedPods []v1.Pod
 
+var watchedPods []v1.Pod
+
 func GetTargetedPods() []v1.Pod {
 	return targetedPods
+}
+
+func GetWatchedPods() []v1.Pod {
+	return watchedPods
 }
 
 func SetTargetedPods(pods []v1.Pod) {
 	targetedPods = pods
 }
+
+func SetWatchedPods(pods []v1.Pod) {
+	watchedPods = pods
+}
+
+type callbackPodsChanged func(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error
 
 func excludeSelfPods(pods []v1.Pod) []v1.Pod {
 	kubesharkLabels := map[string]string{"app.kubernetes.io/name": "kubeshark"}
@@ -43,7 +55,7 @@ func getPodArrayDiff(oldPods []v1.Pod, newPods []v1.Pod) (added []v1.Pod, remove
 	return added, removed
 }
 
-//returns pods present in pods1 array and missing in pods2 array
+// returns pods present in pods1 array and missing in pods2 array
 func getMissingPods(pods1 []v1.Pod, pods2 []v1.Pod) []v1.Pod {
 	missingPods := make([]v1.Pod, 0)
 	for _, pod1 := range pods1 {
@@ -104,31 +116,47 @@ func listAllRunningPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.
 	return matchingPods, nil
 }
 
+var regexAllPods = regexp.MustCompile(`.*`)
+
 func updateCurrentlyTargetedPods(
 	ctx context.Context,
 	clientSet *kubernetes.Clientset,
 	regex *regexp.Regexp,
 	namespaces []string,
-	callback func(pods []v1.Pod) error,
+	callback callbackPodsChanged,
 ) (err error) {
+
+	var allPods []v1.Pod
+	if allPods, err = listAllRunningPodsMatchingRegex(ctx, clientSet, regexAllPods, namespaces); err != nil {
+		return
+	}
+	podsToWatch := excludeSelfPods(allPods)
+
 	var matchingPods []v1.Pod
 	if matchingPods, err = listAllRunningPodsMatchingRegex(ctx, clientSet, regex, namespaces); err != nil {
 		return
 	}
 
 	podsToTarget := excludeSelfPods(matchingPods)
-	addedPods, removedPods := getPodArrayDiff(GetTargetedPods(), podsToTarget)
-	for _, addedPod := range addedPods {
+	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetTargetedPods(), podsToTarget)
+	addedWatchedPods, removedWatchedPods := getPodArrayDiff(GetWatchedPods(), podsToWatch)
+
+	for _, addedPod := range addedWatchedPods {
+		log.Info().Msg(fmt.Sprintf("Watched pod: %s", fmt.Sprintf(Green, addedPod.Name)))
+	}
+	for _, removedPod := range removedWatchedPods {
+		log.Info().Msg(fmt.Sprintf("Unwatchted pod: %s", fmt.Sprintf(Red, removedPod.Name)))
+	}
+	for _, addedPod := range addedTargetedPods {
 		log.Info().Msg(fmt.Sprintf("Targeted pod: %s", fmt.Sprintf(Green, addedPod.Name)))
 	}
-	for _, removedPod := range removedPods {
+	for _, removedPod := range removedTargetedPods {
 		log.Info().Msg(fmt.Sprintf("Untargeted pod: %s", fmt.Sprintf(Red, removedPod.Name)))
 	}
 
-	if len(addedPods) > 0 || len(removedPods) > 0 {
-		SetTargetedPods(podsToTarget)
-		err = callback(podsToTarget)
-	}
+	SetTargetedPods(podsToTarget)
+	SetWatchedPods(podsToWatch)
+	err = callback(addedWatchedPods, removedWatchedPods, addedTargetedPods, removedTargetedPods)
 
 	return
 }

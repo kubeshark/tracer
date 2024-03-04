@@ -12,6 +12,7 @@ import (
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 )
 
@@ -46,10 +47,15 @@ func main() {
 func run() {
 	log.Info().Msg("Starting tracer...")
 
+	tracer = &Tracer{
+		procfs:       *procfs,
+		watchingPods: make(map[types.UID]*podWatcher),
+	}
+
 	_, err := rest.InClusterConfig()
 	clusterMode := err == nil
 	errOut := make(chan error, 100)
-	watcher := kubernetes.NewFromInCluster(errOut, updateTargets)
+	watcher := kubernetes.NewFromInCluster(errOut, tracer.updateTargets)
 	ctx := context.Background()
 
 	if clusterMode {
@@ -76,9 +82,6 @@ func run() {
 }
 
 func createTracer() (err error) {
-	tracer = &Tracer{
-		procfs: *procfs,
-	}
 	chunksBufferSize := os.Getpagesize() * 10000
 	logBufferSize := os.Getpagesize()
 

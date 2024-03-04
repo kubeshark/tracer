@@ -81,7 +81,7 @@ static __always_inline void tcp_kprobe(struct pt_regs* ctx, struct bpf_map_def* 
 
 	__u64 id = bpf_get_current_pid_tgid();
 
-	if (!should_target(id >> 32)) {
+	if (!should_watch(id >> 32)) {
 		return;
 	}
 

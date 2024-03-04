@@ -65,7 +65,6 @@ struct goid_offsets {
 };
 
 struct pid_info {
-    __u64 go_tcp_conn_offset;
     __s64 sys_fd_offset;
     __u64 is_interface;
 };
@@ -105,7 +104,8 @@ struct {
     BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH)
 
 // Generic
-BPF_HASH(pids_map, __u32, __u32);
+BPF_HASH(target_pids_map, __u32, __u32);
+BPF_HASH(watch_pids_map, __u32, __u32);
 BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);

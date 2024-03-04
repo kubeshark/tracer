@@ -6,65 +6,96 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var numberRegex = regexp.MustCompile("[0-9]+")
 
-func updateTargets(pods []v1.Pod) error {
-	containerIds := buildContainerIdsMap(pods)
-	log.Debug().Interface("container-ids", containerIds).Send()
-
-	const cgroupV2MagicNumber = 0x63677270
-	isCgroupV2 := false
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/sys/fs/cgroup/", &stat); err != nil {
-		log.Error().Err(err).Msg("read cgroups information failed:")
-	} else if stat.Type == cgroupV2MagicNumber {
-		isCgroupV2 = true
+func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error {
+	for _, pod := range removedTargetedPods {
+		p, ok := t.watchingPods[pod.UID]
+		if !ok {
+			log.Error().Str("pod", pod.Name).Msg("untarget pod is not watched:")
+			continue
+		}
+		p.Untarget(&t.bpfObjects)
 	}
 
-	containerPids, err := findContainerPids(tracer.procfs, containerIds, isCgroupV2)
+	for _, pod := range removedWatchedPods {
+		p, ok := t.watchingPods[pod.UID]
+		if !ok {
+			continue
+		}
+		p.RemoveProbes(&t.bpfObjects)
+		delete(t.watchingPods, pod.UID)
+	}
 
+	containerIds := buildContainerIdsMap(append(addedWatchedPods, addedTargetedPods...))
+
+	if len(containerIds) == 0 {
+		return nil
+	}
+
+	containerPids, err := findContainerPids(t.procfs, containerIds, t.isCgroupV2)
 	if err != nil {
 		return err
 	}
 
-	log.Info().Interface("pids", reflect.ValueOf(containerPids).MapKeys()).Send()
-
-	tracer.clearPids()
-
-	// TODO: CAUSES INITIAL MEMORY SPIKE
-	for pid := range containerPids {
-		if err := tracer.addSSLLibPid(tracer.procfs, pid); err != nil {
-			logError(err)
+	for _, pod := range addedWatchedPods {
+		containerPid, ok := containerPids[pod.UID]
+		if !ok {
+			continue
 		}
 
-		if err := tracer.addGoPid(tracer.procfs, pid); err != nil {
-			logError(err)
+		if _, ok := t.watchingPods[pod.UID]; ok {
+			log.Error().Str("pod", pod.Name).Msg("pod already watched:")
+			continue
+		}
+
+		pw, err := NewPodWatcher(t.procfs, &t.bpfObjects, containerPid)
+		if err != nil {
+			log.Error().Err(err).Str("pod", pod.Name).Uint32("pid", containerPid).Msg("create pod watcher failed:")
+			continue
+		}
+		if pw == nil {
+			// nothing to watch in the binary
+			continue
+		}
+		t.watchingPods[pod.UID] = pw
+	}
+
+	for _, pod := range addedTargetedPods {
+		p, ok := t.watchingPods[pod.UID]
+		if !ok {
+			continue
+		}
+
+		err := p.Target(&t.bpfObjects)
+		if err != nil {
+			log.Error().Err(err).Str("pod", pod.Name).Msg("target pod failed:")
+			continue
 		}
 	}
 
 	return nil
 }
 
-func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2 bool) (map[uint32]v1.Pod, error) {
-	result := make(map[uint32]v1.Pod)
+func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2 bool) (map[types.UID]uint32, error) {
+	result := make(map[types.UID]uint32)
 
 	pids, err := os.ReadDir(procfs)
 	if err != nil {
 		return result, err
 	}
 
-	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Msg("Starting TLS auto discoverer:")
+	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Msg("discovering tls started:")
 
 	for _, pid := range pids {
 		if !pid.IsDir() {
@@ -77,13 +108,12 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2
 
 		cgroup, err := getProcessCgroup(procfs, pid.Name(), isCgroupV2)
 		if err != nil {
-			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't get the cgroup of process.")
+			log.Debug().Err(err).Str("pid", pid.Name()).Msg("Couldn't get the cgroup of process.")
 			continue
 		}
 
 		pod, ok := containerIds[cgroup]
 		if !ok {
-			log.Warn().Str("pid", pid.Name()).Str("cgroup", cgroup).Msg("Couldn't find the pod for the given cgroup of pid.")
 			continue
 		}
 
@@ -93,8 +123,10 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2
 			continue
 		}
 
-		result[uint32(pidNumber)] = pod
+		result[pod.UID] = uint32(pidNumber)
 	}
+
+	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Int("results", len(result)).Msg("discovering tls completed:")
 
 	return result, nil
 }
