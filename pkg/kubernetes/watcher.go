@@ -10,7 +10,6 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 )
@@ -28,7 +27,7 @@ type Watcher struct {
 	isStarted     bool
 	lastUpdatedAt string
 	errOut        chan error
-	callback      func(pods []v1.Pod) error
+	callback      callbackPodsChanged
 }
 
 func (watcher *Watcher) Start(ctx context.Context, clusterMode bool) {
@@ -56,15 +55,13 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 			if event.Object == nil {
 				return errors.New("error in kubeshark configmap watch")
 			}
-			if watcher.isHistoryUpdated(&event) {
-				watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
+			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
 
-				err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
-				if err != nil {
-					log.Error().Err(err).Send()
-				}
-				watcher.lastUpdatedAt = event.Object.(*v1.ConfigMap).ObjectMeta.Annotations[resolverHistoryAnnotation]
+			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
+			if err != nil {
+				log.Error().Err(err).Send()
 			}
+			watcher.lastUpdatedAt = event.Object.(*v1.ConfigMap).ObjectMeta.Annotations[resolverHistoryAnnotation]
 		case <-ctx.Done():
 			w.Stop()
 			return nil
@@ -90,15 +87,4 @@ func (watcher *Watcher) infiniteErrorHandleRetryFunc(ctx context.Context, fun fu
 			return
 		}
 	}
-}
-
-func (watcher *Watcher) isHistoryUpdated(event *watch.Event) bool {
-	cm := event.Object.(*v1.ConfigMap)
-	currentUpdatedAt := cm.ObjectMeta.Annotations[resolverHistoryAnnotation]
-
-	if watcher.lastUpdatedAt != currentUpdatedAt || currentUpdatedAt == "" {
-		return true
-	}
-
-	return false
 }

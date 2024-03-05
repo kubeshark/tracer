@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"sync"
+	"syscall"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 const GlobalWorkerPid = 0
@@ -21,23 +22,22 @@ const GlobalWorkerPid = 0
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
-	bpfObjects           tracerObjects
-	syscallHooks         syscallHooks
-	tcpKprobeHooks       tcpKprobeHooks
-	sslHooksStructs      []sslHooks
-	goHooksStructs       []goHooks
-	poller               *tlsPoller
-	bpfLogger            *bpfLogger
-	registeredPids       sync.Map
-	registeredPidOffsets sync.Map
-	procfs               string
+	bpfObjects      tracerObjects
+	syscallHooks    syscallHooks
+	tcpKprobeHooks  tcpKprobeHooks
+	sslHooksStructs []sslHooks
+	goHooksStructs  []goHooks
+	poller          *tlsPoller
+	bpfLogger       *bpfLogger
+	procfs          string
+	isCgroupV2      bool
+	watchingPods    map[types.UID]*podWatcher
 }
 
 // struct pid_info from maps.h
 type pidInfo struct {
-	goTcpConnOffset uint64
-	sysFdOffset     int64
-	isInterface     uint64
+	sysFdOffset int64
+	isInterface uint64
 }
 
 // struct fd_offset from maps.h
@@ -65,7 +65,17 @@ func (t *Tracer) Init(
 		return err
 	}
 
-	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s", kernelVersion))
+	cgroupsVersion := "1"
+	const cgroupV2MagicNumber = 0x63677270
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs("/sys/fs/cgroup/", &stat); err != nil {
+		log.Error().Err(err).Msg("read cgroups information failed:")
+	} else if stat.Type == cgroupV2MagicNumber {
+		t.isCgroupV2 = true
+		cgroupsVersion = "2"
+	}
+
+	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version: %v", kernelVersion, cgroupsVersion))
 
 	t.bpfObjects = tracerObjects{}
 	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
@@ -125,14 +135,26 @@ func (t *Tracer) pollForLogging() {
 	t.bpfLogger.poll()
 }
 
+var globalProbeSSL *probesLibSsl
+
 func (t *Tracer) globalSSLLibTarget(procfs string, pid string) error {
 	_pid, err := strconv.Atoi(pid)
 	if err != nil {
 		return err
 	}
 
-	return t.addSSLLibPid(procfs, uint32(_pid))
+	globalProbeSSL = &probesLibSsl{pid: uint32(_pid)}
+	installed, err := globalProbeSSL.InstallProbes(procfs, &tracer.bpfObjects)
+	if err != nil {
+		return err
+	}
+	if !installed {
+		return fmt.Errorf("install global ssllib failed")
+	}
+	return globalProbeSSL.Target(&tracer.bpfObjects)
 }
+
+var globalProbeGoTls *probesGoTls
 
 func (t *Tracer) globalGoTarget(procfs string, pid string) error {
 	_pid, err := strconv.Atoi(pid)
@@ -140,80 +162,15 @@ func (t *Tracer) globalGoTarget(procfs string, pid string) error {
 		return err
 	}
 
-	return t.targetGoPid(procfs, uint32(_pid))
-}
-
-func (t *Tracer) addSSLLibPid(procfs string, pid uint32) error {
-	sslLibrary, err := findSsllib(procfs, pid)
-
+	globalProbeGoTls = &probesGoTls{pid: uint32(_pid)}
+	installed, err := globalProbeGoTls.InstallProbes(procfs, &tracer.bpfObjects)
 	if err != nil {
-		log.Trace().Err(err).Int("pid", int(pid)).Msg("PID skipped no libssl.so found:")
-		return nil // hide the error on purpose, it's OK for a process to not use libssl.so
-	} else {
-		log.Info().Str("path", sslLibrary).Int("pid", int(pid)).Msg("Found libssl.so:")
+		return err
 	}
-
-	return t.targetSSLLibPid(pid, sslLibrary)
-}
-
-func (t *Tracer) addGoPid(procfs string, pid uint32) error {
-	return t.targetGoPid(procfs, pid)
-}
-
-func (t *Tracer) removePid(pid uint32) error {
-	log.Info().Msg(fmt.Sprintf("Removing PID (pid: %v)", pid))
-
-	pids := t.bpfObjects.tracerMaps.PidsMap
-
-	if err := pids.Delete(pid); err != nil {
-		return errors.Wrap(err, 0)
+	if !installed {
+		return fmt.Errorf("install global GoTls failed")
 	}
-
-	return nil
-}
-
-func (t *Tracer) removePidOffsets(pid uint32, offsets []pidOffset) error {
-	log.Info().Msg(fmt.Sprintf("Removing PID offsets (pid: %v)", pid))
-
-	pidOffsets := t.bpfObjects.tracerMaps.PidsInfo
-
-	for _, o := range offsets {
-		if err := pidOffsets.Delete(o); err != nil {
-			return errors.Wrap(err, 0)
-		}
-	}
-
-	return nil
-}
-
-func (t *Tracer) clearPids() {
-	t.registeredPids.Range(func(key, v interface{}) bool {
-		pid := key.(uint32)
-		if pid == GlobalWorkerPid {
-			return true
-		}
-
-		if err := t.removePid(pid); err != nil {
-			logError(err)
-		}
-		t.registeredPids.Delete(key)
-		return true
-	})
-
-	t.registeredPidOffsets.Range(func(key, v interface{}) bool {
-		pid := key.(uint32)
-		if pid == GlobalWorkerPid {
-			return true
-		}
-
-		offsets := v.([]pidOffset)
-		if err := t.removePidOffsets(pid, offsets); err != nil {
-			logError(err)
-		}
-		t.registeredPidOffsets.Delete(key)
-		return true
-	})
-
+	return globalProbeSSL.Target(&tracer.bpfObjects)
 }
 
 func (t *Tracer) close() []error {
@@ -252,76 +209,6 @@ func setupRLimit() error {
 	if err != nil {
 		return errors.New(fmt.Sprintf("%s: %v", "SYS_RESOURCE is required to change rlimits for eBPF", err))
 	}
-
-	return nil
-}
-
-func (t *Tracer) targetSSLLibPid(pid uint32, sslLibrary string) error {
-	newSsl := sslHooks{}
-
-	if err := newSsl.installUprobes(&t.bpfObjects, sslLibrary); err != nil {
-		return err
-	}
-
-	log.Info().Msg(fmt.Sprintf("Targeting TLS (pid: %v) (libssl: %v)", pid, sslLibrary))
-
-	t.sslHooksStructs = append(t.sslHooksStructs, newSsl)
-
-	pids := t.bpfObjects.tracerMaps.PidsMap
-
-	if err := pids.Put(pid, uint32(1)); err != nil {
-		return errors.Wrap(err, 0)
-	}
-
-	t.registeredPids.Store(pid, true)
-
-	return nil
-}
-
-func (t *Tracer) targetGoPid(procfs string, pid uint32) error {
-	exePath, err := findLibraryByPid(procfs, pid, "")
-	if err != nil {
-		return err
-	}
-
-	hooks := goHooks{}
-
-	var offsets goOffsets
-	if offsets, err = hooks.installUprobes(&t.bpfObjects, exePath); err != nil {
-		log.Info().Msg(fmt.Sprintf("PID skipped not a Go binary or symbol table is stripped pid: %v %v err: %v", pid, exePath, err))
-		return nil // hide the error on purpose, its OK for a process to be not a Go binary or stripped Go binary
-	}
-
-	log.Info().Msg(fmt.Sprintf("Targeting TLS (pid: %v) (Go: %v)", pid, exePath))
-
-	t.goHooksStructs = append(t.goHooksStructs, hooks)
-
-	pids := t.bpfObjects.tracerMaps.PidsMap
-
-	if err := pids.Put(pid, uint32(1)); err != nil {
-		return errors.Wrap(err, 0)
-	}
-
-	pidOffsets := make([]pidOffset, 0)
-	pidsInfo := t.bpfObjects.tracerMaps.PidsInfo
-	for _, ncOffset := range offsets.NetConnOffsets {
-		offset := pidOffset{
-			pid:    uint64(pid),
-			offset: ncOffset.symbolOffset,
-		}
-		pi := pidInfo{
-			goTcpConnOffset: offsets.GoTcpConnOffset,
-			sysFdOffset:     ncOffset.socketSysFdOffset,
-			isInterface:     uint64(ncOffset.isGoInterface),
-		}
-		if err := pidsInfo.Put(offset, pi); err != nil {
-			return errors.Wrap(err, 0)
-		}
-		pidOffsets = append(pidOffsets, offset)
-	}
-	t.registeredPidOffsets.Store(pid, pidOffsets)
-
-	t.registeredPids.Store(pid, true)
 
 	return nil
 }
