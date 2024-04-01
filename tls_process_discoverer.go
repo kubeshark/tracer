@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path"
@@ -16,27 +17,41 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+type podInfo struct {
+	pids         []uint32
+	cgroupV2Path string
+}
+
 var numberRegex = regexp.MustCompile("[0-9]+")
 
 func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error {
 	for _, pod := range removedTargetedPods {
-		p, ok := t.watchingPods[pod.UID]
+		if t.packetFilter != nil {
+			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
+				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
+			}
+		}
+		pids, ok := t.watchingPods[pod.UID]
 		if !ok {
-			log.Error().Str("pod", pod.Name).Msg("untarget pod is not watched:")
 			continue
 		}
-		if err := p.Untarget(&t.bpfObjects); err != nil {
-			return err
+		for _, p := range pids {
+			if err := p.Untarget(&t.bpfObjects); err != nil {
+				return err
+			}
+			log.Info().Str("pod", pod.Name).Msg("Untarteted pids for pod:")
 		}
 	}
 
 	for _, pod := range removedWatchedPods {
-		p, ok := t.watchingPods[pod.UID]
+		pids, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
-		if err := p.RemoveProbes(&t.bpfObjects); err != nil {
-			return err
+		for _, p := range pids {
+			if err := p.RemoveProbes(&t.bpfObjects); err != nil {
+				return err
+			}
 		}
 		delete(t.watchingPods, pod.UID)
 	}
@@ -53,7 +68,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	}
 
 	for _, pod := range addedWatchedPods {
-		containerPid, ok := containerPids[pod.UID]
+		pInfo, ok := containerPids[pod.UID]
 		if !ok {
 			continue
 		}
@@ -63,36 +78,54 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 			continue
 		}
 
-		pw, err := NewPodWatcher(t.procfs, &t.bpfObjects, containerPid)
-		if err != nil {
-			log.Error().Err(err).Str("pod", pod.Name).Uint32("pid", containerPid).Msg("create pod watcher failed:")
-			continue
+		for _, containerPid := range pInfo.pids {
+			pw, err := NewPodWatcher(t.procfs, &t.bpfObjects, containerPid)
+			if err != nil {
+				log.Error().Err(err).Str("pod", pod.Name).Uint32("pid", containerPid).Msg("create pod watcher failed:")
+				continue
+			}
+			if pw == nil {
+				// nothing to watch in the binary
+				continue
+			}
+
+			t.watchingPods[pod.UID] = append(t.watchingPods[pod.UID], pw)
 		}
-		if pw == nil {
-			// nothing to watch in the binary
-			continue
-		}
-		t.watchingPods[pod.UID] = pw
 	}
 
 	for _, pod := range addedTargetedPods {
-		p, ok := t.watchingPods[pod.UID]
+		pInfo, ok := containerPids[pod.UID]
 		if !ok {
 			continue
 		}
 
-		err := p.Target(&t.bpfObjects)
-		if err != nil {
-			log.Error().Err(err).Str("pod", pod.Name).Msg("target pod failed:")
+		if t.packetFilter != nil {
+			if err := t.packetFilter.AttachPod(string(pod.UID), pInfo.cgroupV2Path); err != nil {
+				return err
+			}
+			log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
+		}
+
+		pids, ok := t.watchingPods[pod.UID]
+		if !ok {
 			continue
 		}
+
+		for _, p := range pids {
+			err := p.Target(&t.bpfObjects)
+			if err != nil {
+				log.Error().Err(err).Str("pod", pod.Name).Msg("target pod failed:")
+				continue
+			}
+		}
+		log.Info().Str("pod", pod.Name).Msg("Tarteted pids for pod:")
 	}
 
 	return nil
 }
 
-func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2 bool) (map[types.UID]uint32, error) {
-	result := make(map[types.UID]uint32)
+func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2 bool) (map[types.UID]*podInfo, error) {
+	result := make(map[types.UID]*podInfo)
 
 	pids, err := os.ReadDir(procfs)
 	if err != nil {
@@ -110,7 +143,7 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2
 			continue
 		}
 
-		cgroup, err := getProcessCgroup(procfs, pid.Name(), isCgroupV2)
+		cgroup, cgroupV2Path, err := getProcessCgroup(procfs, pid.Name(), isCgroupV2)
 		if err != nil {
 			log.Debug().Err(err).Str("pid", pid.Name()).Msg("Couldn't get the cgroup of process.")
 			continue
@@ -121,13 +154,23 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2
 			continue
 		}
 
+		if isCgroupV2 && cgroupV2Path == "" {
+			log.Error().Str("pid", pid.Name()).Msg("cgroup path not found:")
+		}
+
 		pidNumber, err := strconv.Atoi(pid.Name())
 		if err != nil {
 			log.Warn().Str("pid", pid.Name()).Msg("Unable to convert the process id to integer.")
 			continue
 		}
 
-		result[pod.UID] = uint32(pidNumber)
+		if result[pod.UID] == nil {
+			result[pod.UID] = &podInfo{}
+		}
+
+		pi := result[pod.UID]
+		pi.pids = append(pi.pids, uint32(pidNumber))
+		pi.cgroupV2Path = cgroupV2Path
 	}
 
 	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Int("results", len(result)).Msg("discovering tls completed:")
@@ -153,16 +196,18 @@ func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
 	return result
 }
 
-func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (string, error) {
+func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (cgrouppath, cgroupV2Path string, err error) {
 	fpath := fmt.Sprintf("%s/%s/cgroup", procfs, pid)
 
-	bytes, err := os.ReadFile(fpath)
+	var bytes []byte
+	bytes, err = os.ReadFile(fpath)
 	if err != nil {
-		return "", errors.Errorf("Error reading cgroup file %s - %v", fpath, err)
+		err = errors.Errorf("Error reading cgroup file %s - %v", fpath, err)
+		return
 	}
 
 	lines := strings.Split(string(bytes), "\n")
-	cgrouppath := extractCgroup(lines, isCgroupV2)
+	cgrouppath, cgroupV2Path = extractCgroup(lines, isCgroupV2)
 
 	if strings.Contains(cgrouppath, "-") {
 		parts := strings.Split(cgrouppath, "-")
@@ -170,34 +215,57 @@ func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (string, error
 	}
 
 	if cgrouppath == "" {
-		return "", errors.Errorf("Cgroup path not found for %s, %s", pid, lines)
+		err = errors.Errorf("Cgroup path not found for %s, %s", pid, lines)
+		return
 	}
 
-	return normalizeCgroup(cgrouppath), nil
+	cgrouppath = normalizeCgroup(cgrouppath)
+	return
 }
 
-func extractCgroup(lines []string, isCgroupV2 bool) string {
+func extractCgroup(lines []string, isCgroupV2 bool) (cgroupPath string, cgroupV2Path string) {
 	if isCgroupV2 {
 		parts := lines
 		parts = strings.Split(parts[0], "/")
 		parts = strings.Split(parts[len(parts)-1], "-")
 		parts = strings.Split(parts[len(parts)-1], ".")
-		return parts[0]
+		cgroupPath = parts[0]
+
+		parts = lines
+		parts = strings.Split(parts[0], "/")
+		if len(parts) >= 2 {
+			podCgroup := parts[len(parts)-1]
+
+			walk := func(s string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() && d.Name() == podCgroup {
+					cgroupV2Path = filepath.Dir(s)
+					return nil
+				}
+				return nil
+			}
+			_ = filepath.WalkDir("/sys/fs/cgroup", walk)
+		}
+		return
 	}
 
 	if len(lines) == 1 {
 		parts := strings.Split(lines[0], ":")
-		return parts[len(parts)-1]
+		cgroupPath = parts[len(parts)-1]
+		return
 	} else {
 		for _, line := range lines {
 			if strings.Contains(line, ":pids:") {
 				parts := strings.Split(line, ":")
-				return parts[len(parts)-1]
+				cgroupPath = parts[len(parts)-1]
+				return
 			}
 		}
 	}
 
-	return ""
+	return
 }
 
 // cgroup in the /proc/<pid>/cgroup may look something like

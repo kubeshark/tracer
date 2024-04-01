@@ -32,15 +32,15 @@ type tlsPoller struct {
 func newTlsPoller(
 	tls *Tracer,
 	procfs string,
+	sorter *PacketSorter,
 ) (*tlsPoller, error) {
-	sortedPackets := make(chan *SortedPacket, misc.PacketChannelBufferSize)
 	poller := &tlsPoller{
 		tls:          tls,
 		streams:      make(map[string]*tlsStream),
 		closeStreams: make(chan string, misc.TlsCloseChannelBufferSize),
 		chunksReader: nil,
 		procfs:       procfs,
-		sorter:       NewPacketSorter(sortedPackets),
+		sorter:       sorter,
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)

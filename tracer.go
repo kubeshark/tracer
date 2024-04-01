@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+
 	"strconv"
 	"syscall"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/tracer/misc"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,10 +30,12 @@ type Tracer struct {
 	sslHooksStructs []sslHooks
 	goHooksStructs  []goHooks
 	poller          *tlsPoller
+	pktsPoller      *pktsPoller
 	bpfLogger       *bpfLogger
+	packetFilter    *packetFilter
 	procfs          string
 	isCgroupV2      bool
-	watchingPods    map[types.UID]*podWatcher
+	watchingPods    map[types.UID][]*pidWatcher
 }
 
 // struct pid_info from maps.h
@@ -115,19 +119,48 @@ func (t *Tracer) Init(
 		return err
 	}
 
+	sortedPackets := make(chan *SortedPacket, misc.PacketChannelBufferSize)
+	sorter := NewPacketSorter(sortedPackets)
+
 	t.poller, err = newTlsPoller(
 		t,
 		procfs,
+		sorter,
 	)
 
 	if err != nil {
 		return err
 	}
 
-	return t.poller.init(&t.bpfObjects, chunksBufferSize)
+	err = t.poller.init(&t.bpfObjects, chunksBufferSize)
+	if err != nil {
+		return err
+	}
+
+	if !*disableEbpfCapture && cgroupsVersion == "2" {
+		t.packetFilter, err = newPacketFilter(t.bpfObjects.FilterIngressPackets, t.bpfObjects.FilterEgressPackets, t.bpfObjects.PacketPullIngress, t.bpfObjects.PacketPullEgress, t.bpfObjects.PktsBuffer)
+		if err != nil {
+			return err
+		}
+
+		t.pktsPoller, err = newPktsPoller(t, procfs, sorter)
+		if err != nil {
+			return err
+		}
+
+		err = t.pktsPoller.init(&t.bpfObjects, chunksBufferSize)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (t *Tracer) poll(streamsMap *TcpStreamMap) {
+	if t.pktsPoller != nil {
+		go t.pktsPoller.poll()
+	}
 	t.poller.poll(streamsMap)
 }
 
@@ -174,6 +207,10 @@ func (t *Tracer) globalGoTarget(procfs string, pid string) error {
 }
 
 func (t *Tracer) close() []error {
+	if t.packetFilter != nil {
+		t.packetFilter.close()
+	}
+
 	returnValue := make([]error, 0)
 
 	if err := t.bpfObjects.Close(); err != nil {
