@@ -107,8 +107,7 @@ func (t *TcClientImpl) SetupTC(ifindex, progFDIngress, progFDEgress int) error {
 			Kind: "clsact",
 		},
 	}
-	if err := t.tcClient.Qdisc().Delete(&qdisc); err == nil {
-	}
+	_ = t.tcClient.Qdisc().Delete(&qdisc)
 	if err := t.tcClient.Qdisc().Add(&qdisc); err != nil {
 		return err
 	}
@@ -163,7 +162,7 @@ func (t *TcClientImpl) SetupTC(ifindex, progFDIngress, progFDEgress int) error {
 
 func (t *TcClientImpl) CleanTC() error {
 	for _, tcObj := range t.tcObjects {
-		t.tcClient.Qdisc().Delete(tcObj)
+		_ = t.tcClient.Qdisc().Delete(tcObj)
 	}
 	if t.tcClient == nil {
 		return nil

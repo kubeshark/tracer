@@ -78,16 +78,9 @@ func (p *pktsPoller) poll() {
 
 	go p.pollChunksPerfBuffer(chunks)
 
-	for {
-		select {
-		case chunk, ok := <-chunks:
-			if !ok {
-				return
-			}
-
-			if err := p.handlePktChunk(chunk); err != nil {
-				logError(err)
-			}
+	for chunk := range chunks {
+		if err := p.handlePktChunk(chunk); err != nil {
+			logError(err)
 		}
 	}
 }

@@ -211,6 +211,10 @@ func (t *Tracer) close() []error {
 		t.packetFilter.close()
 	}
 
+	if t.pktsPoller != nil {
+		t.pktsPoller.close()
+	}
+
 	returnValue := make([]error, 0)
 
 	if err := t.bpfObjects.Close(); err != nil {
