@@ -105,7 +105,7 @@ func (t *tlsStream) writeLayers(data []byte, isClient bool, sentLen uint32) {
 
 func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) {
 
-	err := t.poller.sorter.WritePacket(firstLayerType, l...)
+	err := t.poller.sorter.WriteTLSPacket(firstLayerType, l...)
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")
 		return

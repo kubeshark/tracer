@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net"
+	"os"
 	"sync"
 	"syscall"
 	"time"
@@ -111,6 +112,7 @@ func (s *SocketPcap) Disconnected(conn *net.UnixConn) {
 }
 
 func NewSocketPcap(unixSocketFileName string) *SocketPcap {
+	_ = os.Remove(unixSocketFileName)
 	l, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: unixSocketFileName, Net: "unixpacket"})
 	if err != nil {
 		panic(err)

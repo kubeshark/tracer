@@ -20,7 +20,7 @@ type SortedPacket struct {
 	Data []byte
 }
 
-func (s *PacketSorter) WritePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+func (s *PacketSorter) WriteTLSPacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
 		FixLengths:       true,
@@ -51,16 +51,35 @@ func (s *PacketSorter) WritePacket(firstLayerType gopacket.LayerType, l ...gopac
 		}
 	}
 
-	if s.socketPcap != nil {
-		err = s.socketPcap.WritePacket(buf)
+	if s.socketsTLS != nil {
+		err = s.socketsTLS.WritePacket(buf)
 	}
+
+	return
+}
+
+func (s *PacketSorter) WritePlanePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+
+	err = gopacket.SerializeLayers(buf, opts, l...)
+	if err != nil {
+		log.Error().Err(err).Msg("Error serializing packet:")
+		return
+	}
+
+	err = s.socketsPlain.WritePacket(buf)
 
 	return
 }
 
 type PacketSorter struct {
 	cbufPcap      *CbufPcap
-	socketPcap    *SocketPcap
+	socketsTLS    *SocketPcap
+	socketsPlain  *SocketPcap
 	sortedPackets chan<- *SortedPacket
 	writer        *pcapgo.Writer
 	sync.Mutex
@@ -152,9 +171,8 @@ func (s *PacketSorter) initCbufPcap() {
 }
 
 func (s *PacketSorter) initSocketPcap() {
-	unixSocketFile := misc.GetPacketSocketPath()
-	_ = os.Remove(unixSocketFile)
-	s.socketPcap = NewSocketPcap(unixSocketFile)
+	s.socketsTLS = NewSocketPcap(misc.GetTLSSocketPath())
+	s.socketsPlain = NewSocketPcap(misc.GetPlainSocketPath())
 }
 
 func (s *PacketSorter) Close() {

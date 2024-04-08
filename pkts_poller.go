@@ -115,7 +115,7 @@ func (p *pktsPoller) handlePktChunk(chunk *tracerPktChunk) error {
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
 	pkts.len += uint32(ptr.Len)
 	if ptr.Last != 0 {
-		err := p.sorter.WritePacket(layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
+		err := p.sorter.WritePlanePacket(layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 		if err != nil {
 			return err
 		}
