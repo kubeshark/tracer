@@ -17,9 +17,50 @@ const (
 	maxUnixPacketClients = 10
 )
 
+type packetsBuffer struct {
+	mtx     sync.Mutex
+	ch      chan []byte
+	maxSize uint32
+	size    uint32
+}
+
+func newPacketsBuffer(packets, bytes uint32) *packetsBuffer {
+	return &packetsBuffer{
+		ch:      make(chan []byte, packets),
+		maxSize: bytes,
+	}
+}
+
+func (p *packetsBuffer) Write(buf []byte) bool {
+	p.mtx.Lock()
+	if p.size+uint32(len(buf)) > p.maxSize {
+		p.mtx.Unlock()
+		return false
+	}
+	p.mtx.Unlock()
+
+	select {
+	case p.ch <- buf:
+		p.mtx.Lock()
+		p.size += uint32(len(buf))
+		p.mtx.Unlock()
+		return true
+	default:
+	}
+	return false
+}
+
+func (p *packetsBuffer) Read() []byte {
+	buf := <-p.ch
+	p.mtx.Lock()
+	p.size -= uint32(len(buf))
+	p.mtx.Unlock()
+	return buf
+}
+
 type SocketPcapConnection struct {
 	packetCounter uint64
-	writeChannel  chan []byte
+	writeChannel  *packetsBuffer
 	packetSent    uint64
 	packetDropped uint64
 }
@@ -34,7 +75,7 @@ type SocketPcap struct {
 
 func (s *SocketPcapConnection) Run(conn *net.UnixConn, sock *SocketPcap) {
 	for {
-		buf := <-s.writeChannel
+		buf := s.writeChannel.Read()
 		_, err := conn.Write(buf)
 		if err != nil {
 			if errors.Is(err, syscall.EPIPE) {
@@ -84,10 +125,10 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 		hdr = p.GetHeader()
 		hdr.PacketCounter = conn.packetCounter
 		conn.packetCounter++
-		select {
-		case conn.writeChannel <- copyBuf:
+
+		if conn.writeChannel.Write(copyBuf) {
 			conn.packetSent++
-		default:
+		} else {
 			conn.packetDropped++
 		}
 	}
@@ -95,11 +136,10 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 }
 
 func (s *SocketPcap) Connected(conn *net.UnixConn) {
-	ch := make(chan []byte, 256)
 	s.Lock()
 	defer s.Unlock()
 	c := &SocketPcapConnection{
-		writeChannel: ch,
+		writeChannel: newPacketsBuffer(16384, 64*1024*1024),
 	}
 	s.connections[conn] = c
 	go c.Run(conn, s)
