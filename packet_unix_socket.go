@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -66,6 +67,7 @@ type SocketPcapConnection struct {
 }
 
 type SocketPcap struct {
+	name             string
 	packetCounter    uint64
 	clientsConnected int
 	connections      map[*net.UnixConn]*SocketPcapConnection
@@ -116,7 +118,7 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 	if len(buf) > s.maxPktSize {
 		s.maxPktSize = len(buf)
 		// temorary logging
-		log.Info().Int("len", s.maxPktSize).Msg("Max packet size:")
+		log.Info().Str("Name", s.name).Int("len", s.maxPktSize).Msg("Max packet size:")
 	}
 	for _, conn := range s.connections {
 		copyBuf := make([]byte, len(buf))
@@ -159,6 +161,7 @@ func NewSocketPcap(unixSocketFileName string) *SocketPcap {
 	}
 
 	sock := SocketPcap{
+		name:        filepath.Base(unixSocketFileName),
 		connections: make(map[*net.UnixConn]*SocketPcapConnection),
 	}
 	go sock.acceptClients(l)
@@ -174,11 +177,11 @@ func (c *SocketPcap) acceptClients(l *net.UnixListener) {
 			time.Sleep(time.Second)
 			continue
 		}
-		log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Accepted unix socket:")
+		log.Info().Str("Name", c.name).Str("Address", conn.RemoteAddr().String()).Msg("Accepted unix socket:")
 
 		c.Lock()
 		if c.clientsConnected == maxUnixPacketClients {
-			log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Unix socket max connections exceeded, closing:")
+			log.Info().Str("Name", c.name).Str("Address", conn.RemoteAddr().String()).Msg("Unix socket max connections exceeded, closing:")
 			conn.Close()
 			c.Unlock()
 			continue
