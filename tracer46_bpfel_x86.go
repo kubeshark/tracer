@@ -19,6 +19,7 @@ type tracer46GoidOffsets struct {
 }
 
 type tracer46TlsChunk struct {
+	CgroupId    uint64
 	Pid         uint32
 	Tgid        uint32
 	Len         uint32

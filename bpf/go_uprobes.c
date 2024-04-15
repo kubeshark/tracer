@@ -335,7 +335,7 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, struct 
     info.address_info.saddr = address_info->saddr;
     info.address_info.sport = address_info->sport;
 
-    output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags);
+    output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, bpf_get_current_cgroup_id());
 
     return;
 }

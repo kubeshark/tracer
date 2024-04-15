@@ -104,7 +104,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, struct bpf_map_de
 		return;
 	}
 
-	output_ssl_chunk(ctx, &info, count_bytes, id, flags);
+	output_ssl_chunk(ctx, &info, count_bytes, id, flags, bpf_get_current_cgroup_id());
 }
 
 SEC("uprobe/ssl_write")

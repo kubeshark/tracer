@@ -27,6 +27,8 @@ var procfs = flag.String("procfs", "/proc", "The procfs directory, used when map
 var debug = flag.Bool("debug", false, "Enable debug mode")
 var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular buffer 0 means disabled, max value is %v", globCbufMax))
 
+var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
+
 var tracer *Tracer
 
 func main() {
@@ -49,7 +51,7 @@ func run() {
 
 	tracer = &Tracer{
 		procfs:       *procfs,
-		watchingPods: make(map[types.UID]*podWatcher),
+		watchingPods: make(map[types.UID][]*pidWatcher),
 	}
 
 	_, err := rest.InClusterConfig()

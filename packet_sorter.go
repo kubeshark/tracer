@@ -20,7 +20,10 @@ type SortedPacket struct {
 	Data []byte
 }
 
-func (s *PacketSorter) WritePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+func (s *PacketSorter) WriteTLSPacket(cgroupId uint64, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	if !s.cgroupEnabled {
+		cgroupId = 0
+	}
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
 		FixLengths:       true,
@@ -51,26 +54,51 @@ func (s *PacketSorter) WritePacket(firstLayerType gopacket.LayerType, l ...gopac
 		}
 	}
 
-	if s.socketPcap != nil {
-		err = s.socketPcap.WritePacket(buf)
+	if s.socketsTLS != nil {
+		err = s.socketsTLS.WritePacket(cgroupId, buf)
 	}
+
+	return
+}
+
+func (s *PacketSorter) WritePlanePacket(cgroupId uint64, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	if !s.cgroupEnabled {
+		cgroupId = 0
+	}
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+
+	err = gopacket.SerializeLayers(buf, opts, l...)
+	if err != nil {
+		log.Error().Err(err).Msg("Error serializing packet:")
+		return
+	}
+
+	err = s.socketsPlain.WritePacket(cgroupId, buf)
 
 	return
 }
 
 type PacketSorter struct {
 	cbufPcap      *CbufPcap
-	socketPcap    *SocketPcap
+	socketsTLS    *SocketPcap
+	socketsPlain  *SocketPcap
 	sortedPackets chan<- *SortedPacket
+	cgroupEnabled bool
 	writer        *pcapgo.Writer
 	sync.Mutex
 }
 
 func NewPacketSorter(
 	sortedPackets chan<- *SortedPacket,
+	cgroupEnabled bool,
 ) *PacketSorter {
 	s := &PacketSorter{
 		sortedPackets: sortedPackets,
+		cgroupEnabled: cgroupEnabled,
 	}
 
 	// pcap pipe is opens in sync mode, so do it in a separate goroutine
@@ -152,9 +180,8 @@ func (s *PacketSorter) initCbufPcap() {
 }
 
 func (s *PacketSorter) initSocketPcap() {
-	unixSocketFile := misc.GetPacketSocketPath()
-	_ = os.Remove(unixSocketFile)
-	s.socketPcap = NewSocketPcap(unixSocketFile)
+	s.socketsTLS = NewSocketPcap(misc.GetTLSSocketPath())
+	s.socketsPlain = NewSocketPcap(misc.GetPlainSocketPath())
 }
 
 func (s *PacketSorter) Close() {

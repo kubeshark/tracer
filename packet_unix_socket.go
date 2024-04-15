@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -16,14 +18,56 @@ const (
 	maxUnixPacketClients = 10
 )
 
+type packetsBuffer struct {
+	mtx     sync.Mutex
+	ch      chan []byte
+	maxSize uint32
+	size    uint32
+}
+
+func newPacketsBuffer(packets, bytes uint32) *packetsBuffer {
+	return &packetsBuffer{
+		ch:      make(chan []byte, packets),
+		maxSize: bytes,
+	}
+}
+
+func (p *packetsBuffer) Write(buf []byte) bool {
+	p.mtx.Lock()
+	if p.size+uint32(len(buf)) > p.maxSize {
+		p.mtx.Unlock()
+		return false
+	}
+	p.mtx.Unlock()
+
+	select {
+	case p.ch <- buf:
+		p.mtx.Lock()
+		p.size += uint32(len(buf))
+		p.mtx.Unlock()
+		return true
+	default:
+	}
+	return false
+}
+
+func (p *packetsBuffer) Read() []byte {
+	buf := <-p.ch
+	p.mtx.Lock()
+	p.size -= uint32(len(buf))
+	p.mtx.Unlock()
+	return buf
+}
+
 type SocketPcapConnection struct {
 	packetCounter uint64
-	writeChannel  chan []byte
+	writeChannel  *packetsBuffer
 	packetSent    uint64
 	packetDropped uint64
 }
 
 type SocketPcap struct {
+	name             string
 	packetCounter    uint64
 	clientsConnected int
 	connections      map[*net.UnixConn]*SocketPcapConnection
@@ -33,7 +77,7 @@ type SocketPcap struct {
 
 func (s *SocketPcapConnection) Run(conn *net.UnixConn, sock *SocketPcap) {
 	for {
-		buf := <-s.writeChannel
+		buf := s.writeChannel.Read()
 		_, err := conn.Write(buf)
 		if err != nil {
 			if errors.Is(err, syscall.EPIPE) {
@@ -47,7 +91,7 @@ func (s *SocketPcapConnection) Run(conn *net.UnixConn, sock *SocketPcap) {
 	}
 }
 
-func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
+func (s *SocketPcap) WritePacket(cgroupId uint64, pkt gopacket.SerializeBuffer) error {
 	s.Lock()
 	defer s.Unlock()
 	defer func() {
@@ -65,6 +109,7 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 	p := unixpacket.PacketUnixSocket(hdrBytes)
 	hdr := p.GetHeader()
 	hdr.Timestamp = uint64(time.Now().UnixNano())
+	hdr.CgroupID = cgroupId
 	// clear buffer at the end as soon as it is prepended with specific data
 	defer func() {
 		_ = pkt.Clear()
@@ -74,7 +119,7 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 	if len(buf) > s.maxPktSize {
 		s.maxPktSize = len(buf)
 		// temorary logging
-		log.Info().Int("len", s.maxPktSize).Msg("Max packet size:")
+		log.Info().Str("Name", s.name).Int("len", s.maxPktSize).Msg("Max packet size:")
 	}
 	for _, conn := range s.connections {
 		copyBuf := make([]byte, len(buf))
@@ -83,10 +128,10 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 		hdr = p.GetHeader()
 		hdr.PacketCounter = conn.packetCounter
 		conn.packetCounter++
-		select {
-		case conn.writeChannel <- copyBuf:
+
+		if conn.writeChannel.Write(copyBuf) {
 			conn.packetSent++
-		default:
+		} else {
 			conn.packetDropped++
 		}
 	}
@@ -94,11 +139,10 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 }
 
 func (s *SocketPcap) Connected(conn *net.UnixConn) {
-	ch := make(chan []byte, 256)
 	s.Lock()
 	defer s.Unlock()
 	c := &SocketPcapConnection{
-		writeChannel: ch,
+		writeChannel: newPacketsBuffer(16384, 64*1024*1024),
 	}
 	s.connections[conn] = c
 	go c.Run(conn, s)
@@ -111,12 +155,14 @@ func (s *SocketPcap) Disconnected(conn *net.UnixConn) {
 }
 
 func NewSocketPcap(unixSocketFileName string) *SocketPcap {
+	_ = os.Remove(unixSocketFileName)
 	l, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: unixSocketFileName, Net: "unixpacket"})
 	if err != nil {
 		panic(err)
 	}
 
 	sock := SocketPcap{
+		name:        filepath.Base(unixSocketFileName),
 		connections: make(map[*net.UnixConn]*SocketPcapConnection),
 	}
 	go sock.acceptClients(l)
@@ -132,11 +178,11 @@ func (c *SocketPcap) acceptClients(l *net.UnixListener) {
 			time.Sleep(time.Second)
 			continue
 		}
-		log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Accepted unix socket:")
+		log.Info().Str("Name", c.name).Str("Address", conn.RemoteAddr().String()).Msg("Accepted unix socket:")
 
 		c.Lock()
 		if c.clientsConnected == maxUnixPacketClients {
-			log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Unix socket max connections exceeded, closing:")
+			log.Info().Str("Name", c.name).Str("Address", conn.RemoteAddr().String()).Msg("Unix socket max connections exceeded, closing:")
 			conn.Close()
 			c.Unlock()
 			continue

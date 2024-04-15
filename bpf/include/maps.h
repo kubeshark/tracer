@@ -33,6 +33,7 @@ struct address_info {
 };
 
 struct tls_chunk {
+    __u32 cgroup_id;
     __u32 pid;
     __u32 tgid;
     __u32 len;
@@ -85,6 +86,44 @@ struct {
     __type(value, struct tls_chunk);
 } heap SEC(".maps");
 
+#define PKT_PART_LEN (4 * 1024)
+#define PKT_MAX_LEN (64 * 1024)
+struct pkt {
+    __u64 cgroup_id;
+    __u64 id;
+    __u16 num;
+    __u16 len;
+    __u16 last;
+    unsigned char buf[PKT_PART_LEN];
+};
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, struct pkt);
+} pkt_heap SEC(".maps");
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, __u64);
+} pkt_id SEC(".maps");
+
+
+struct pkt_flow {
+    __u32 size;
+    __u32 src_ip;
+    __u16 src_port;
+    __u8 proto;
+    __u8 pad;
+};
+
+struct pkt_data {
+    __u64 cgroup_id;
+    __u32 pad1;
+    __u16 rewrite_src_port;
+    __u16 pad2;
+};
 
 #define BPF_MAP(_name, _type, _key_type, _value_type, _max_entries)     \
     struct bpf_map_def SEC("maps") _name = {                            \
@@ -109,6 +148,7 @@ BPF_HASH(watch_pids_map, __u32, __u32);
 BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
+BPF_PERF_OUTPUT(pkts_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 
 // OpenSSL specific
@@ -123,5 +163,6 @@ BPF_LRU_HASH(go_kernel_write_context, __u64, __u32);
 BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
+BPF_LRU_HASH(pkt_context, struct pkt_flow, struct pkt_data);
 
 #endif /* __MAPS__ */

@@ -29,13 +29,13 @@ type tlsProbe interface {
 	Untarget(bpfObjects *tracerObjects) error
 }
 
-type podWatcher struct {
+type pidWatcher struct {
 	pid       uint32
 	tlsProbes []tlsProbe
 }
 
-func NewPodWatcher(procfs string, bpfObjects *tracerObjects, pid uint32) (*podWatcher, error) {
-	pw := podWatcher{
+func NewPodWatcher(procfs string, bpfObjects *tracerObjects, pid uint32) (*pidWatcher, error) {
+	pw := pidWatcher{
 		pid: pid,
 		tlsProbes: []tlsProbe{
 			&probesLibSsl{pid: pid},
@@ -54,7 +54,7 @@ func NewPodWatcher(procfs string, bpfObjects *tracerObjects, pid uint32) (*podWa
 	return &pw, nil
 }
 
-func (p *podWatcher) tryInstallProbes(procfs string, bpfObjects *tracerObjects) error {
+func (p *pidWatcher) tryInstallProbes(procfs string, bpfObjects *tracerObjects) error {
 	var activeTlsProbes []tlsProbe
 	for _, probe := range p.tlsProbes {
 		installed, err := probe.InstallProbes(procfs, bpfObjects)
@@ -69,7 +69,7 @@ func (p *podWatcher) tryInstallProbes(procfs string, bpfObjects *tracerObjects) 
 	return nil
 }
 
-func (p *podWatcher) Target(bpfObjects *tracerObjects) (err error) {
+func (p *pidWatcher) Target(bpfObjects *tracerObjects) (err error) {
 	for _, probe := range p.tlsProbes {
 		if err = probe.Target(bpfObjects); err != nil {
 			return
@@ -78,7 +78,7 @@ func (p *podWatcher) Target(bpfObjects *tracerObjects) (err error) {
 	return
 }
 
-func (p *podWatcher) Untarget(bpfObjects *tracerObjects) (err error) {
+func (p *pidWatcher) Untarget(bpfObjects *tracerObjects) (err error) {
 	for _, probe := range p.tlsProbes {
 		if err = probe.Untarget(bpfObjects); err != nil {
 			return
@@ -87,7 +87,7 @@ func (p *podWatcher) Untarget(bpfObjects *tracerObjects) (err error) {
 	return
 }
 
-func (p *podWatcher) RemoveProbes(bpfObjects *tracerObjects) (err error) {
+func (p *pidWatcher) RemoveProbes(bpfObjects *tracerObjects) (err error) {
 	for _, probe := range p.tlsProbes {
 		if err = probe.UninstallProbes(bpfObjects); err != nil {
 			return
