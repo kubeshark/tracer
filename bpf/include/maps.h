@@ -33,6 +33,7 @@ struct address_info {
 };
 
 struct tls_chunk {
+    __u32 cgroup_id;
     __u32 pid;
     __u32 tgid;
     __u32 len;
@@ -88,6 +89,7 @@ struct {
 #define PKT_PART_LEN (4 * 1024)
 #define PKT_MAX_LEN (64 * 1024)
 struct pkt {
+    __u64 cgroup_id;
     __u64 id;
     __u16 num;
     __u16 len;
@@ -116,6 +118,12 @@ struct pkt_flow {
     __u8 pad;
 };
 
+struct pkt_data {
+    __u64 cgroup_id;
+    __u32 pad1;
+    __u16 rewrite_src_port;
+    __u16 pad2;
+};
 
 #define BPF_MAP(_name, _type, _key_type, _value_type, _max_entries)     \
     struct bpf_map_def SEC("maps") _name = {                            \
@@ -155,6 +163,6 @@ BPF_LRU_HASH(go_kernel_write_context, __u64, __u32);
 BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
-BPF_LRU_HASH(pkt_context, struct pkt_flow, __u32);
+BPF_LRU_HASH(pkt_context, struct pkt_flow, struct pkt_data);
 
 #endif /* __MAPS__ */

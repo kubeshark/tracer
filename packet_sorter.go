@@ -20,7 +20,10 @@ type SortedPacket struct {
 	Data []byte
 }
 
-func (s *PacketSorter) WriteTLSPacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+func (s *PacketSorter) WriteTLSPacket(cgroupId uint64, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	if !s.cgroupEnabled {
+		cgroupId = 0
+	}
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
 		FixLengths:       true,
@@ -52,13 +55,16 @@ func (s *PacketSorter) WriteTLSPacket(firstLayerType gopacket.LayerType, l ...go
 	}
 
 	if s.socketsTLS != nil {
-		err = s.socketsTLS.WritePacket(buf)
+		err = s.socketsTLS.WritePacket(cgroupId, buf)
 	}
 
 	return
 }
 
-func (s *PacketSorter) WritePlanePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+func (s *PacketSorter) WritePlanePacket(cgroupId uint64, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	if !s.cgroupEnabled {
+		cgroupId = 0
+	}
 	buf := gopacket.NewSerializeBuffer()
 	opts := gopacket.SerializeOptions{
 		FixLengths:       true,
@@ -71,7 +77,7 @@ func (s *PacketSorter) WritePlanePacket(firstLayerType gopacket.LayerType, l ...
 		return
 	}
 
-	err = s.socketsPlain.WritePacket(buf)
+	err = s.socketsPlain.WritePacket(cgroupId, buf)
 
 	return
 }
@@ -81,15 +87,18 @@ type PacketSorter struct {
 	socketsTLS    *SocketPcap
 	socketsPlain  *SocketPcap
 	sortedPackets chan<- *SortedPacket
+	cgroupEnabled bool
 	writer        *pcapgo.Writer
 	sync.Mutex
 }
 
 func NewPacketSorter(
 	sortedPackets chan<- *SortedPacket,
+	cgroupEnabled bool,
 ) *PacketSorter {
 	s := &PacketSorter{
 		sortedPackets: sortedPackets,
+		cgroupEnabled: cgroupEnabled,
 	}
 
 	// pcap pipe is opens in sync mode, so do it in a separate goroutine

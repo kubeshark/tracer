@@ -120,7 +120,7 @@ func (t *Tracer) Init(
 	}
 
 	sortedPackets := make(chan *SortedPacket, misc.PacketChannelBufferSize)
-	sorter := NewPacketSorter(sortedPackets)
+	sorter := NewPacketSorter(sortedPackets, t.isCgroupV2)
 
 	t.poller, err = newTlsPoller(
 		t,

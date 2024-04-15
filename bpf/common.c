@@ -75,7 +75,7 @@ static __always_inline void send_chunk(struct pt_regs* ctx, __u8* buffer, __u64 
     }
 }
 
-static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags) {
+static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags, __u64 cgroup_id) {
     if (count_bytes > (CHUNK_SIZE * MAX_CHUNKS_PER_OPERATION)) {
         log_error(ctx, LOG_ERROR_BUFFER_TOO_BIG, id, count_bytes, 0l);
         return;
@@ -95,6 +95,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
     }
 
     chunk->flags = flags;
+    chunk->cgroup_id = cgroup_id;
     chunk->pid = id >> 32;
     chunk->tgid = id;
     chunk->len = count_bytes;

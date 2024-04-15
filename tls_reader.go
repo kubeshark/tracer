@@ -32,5 +32,5 @@ func NewTlsReader(tcpID *TcpID, parent *tlsStream, isClient bool) *tlsReader {
 func (r *tlsReader) newChunk(chunk *tracerTlsChunk) {
 	r.seenChunks = r.seenChunks + 1
 
-	r.parent.writeData(chunk.getRecordedData(), r)
+	r.parent.writeData(uint64(chunk.CgroupId), chunk.getRecordedData(), r) //XXX: uint64
 }

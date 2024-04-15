@@ -49,25 +49,25 @@ func (t *tlsStream) setId(id int64) {
 	t.id = id
 }
 
-func (t *tlsStream) doTcpHandshake() {
+func (t *tlsStream) doTcpHandshake(cgroupId uint64) {
 	data := []byte{}
 
 	// SYN
 	t.layers.tcp.SYN = true
-	t.writeLayers(data, true, 0)
+	t.writeLayers(cgroupId, data, true, 0)
 
 	// SYN-ACK
 	t.layers.swap()
 	t.layers.tcp.ACK = true
 	t.layers.tcp.Ack++
-	t.writeLayers(data, false, 0)
+	t.writeLayers(cgroupId, data, false, 0)
 
 	// ACK
 	t.layers.swap()
 	t.layers.tcp.SYN = false
 	t.layers.tcp.ACK = true
 	t.layers.tcp.Seq++
-	t.writeLayers(data, true, 0)
+	t.writeLayers(cgroupId, data, true, 0)
 
 	t.client.seqNumbers.Seq = 1
 	t.client.seqNumbers.Ack = 1
@@ -75,8 +75,8 @@ func (t *tlsStream) doTcpHandshake() {
 	t.server.seqNumbers.Ack = 1
 }
 
-func (t *tlsStream) writeData(data []byte, reader *tlsReader) {
-	t.setLayers(data, reader)
+func (t *tlsStream) writeData(cgroupId uint64, data []byte, reader *tlsReader) {
+	t.setLayers(cgroupId, data, reader)
 	t.layers.tcp.ACK = true
 	if reader.isClient {
 		t.layers.tcp.PSH = true
@@ -85,15 +85,16 @@ func (t *tlsStream) writeData(data []byte, reader *tlsReader) {
 	}
 	sentLen := uint32(len(data))
 	t.loadSecNumbers(reader.isClient)
-	t.writeLayers(data, reader.isClient, sentLen)
+	t.writeLayers(cgroupId, data, reader.isClient, sentLen)
 	t.layers.tcp.PSH = false
 	t.layers.swap()
 	t.loadSecNumbers(!reader.isClient)
-	t.writeLayers([]byte{}, !reader.isClient, 0)
+	t.writeLayers(cgroupId, []byte{}, !reader.isClient, 0)
 }
 
-func (t *tlsStream) writeLayers(data []byte, isClient bool, sentLen uint32) {
+func (t *tlsStream) writeLayers(cgroupId uint64, data []byte, isClient bool, sentLen uint32) {
 	t.writePacket(
+		cgroupId,
 		layers.LayerTypeEthernet,
 		t.layers.ethernet,
 		t.layers.ipv4,
@@ -103,9 +104,9 @@ func (t *tlsStream) writeLayers(data []byte, isClient bool, sentLen uint32) {
 	t.doTcpSeqAckWalk(isClient, sentLen)
 }
 
-func (t *tlsStream) writePacket(firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) {
+func (t *tlsStream) writePacket(cgroupId uint64, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) {
 
-	err := t.poller.sorter.WriteTLSPacket(firstLayerType, l...)
+	err := t.poller.sorter.WriteTLSPacket(cgroupId, firstLayerType, l...)
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")
 		return
@@ -134,7 +135,7 @@ func (t *tlsStream) doTcpSeqAckWalk(isClient bool, sentLen uint32) {
 	}
 }
 
-func (t *tlsStream) setLayers(data []byte, reader *tlsReader) {
+func (t *tlsStream) setLayers(cgroupId uint64, data []byte, reader *tlsReader) {
 	ipv4 := t.newIPv4Layer(reader)
 	tcp := t.newTCPLayer(reader)
 	err := tcp.SetNetworkLayerForChecksum(ipv4)
@@ -148,7 +149,7 @@ func (t *tlsStream) setLayers(data []byte, reader *tlsReader) {
 			ipv4:     ipv4,
 			tcp:      tcp,
 		}
-		t.doTcpHandshake()
+		t.doTcpHandshake(cgroupId)
 	} else {
 		t.layers.ipv4.SrcIP = ipv4.SrcIP
 		t.layers.ipv4.DstIP = ipv4.DstIP

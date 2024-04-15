@@ -91,7 +91,7 @@ func (s *SocketPcapConnection) Run(conn *net.UnixConn, sock *SocketPcap) {
 	}
 }
 
-func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
+func (s *SocketPcap) WritePacket(cgroupId uint64, pkt gopacket.SerializeBuffer) error {
 	s.Lock()
 	defer s.Unlock()
 	defer func() {
@@ -109,6 +109,7 @@ func (s *SocketPcap) WritePacket(pkt gopacket.SerializeBuffer) error {
 	p := unixpacket.PacketUnixSocket(hdrBytes)
 	hdr := p.GetHeader()
 	hdr.Timestamp = uint64(time.Now().UnixNano())
+	hdr.CgroupID = cgroupId
 	// clear buffer at the end as soon as it is prepended with specific data
 	defer func() {
 		_ = pkt.Clear()

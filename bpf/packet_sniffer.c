@@ -7,7 +7,7 @@
 
 #define ETH_P_IP	0x0800
 
-static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst);
+static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id);
 static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32* src_ip4, __u16* src_port, __u32* dst_ip4, __u16* dst_port, __u8* ipp);
 
 SEC("cgroup_skb/ingress")
@@ -15,7 +15,7 @@ int filter_ingress_packets(struct __sk_buff* skb) {
 
     int ret = parse_packet(skb, 0, NULL, NULL, NULL, NULL, NULL);
     if (ret) {
-        send_packet(skb, 0, 0, 0, 0, 0);
+        send_packet(skb, 0, 0, 0, 0, 0, bpf_skb_cgroup_id(skb));
     }
     return 1;
 }
@@ -28,16 +28,18 @@ int filter_egress_packets(struct __sk_buff* skb) {
     __u8 ip_proto = 0;
     int ret = parse_packet(skb, 0, &src_ip, &src_port, NULL, NULL, &ip_proto);
     if (ret) {
-        __u64 cookie = bpf_get_socket_cookie(skb);
-        __u32 zero = bpf_htons(skb->local_port & 0xffff);
         struct pkt_flow egress = {
             .src_ip = src_ip,
             .src_port = src_port,
-            .size = skb->len + 14,
+            .size = skb->len + sizeof(struct ethhdr),
             .proto = ip_proto,
             .pad = 0,
         };
-        bpf_map_update_elem(&pkt_context, &egress, &zero, BPF_ANY);
+        struct pkt_data data = {
+            .cgroup_id = bpf_skb_cgroup_id(skb),
+            .rewrite_src_port = bpf_htons(skb->local_port & 0xffff),
+        };
+        bpf_map_update_elem(&pkt_context, &egress, &data, BPF_ANY);
     }
     return 1;
 }
@@ -58,9 +60,9 @@ int packet_pull_ingress(struct __sk_buff* skb)
         egress.src_port = src_port;
         egress.proto = ip_proto;
 
-        __u32* zero = bpf_map_lookup_elem(&pkt_context, &egress);
-        if (zero) {
-            send_packet(skb, 14, 0, *zero, 0, 0);
+        struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
+        if (data) {
+            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id);
             bpf_map_delete_elem(&pkt_context, &egress);
         }
     }
@@ -76,7 +78,6 @@ int packet_pull_egress(struct __sk_buff* skb)
     __u16 src_port = 0;
     __u8 ip_proto = 0;
     int ret = parse_packet(skb, 1, &src_ip, &src_port, NULL, NULL, &ip_proto);
-    __u64 cookie = bpf_get_socket_cookie(skb);
     if (ret) {
         struct pkt_flow egress = { };
         egress.size = skb->len;
@@ -84,16 +85,16 @@ int packet_pull_egress(struct __sk_buff* skb)
         egress.src_port = src_port;
         egress.proto = ip_proto;
 
-        __u32* zero = bpf_map_lookup_elem(&pkt_context, &egress);
-        if (zero) {
-            send_packet(skb, 14, 0, *zero, 0, 0);
+        struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
+        if (data) {
+            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id);
             bpf_map_delete_elem(&pkt_context, &egress);
         }
     }
     return 0; // TC_ACT_OK
 }
 
-static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst) {
+static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id) {
     void* data = (void*)(long)skb->data;
     __u32 pkt_len = skb->len;
 
@@ -125,6 +126,7 @@ static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 4, 0l, 0l);
         return;
     }
+    p->cgroup_id = cgroup_id;
     p->id = *pkt_id_ptr;
     (*pkt_id_ptr)++;
 

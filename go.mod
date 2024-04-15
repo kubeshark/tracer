@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/gopacket v1.1.21
-	github.com/kubeshark/tracerproto v0.0.0-20240202162346-06f7e6156851
+	github.com/kubeshark/tracerproto v0.0.0-20240415100125-634f236e8134
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
 	github.com/vishvananda/netlink v1.1.0
