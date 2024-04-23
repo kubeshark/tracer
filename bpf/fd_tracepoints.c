@@ -59,7 +59,7 @@ static __always_inline void fd_tracepoints_handle_go(struct sys_enter_read_write
 
 SEC("tracepoint/syscalls/sys_enter_read")
 void sys_enter_read(struct sys_enter_read_write_ctx* ctx) {
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 
 	if (!should_watch(id >> 32)) {
 		return;
@@ -76,7 +76,7 @@ void sys_enter_read(struct sys_enter_read_write_ctx* ctx) {
 
 SEC("tracepoint/syscalls/sys_enter_write")
 void sys_enter_write(struct sys_enter_read_write_ctx* ctx) {
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 
 	if (!should_watch(id >> 32)) {
 		return;
@@ -93,7 +93,7 @@ void sys_enter_write(struct sys_enter_read_write_ctx* ctx) {
 
 SEC("tracepoint/syscalls/sys_exit_read")
 void sys_exit_read(struct sys_exit_read_write_ctx* ctx) {
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 	// Delete from go map. The value is not used after exiting this syscall.
 	// Keep value in openssl map.
 	bpf_map_delete_elem(&go_kernel_read_context, &id);
@@ -101,7 +101,7 @@ void sys_exit_read(struct sys_exit_read_write_ctx* ctx) {
 
 SEC("tracepoint/syscalls/sys_exit_write")
 void sys_exit_write(struct sys_exit_read_write_ctx* ctx) {
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 	// Delete from go map. The value is not used after exiting this syscall.
 	// Keep value in openssl map.
 	bpf_map_delete_elem(&go_kernel_write_context, &id);
