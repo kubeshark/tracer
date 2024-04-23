@@ -55,21 +55,27 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 		select {
 		case event := <-w.ResultChan():
 			if event.Object == nil {
-				return errors.New("error in kubeshark configmap watch")
+				continue
 			}
 
 			// Only consider the Added or Modified events
 			if event.Type != watch.Added && event.Type != watch.Modified {
-				return nil
+				continue
 			}
 
-			oldRegex := watcher.regex.String()
-			oldNamespaces := watcher.namespaces
+			var oldRegex string
+			var oldNamespaces []string
+			if watcher.regex != nil {
+				oldRegex = watcher.regex.String()
+			}
+			oldNamespaces = watcher.namespaces
 			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
 
 			// No change in pod regex or targeted namespaces
-			if watcher.regex.String() == oldRegex && strings.Join(watcher.namespaces, ",") == strings.Join(oldNamespaces, ",") {
-				return nil
+			if watcher.regex != nil {
+				if watcher.regex.String() == oldRegex && strings.Join(watcher.namespaces, ",") == strings.Join(oldNamespaces, ",") {
+					continue
+				}
 			}
 
 			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
