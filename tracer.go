@@ -58,7 +58,6 @@ type BpfObjectsImpl struct {
 }
 
 func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64) error {
-	const permUser = 0700
 	var err error
 	opts := ebpf.CollectionOptions{
 		Programs: ebpf.ProgramOptions{
@@ -136,7 +135,7 @@ func (t *Tracer) Init(
 			log.Warn().Err(err).Msg("Get host netns failed")
 		} else {
 			hostProcIno = fileInfo.Sys().(*syscall.Stat_t).Ino
-			log.Info().Uint64("ns", hostProcIno).Msg(fmt.Sprintf("Setting host ns"))
+			log.Info().Uint64("ns", hostProcIno).Msg("Setting host ns")
 		}
 
 		objs := &BpfObjectsImpl{}
