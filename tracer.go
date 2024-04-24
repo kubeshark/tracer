@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 
+	"bytes"
+	"os"
 	"strconv"
 	"syscall"
 
@@ -50,6 +52,44 @@ type pidOffset struct {
 	offset uint64
 }
 
+type BpfObjectsImpl struct {
+	bpfObjs tracerObjects
+	specs   *ebpf.CollectionSpec
+}
+
+func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64) error {
+	var err error
+	opts := ebpf.CollectionOptions{
+		Programs: ebpf.ProgramOptions{
+			LogSize: ebpf.DefaultVerifierLogSize * 32,
+		},
+	}
+
+	reader := bytes.NewReader(_TracerBytes)
+	objs.specs, err = ebpf.LoadCollectionSpecFromReader(reader)
+	if err != nil {
+		return err
+	}
+
+	consts := make(map[string]interface{})
+	for k, v := range bpfConstants {
+		consts[k] = v
+	}
+	err = objs.specs.RewriteConstants(consts)
+	if err != nil {
+		return err
+	}
+
+	err = objs.specs.LoadAndAssign(&objs.bpfObjs, &opts)
+	if err != nil {
+		var ve *ebpf.VerifierError
+		if errors.As(err, &ve) {
+			log.Error().Msg(fmt.Sprintf("Got verifier error: %+v", ve))
+		}
+	}
+	return err
+}
+
 func (t *Tracer) Init(
 	chunksBufferSize int,
 	logBufferSize int,
@@ -81,25 +121,34 @@ func (t *Tracer) Init(
 
 	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version: %v", kernelVersion, cgroupsVersion))
 
-	t.bpfObjects = tracerObjects{}
 	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
 	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
+		t.bpfObjects = tracerObjects{}
 		if err := loadTracer46Objects(&t.bpfObjects, nil); err != nil {
 			return errors.Wrap(err, 0)
 		}
 	} else {
-		opts := ebpf.CollectionOptions{
-			Programs: ebpf.ProgramOptions{
-				LogSize: ebpf.DefaultVerifierLogSize * 32,
-			},
+		var hostProcIno uint64
+		fileInfo, err := os.Stat("/hostproc/1/ns/pid")
+		if err != nil {
+			// services like "apparmor" on EKS can reject access to system pid information
+			log.Warn().Err(err).Msg("Get host netns failed")
+		} else {
+			hostProcIno = fileInfo.Sys().(*syscall.Stat_t).Ino
+			log.Info().Uint64("ns", hostProcIno).Msg("Setting host ns")
 		}
-		if err := loadTracerObjects(&t.bpfObjects, &opts); err != nil {
-			var ve *ebpf.VerifierError
-			if errors.As(err, &ve) {
-				log.Error().Msg(fmt.Sprintf("Got verifier error: %+v", ve))
-			}
-			return errors.Wrap(err, 0)
+
+		objs := &BpfObjectsImpl{}
+
+		bpfConsts := map[string]uint64{
+			"TRACER_NS_INO": hostProcIno,
 		}
+		err = objs.loadBpfObjects(bpfConsts)
+		if err != nil {
+			log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
+			return err
+		}
+		t.bpfObjects = objs.bpfObjs
 	}
 
 	t.syscallHooks = syscallHooks{}

@@ -25,6 +25,9 @@ type podInfo struct {
 var numberRegex = regexp.MustCompile("[0-9]+")
 
 func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error {
+	if t.packetFilter != nil {
+		t.packetFilter.update()
+	}
 	for _, pod := range removedTargetedPods {
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {

@@ -79,7 +79,7 @@ static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_pt
 static __always_inline void tcp_kprobe(struct pt_regs* ctx, struct bpf_map_def* map_fd_openssl, struct bpf_map_def* map_fd_go_kernel, struct bpf_map_def* map_fd_go_user_kernel) {
 	long err;
 
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 
 	if (!should_watch(id >> 32)) {
 		return;
@@ -108,12 +108,12 @@ static __always_inline void tcp_kprobe(struct pt_regs* ctx, struct bpf_map_def* 
 
 SEC("kprobe/tcp_sendmsg")
 void BPF_KPROBE(tcp_sendmsg) {
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 	tcp_kprobe(ctx, &openssl_write_context, &go_kernel_write_context, &go_user_kernel_write_context);
 }
 
 SEC("kprobe/tcp_recvmsg")
 void BPF_KPROBE(tcp_recvmsg) {
-	__u64 id = bpf_get_current_pid_tgid();
+	__u64 id = tracer_get_current_pid_tgid();
 	tcp_kprobe(ctx, &openssl_read_context, &go_kernel_read_context, &go_user_kernel_read_context);
 }
