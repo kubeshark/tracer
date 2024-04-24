@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 )
@@ -53,9 +55,28 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 		select {
 		case event := <-w.ResultChan():
 			if event.Object == nil {
-				return errors.New("error in kubeshark configmap watch")
+				continue
 			}
+
+			// Only consider the Added or Modified events
+			if event.Type != watch.Added && event.Type != watch.Modified {
+				continue
+			}
+
+			var oldRegex string
+			var oldNamespaces []string
+			if watcher.regex != nil {
+				oldRegex = watcher.regex.String()
+			}
+			oldNamespaces = watcher.namespaces
 			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
+
+			// No change in pod regex or targeted namespaces
+			if watcher.regex != nil {
+				if watcher.regex.String() == oldRegex && strings.Join(watcher.namespaces, ",") == strings.Join(oldNamespaces, ",") {
+					continue
+				}
+			}
 
 			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
 			if err != nil {
