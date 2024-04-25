@@ -1,3 +1,5 @@
+#ifndef NO_PACKET_SNIFFER
+
 #include "include/headers.h"
 #include "include/util.h"
 #include "include/maps.h"
@@ -252,3 +254,4 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
     return 6;
 }
 
+#endif // NO_PACKET_SNIFFER

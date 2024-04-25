@@ -11,6 +11,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
+	"github.com/jinzhu/copier"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
@@ -22,6 +23,7 @@ const GlobalWorkerPid = 0
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DNO_PACKET_SNIFFER" -type tls_chunk -type goid_offsets tracerNoSniff bpf/tracer.c
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
@@ -37,6 +39,7 @@ type Tracer struct {
 	packetFilter    *packetFilter
 	procfs          string
 	isCgroupV2      bool
+	pktSnifDisabled bool
 	watchingPods    map[types.UID][]*pidWatcher
 }
 
@@ -53,7 +56,7 @@ type pidOffset struct {
 }
 
 type BpfObjectsImpl struct {
-	bpfObjs tracerObjects
+	bpfObjs interface{}
 	specs   *ebpf.CollectionSpec
 }
 
@@ -80,11 +83,15 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64) error
 		return err
 	}
 
-	err = objs.specs.LoadAndAssign(&objs.bpfObjs, &opts)
+	err = objs.specs.LoadAndAssign(objs.bpfObjs, &opts)
 	if err != nil {
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
-			log.Error().Msg(fmt.Sprintf("Got verifier error: %+v", ve))
+			errStr := fmt.Sprintf("%+v", ve)
+			if len(errStr) > 1024 {
+				errStr = "(truncated) " + errStr[len(errStr)-1024:]
+			}
+			log.Warn().Msg(fmt.Sprintf("Got verifier error: %v", errStr))
 		}
 	}
 	return err
@@ -121,9 +128,9 @@ func (t *Tracer) Init(
 
 	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version: %v", kernelVersion, cgroupsVersion))
 
+	t.bpfObjects = tracerObjects{}
 	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
 	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
-		t.bpfObjects = tracerObjects{}
 		if err := loadTracer46Objects(&t.bpfObjects, nil); err != nil {
 			return errors.Wrap(err, 0)
 		}
@@ -138,17 +145,41 @@ func (t *Tracer) Init(
 			log.Info().Uint64("ns", hostProcIno).Msg("Setting host ns")
 		}
 
-		objs := &BpfObjectsImpl{}
+		objs := &BpfObjectsImpl{
+			bpfObjs: &tracerObjects{},
+		}
 
 		bpfConsts := map[string]uint64{
 			"TRACER_NS_INO": hostProcIno,
 		}
+
+		var ve *ebpf.VerifierError
 		err = objs.loadBpfObjects(bpfConsts)
+		if err == nil {
+			t.bpfObjects = *objs.bpfObjs.(*tracerObjects)
+		} else if err != nil && errors.As(err, &ve) {
+			t.pktSnifDisabled = true
+
+			objsNoSniff := &BpfObjectsImpl{
+				bpfObjs: &tracerNoSniffObjects{},
+			}
+			err = objsNoSniff.loadBpfObjects(bpfConsts)
+
+			if err == nil {
+				o := objsNoSniff.bpfObjs.(*tracerNoSniffObjects)
+				if err = copier.Copy(&t.bpfObjects.tracerPrograms, &o.tracerNoSniffPrograms); err != nil {
+					return err
+				}
+				if err = copier.Copy(&t.bpfObjects.tracerMaps, &o.tracerNoSniffMaps); err != nil {
+					return err
+				}
+			}
+		}
+
 		if err != nil {
 			log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
 			return err
 		}
-		t.bpfObjects = objs.bpfObjs
 	}
 
 	t.syscallHooks = syscallHooks{}
@@ -186,7 +217,7 @@ func (t *Tracer) Init(
 		return err
 	}
 
-	if !*disableEbpfCapture && cgroupsVersion == "2" {
+	if !*disableEbpfCapture && t.isCgroupV2 && !t.pktSnifDisabled {
 		t.packetFilter, err = newPacketFilter(t.bpfObjects.FilterIngressPackets, t.bpfObjects.FilterEgressPackets, t.bpfObjects.PacketPullIngress, t.bpfObjects.PacketPullEgress, t.bpfObjects.PktsBuffer)
 		if err != nil {
 			return err
