@@ -9,7 +9,7 @@
 
 #define ETH_P_IP	0x0800
 
-static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id);
+static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
 static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32* src_ip4, __u16* src_port, __u32* dst_ip4, __u16* dst_port, __u8* ipp);
 
 SEC("cgroup_skb/ingress")
@@ -17,7 +17,7 @@ int filter_ingress_packets(struct __sk_buff* skb) {
 
     int ret = parse_packet(skb, 0, NULL, NULL, NULL, NULL, NULL);
     if (ret) {
-        send_packet(skb, 0, 0, 0, 0, 0, bpf_skb_cgroup_id(skb));
+        send_packet(skb, 0, 0, 0, 0, 0, bpf_skb_cgroup_id(skb), PACKET_DIRECTION_RECEIVED);
     }
     return 1;
 }
@@ -64,7 +64,7 @@ int packet_pull_ingress(struct __sk_buff* skb)
 
         struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
         if (data) {
-            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id);
+            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_RECEIVED);
             bpf_map_delete_elem(&pkt_context, &egress);
         }
     }
@@ -89,14 +89,14 @@ int packet_pull_egress(struct __sk_buff* skb)
 
         struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
         if (data) {
-            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id);
+            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_SENT);
             bpf_map_delete_elem(&pkt_context, &egress);
         }
     }
     return 0; // TC_ACT_OK
 }
 
-static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id) {
+static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction) {
     void* data = (void*)(long)skb->data;
     __u32 pkt_len = skb->len;
 
@@ -129,6 +129,7 @@ static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u
         return;
     }
     p->cgroup_id = cgroup_id;
+    p->direction = direction;
     p->id = *pkt_id_ptr;
     (*pkt_id_ptr)++;
 

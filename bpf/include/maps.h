@@ -42,6 +42,7 @@ struct tls_chunk {
     __u32 fd;
     __u32 flags;
     struct address_info address_info;
+    __u8 direction;
     __u8 data[CHUNK_SIZE]; // Must be N^2
 };
 
@@ -88,14 +89,18 @@ struct {
 
 #define PKT_PART_LEN (4 * 1024)
 #define PKT_MAX_LEN (64 * 1024)
+#define PACKET_DIRECTION_RECEIVED 0
+#define PACKET_DIRECTION_SENT 1
 struct pkt {
     __u64 cgroup_id;
     __u64 id;
     __u16 num;
     __u16 len;
     __u16 last;
+    __u8 direction;
     unsigned char buf[PKT_PART_LEN];
 };
+
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
