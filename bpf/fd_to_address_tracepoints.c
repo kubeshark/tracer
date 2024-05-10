@@ -13,7 +13,7 @@ Copyright (C) Kubeshark
 #define IPV4_ADDR_LEN (16)
 
 struct accept_info {
-	__u32* addrlen;
+	uintptr_t addrlen;
 };
 
 BPF_HASH(accept_syscall_context, __u64, struct accept_info);
@@ -24,7 +24,7 @@ struct sys_enter_accept4_ctx {
 
 	__u64 fd;
 	__u64* sockaddr;
-	__u32* addrlen;
+	uintptr_t addrlen;
 };
 
 SEC("tracepoint/syscalls/sys_enter_accept4")
@@ -84,7 +84,7 @@ void sys_exit_accept4(struct sys_exit_accept4_ctx* ctx) {
 	}
 
 	__u32 addrlen;
-	bpf_probe_read(&addrlen, sizeof(__u32), info.addrlen);
+	bpf_probe_read(&addrlen, sizeof(__u32), (void*)info.addrlen);
 
 	if (addrlen != IPV4_ADDR_LEN) {
 		// Currently only ipv4 is supported linux-src/include/linux/inet.h

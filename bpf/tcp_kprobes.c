@@ -57,7 +57,7 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs*
 	return 0;
 }
 
-static __always_inline void tcp_kprobes_forward_go(struct pt_regs* ctx, __u64 id, __u32 fd, struct address_info address_info, struct bpf_map_def* map_fd_go_user_kernel) {
+static __always_inline void tcp_kprobes_forward_go(struct pt_regs* ctx, __u64 id, __u32 fd, struct address_info address_info, void* map_fd_go_user_kernel) {
 	__u32 pid = id >> 32;
 	__u64 key = (__u64)pid << 32 | fd;
 
@@ -76,7 +76,7 @@ static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_pt
 	info_ptr->address_info.sport = address_info.sport;
 }
 
-static __always_inline void tcp_kprobe(struct pt_regs* ctx, struct bpf_map_def* map_fd_openssl, struct bpf_map_def* map_fd_go_kernel, struct bpf_map_def* map_fd_go_user_kernel) {
+static __always_inline void tcp_kprobe(struct pt_regs* ctx, void* map_fd_openssl, void* map_fd_go_kernel, void* map_fd_go_user_kernel) {
 	long err;
 
 	__u64 id = tracer_get_current_pid_tgid();

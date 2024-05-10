@@ -12,9 +12,35 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type tracerAcceptInfo struct{ Addrlen uint64 }
+
+type tracerAddressInfo struct {
+	Family uint32
+	Saddr  uint32
+	Daddr  uint32
+	Sport  uint16
+	Dport  uint16
+}
+
+type tracerConnectInfo struct {
+	Fd      uint64
+	Addrlen uint32
+	_       [4]byte
+}
+
 type tracerGoidOffsets struct {
 	G_addrOffset uint64
 	GoidOffset   uint64
+}
+
+type tracerPidInfo struct {
+	SysFdOffset int64
+	IsInterface uint64
+}
+
+type tracerPidOffset struct {
+	Pid          uint64
+	SymbolOffset uint64
 }
 
 type tracerPkt struct {
@@ -27,6 +53,30 @@ type tracerPkt struct {
 	_        [2]byte
 }
 
+type tracerPktData struct {
+	CgroupId       uint64
+	Pad1           uint32
+	RewriteSrcPort uint16
+	Pad2           uint16
+}
+
+type tracerPktFlow struct {
+	Size    uint32
+	SrcIp   uint32
+	SrcPort uint16
+	Proto   uint8
+	Pad     uint8
+}
+
+type tracerSslInfo struct {
+	Buffer        uint64
+	BufferLen     uint32
+	Fd            uint32
+	CreatedAtNano uint64
+	AddressInfo   tracerAddressInfo
+	CountPtr      uint64
+}
+
 type tracerTlsChunk struct {
 	CgroupId    uint32
 	Pid         uint32
@@ -36,14 +86,8 @@ type tracerTlsChunk struct {
 	Recorded    uint32
 	Fd          uint32
 	Flags       uint32
-	AddressInfo struct {
-		Family uint32
-		Saddr  uint32
-		Daddr  uint32
-		Sport  uint16
-		Dport  uint16
-	}
-	Data [4096]uint8
+	AddressInfo tracerAddressInfo
+	Data        [4096]uint8
 }
 
 // loadTracer returns the embedded CollectionSpec for tracer.

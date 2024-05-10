@@ -39,7 +39,7 @@ static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info*
 	return countBytes;
 }
 
-static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, void* buffer, int num, struct bpf_map_def* map_fd, size_t* count_ptr) {
+static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t buffer, int num, void* map_fd, uintptr_t count_ptr) {
 	long err;
 
 	__u64 id = tracer_get_current_pid_tgid();
@@ -60,7 +60,7 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, void* buf
 	}
 }
 
-static __always_inline void ssl_uretprobe(struct pt_regs* ctx, struct bpf_map_def* map_fd, __u32 flags) {
+static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u32 flags) {
 	__u64 id = tracer_get_current_pid_tgid();
 
 	if (!should_target(id >> 32)) {
@@ -108,7 +108,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, struct bpf_map_de
 }
 
 SEC("uprobe/ssl_write")
-void BPF_KPROBE(ssl_write, void* ssl, void* buffer, int num) {
+void BPF_KPROBE(ssl_write, void* ssl, uintptr_t buffer, int num) {
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_write_context, 0);
 }
 
@@ -118,7 +118,7 @@ void BPF_KPROBE(ssl_ret_write) {
 }
 
 SEC("uprobe/ssl_read")
-void BPF_KPROBE(ssl_read, void* ssl, void* buffer, int num) {
+void BPF_KPROBE(ssl_read, void* ssl, uintptr_t buffer, int num) {
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_read_context, 0);
 }
 
@@ -128,7 +128,7 @@ void BPF_KPROBE(ssl_ret_read) {
 }
 
 SEC("uprobe/ssl_write_ex")
-void BPF_KPROBE(ssl_write_ex, void* ssl, void* buffer, size_t num, size_t* written) {
+void BPF_KPROBE(ssl_write_ex, void* ssl, uintptr_t buffer, size_t num, uintptr_t written) {
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_write_context, written);
 }
 
@@ -138,7 +138,7 @@ void BPF_KPROBE(ssl_ret_write_ex) {
 }
 
 SEC("uprobe/ssl_read_ex")
-void BPF_KPROBE(ssl_read_ex, void* ssl, void* buffer, size_t num, size_t* readbytes) {
+void BPF_KPROBE(ssl_read_ex, void* ssl, uintptr_t buffer, size_t num, uintptr_t readbytes) {
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_read_context, readbytes);
 }
 

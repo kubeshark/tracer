@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
@@ -20,6 +21,7 @@ import (
 type podInfo struct {
 	pids         []uint32
 	cgroupV2Path string
+	cgroupIDs    []uint64
 }
 
 var numberRegex = regexp.MustCompile("[0-9]+")
@@ -34,11 +36,15 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
 			}
 		}
-		pids, ok := t.watchingPods[pod.UID]
+		wInfo, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
-		for _, p := range pids {
+		for _, cID := range wInfo.cgroupIDs {
+			delete(t.targetedCgroupIDs, cID)
+		}
+
+		for _, p := range wInfo.tlsPids {
 			if err := p.Untarget(&t.bpfObjects); err != nil {
 				return err
 			}
@@ -47,11 +53,11 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	}
 
 	for _, pod := range removedWatchedPods {
-		pids, ok := t.watchingPods[pod.UID]
+		wInfo, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
-		for _, p := range pids {
+		for _, p := range wInfo.tlsPids {
 			if err := p.RemoveProbes(&t.bpfObjects); err != nil {
 				return err
 			}
@@ -76,9 +82,13 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 			continue
 		}
 
-		if _, ok := t.watchingPods[pod.UID]; ok {
+		if _, ok = t.watchingPods[pod.UID]; ok {
 			log.Error().Str("pod", pod.Name).Msg("pod already watched:")
 			continue
+		}
+
+		wInfo := &watchingPodsInfo{
+			cgroupIDs: pInfo.cgroupIDs,
 		}
 
 		for _, containerPid := range pInfo.pids {
@@ -92,8 +102,9 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 				continue
 			}
 
-			t.watchingPods[pod.UID] = append(t.watchingPods[pod.UID], pw)
+			wInfo.tlsPids = append(wInfo.tlsPids, pw)
 		}
+		t.watchingPods[pod.UID] = wInfo
 	}
 
 	for _, pod := range addedTargetedPods {
@@ -109,12 +120,15 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 			log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
 		}
 
-		pids, ok := t.watchingPods[pod.UID]
+		wInfo, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
+		for _, cID := range wInfo.cgroupIDs {
+			t.targetedCgroupIDs[cID] = struct{}{}
+		}
 
-		for _, p := range pids {
+		for _, p := range wInfo.tlsPids {
 			err := p.Target(&t.bpfObjects)
 			if err != nil {
 				log.Error().Err(err).Str("pod", pod.Name).Msg("target pod failed:")
@@ -146,7 +160,7 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2
 			continue
 		}
 
-		cgroup, cgroupV2Path, err := getProcessCgroup(procfs, pid.Name(), isCgroupV2)
+		cgroup, cgroupV2Path, cgroupIDs, err := getProcessCgroup(procfs, pid.Name(), containerIds, isCgroupV2)
 		if err != nil {
 			log.Debug().Err(err).Str("pid", pid.Name()).Msg("Couldn't get the cgroup of process.")
 			continue
@@ -174,6 +188,7 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod, isCgroupV2
 		pi := result[pod.UID]
 		pi.pids = append(pi.pids, uint32(pidNumber))
 		pi.cgroupV2Path = cgroupV2Path
+		pi.cgroupIDs = cgroupIDs
 	}
 
 	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Int("results", len(result)).Msg("discovering tls completed:")
@@ -199,7 +214,7 @@ func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
 	return result
 }
 
-func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (cgrouppath, cgroupV2Path string, err error) {
+func getProcessCgroup(procfs string, pid string, containerIds map[string]v1.Pod, isCgroupV2 bool) (cgrouppath, cgroupV2Path string, cgroupIDs []uint64, err error) {
 	fpath := fmt.Sprintf("%s/%s/cgroup", procfs, pid)
 
 	var bytes []byte
@@ -210,7 +225,7 @@ func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (cgrouppath, c
 	}
 
 	lines := strings.Split(string(bytes), "\n")
-	cgrouppath, cgroupV2Path = extractCgroup(lines, isCgroupV2)
+	cgrouppath, cgroupV2Path, cgroupIDs = extractCgroup(lines, isCgroupV2)
 
 	if strings.Contains(cgrouppath, "-") {
 		parts := strings.Split(cgrouppath, "-")
@@ -223,10 +238,11 @@ func getProcessCgroup(procfs string, pid string, isCgroupV2 bool) (cgrouppath, c
 	}
 
 	cgrouppath = normalizeCgroup(cgrouppath)
+
 	return
 }
 
-func extractCgroup(lines []string, isCgroupV2 bool) (cgroupPath string, cgroupV2Path string) {
+func extractCgroup(lines []string, isCgroupV2 bool) (cgroupPath string, cgroupV2Path string, cgroupIDs []uint64) {
 	if isCgroupV2 {
 		parts := lines
 		parts = strings.Split(parts[0], "/")
@@ -249,7 +265,37 @@ func extractCgroup(lines []string, isCgroupV2 bool) (cgroupPath string, cgroupV2
 				}
 				return nil
 			}
-			_ = filepath.WalkDir("/sys/fs/cgroup", walk)
+			cgroupPaths := []string{
+				"/sys/fs/cgroup/kubepods.slice",
+				"/sys/fs/cgroup/system.slice",
+				"/sys/fs/cgroup",
+			}
+			for _, cgroupPath := range cgroupPaths {
+				_ = filepath.WalkDir(cgroupPath, walk)
+				if cgroupV2Path != "" {
+					break
+				}
+			}
+		}
+		if cgroupV2Path != "" {
+			walkDir := func(path string, f os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if f.IsDir() {
+					stat, ok := f.Sys().(*syscall.Stat_t)
+					if !ok {
+						return fmt.Errorf("unable to get inode for directory %s", path)
+					}
+					cgroupIDs = append(cgroupIDs, stat.Ino)
+					return nil
+				}
+				return nil
+			}
+			err := filepath.Walk(cgroupV2Path, walkDir)
+			if err != nil {
+				log.Error().Err(err).Msg("walk cgroup fs failed:")
+			}
 		}
 		return
 	}

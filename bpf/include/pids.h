@@ -6,7 +6,7 @@ Copyright (C) Kubeshark
 #ifndef __PIDS__
 #define __PIDS__
 
-int _pid_in_map(struct bpf_map_def* pmap, __u32 pid) {
+int _pid_in_map(void* pmap, __u32 pid) {
 	__u32* shouldTarget = bpf_map_lookup_elem(pmap, &pid);
 
 	if (shouldTarget != NULL && *shouldTarget == 1) {

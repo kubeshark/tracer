@@ -174,7 +174,7 @@ static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ct
     return 0;
 }
 
-static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, struct bpf_map_def* go_context, enum ABI abi) {
+static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, void* go_context, enum ABI abi) {
     __u64 pid_tgid = tracer_get_current_pid_tgid();
     __u64 pid = pid_tgid >> 32;
     if (!should_target(pid)) {
@@ -210,10 +210,10 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, struct bpf
             return;
         }
         // We basically add 00 suffix to the hex address.
-        info.buffer = (void*)((long)info.buffer << 8);
+        info.buffer = ((long)info.buffer << 8);
     } else {
 #endif
-        info.buffer = (void*)GO_ABI_INTERNAL_PT_REGS_R4(ctx);
+        info.buffer = GO_ABI_INTERNAL_PT_REGS_R4(ctx);
 #if defined(bpf_target_x86)
     }
 #endif
@@ -250,7 +250,7 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, struct bpf
     return;
 }
 
-static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, struct bpf_map_def* go_context, struct bpf_map_def* go_user_kernel_context, __u32 flags, enum ABI abi) {
+static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* go_context, void* go_user_kernel_context, __u32 flags, enum ABI abi) {
     __u64 pid_tgid = tracer_get_current_pid_tgid();
     __u64 pid = pid_tgid >> 32;
     if (!should_target(pid)) {

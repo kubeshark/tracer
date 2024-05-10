@@ -29,7 +29,7 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
     return 1;
 }
 
-static __always_inline void send_chunk_part(struct pt_regs* ctx, __u8* buffer, __u64 id,
+static __always_inline void send_chunk_part(struct pt_regs* ctx, uintptr_t buffer, __u64 id,
     struct tls_chunk* chunk, int start, int end) {
     size_t recorded = MIN(end - start, sizeof(chunk->data));
 
@@ -44,10 +44,10 @@ static __always_inline void send_chunk_part(struct pt_regs* ctx, __u8* buffer, _
     //
     long err = 0;
     if (chunk->recorded == sizeof(chunk->data)) {
-        err = bpf_probe_read(chunk->data, sizeof(chunk->data), buffer + start);
+        err = bpf_probe_read(chunk->data, sizeof(chunk->data), (void*)(buffer + start));
     } else {
         recorded &= (sizeof(chunk->data) - 1); // Buffer must be N^2
-        err = bpf_probe_read(chunk->data, recorded, buffer + start);
+        err = bpf_probe_read(chunk->data, recorded, (void*)(buffer + start));
     }
 
     if (err != 0) {
@@ -58,7 +58,7 @@ static __always_inline void send_chunk_part(struct pt_regs* ctx, __u8* buffer, _
     bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU, chunk, sizeof(struct tls_chunk));
 }
 
-static __always_inline void send_chunk(struct pt_regs* ctx, __u8* buffer, __u64 id, struct tls_chunk* chunk) {
+static __always_inline void send_chunk(struct pt_regs* ctx, uintptr_t buffer, __u64 id, struct tls_chunk* chunk) {
     // ebpf loops must be bounded at compile time, we can't use (i < chunk->len / CHUNK_SIZE)
     //
     // 	https://lwn.net/Articles/794934/
@@ -115,7 +115,7 @@ static __always_inline struct ssl_info new_ssl_info() {
     return info;
 }
 
-static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, struct bpf_map_def* map_fd, __u64 pid_tgid) {
+static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, void* map_fd, __u64 pid_tgid) {
     struct ssl_info* infoPtr = bpf_map_lookup_elem(map_fd, &pid_tgid);
     struct ssl_info info = new_ssl_info();
 

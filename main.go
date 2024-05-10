@@ -50,8 +50,9 @@ func run() {
 	log.Info().Msg("Starting tracer...")
 
 	tracer = &Tracer{
-		procfs:       *procfs,
-		watchingPods: make(map[types.UID][]*pidWatcher),
+		procfs:            *procfs,
+		watchingPods:      make(map[types.UID]*watchingPodsInfo),
+		targetedCgroupIDs: map[uint64]struct{}{},
 	}
 
 	_, err := rest.InClusterConfig()

@@ -75,7 +75,7 @@ func (t *packetFilter) AttachPod(uuid, cgroupV2Path string) error {
 		return err
 	}
 	t.attachedPods[uuid] = [2]link.Link{lIngress, lEgress}
-	log.Info().Str("pod", uuid).Msg("Attaching pod:")
+	log.Info().Str("pod", uuid).Str("path", cgroupV2Path).Msg("Attaching pod:")
 
 	return nil
 }
