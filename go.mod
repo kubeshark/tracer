@@ -11,7 +11,7 @@ require (
 	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/gopacket v1.1.21
-	github.com/kubeshark/tracerproto v0.0.0-20240510063323-9f345e42791d
+	github.com/kubeshark/tracerproto v1.0.0
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
 	github.com/vishvananda/netlink v1.1.0
