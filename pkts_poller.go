@@ -15,12 +15,13 @@ import (
 )
 
 type tracerPktData struct {
-	CgroupID uint64
-	ID       uint64
-	Num      uint16
-	Len      uint16
-	Last     uint16
-	Data     [4096]uint8
+	CgroupID  uint64
+	ID        uint64
+	Num       uint16
+	Len       uint16
+	Last      uint16
+	Direction uint8
+	Data      [4096]uint8
 }
 
 type tracerPktChunk struct {
@@ -117,7 +118,7 @@ func (p *pktsPoller) handlePktChunk(chunk *tracerPktChunk) error {
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
 	pkts.len += uint32(ptr.Len)
 	if ptr.Last != 0 {
-		err := p.sorter.WritePlanePacket(ptr.CgroupID, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
+		err := p.sorter.WritePlanePacket(ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 		if err != nil {
 			return err
 		}
