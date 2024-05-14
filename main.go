@@ -57,6 +57,11 @@ func run() {
 	_, err := rest.InClusterConfig()
 	clusterMode := err == nil
 	errOut := make(chan error, 100)
+	go func() {
+		for err := range errOut {
+			log.Error().Err(err).Msg("watch failed:")
+		}
+	}()
 	watcher := kubernetes.NewFromInCluster(errOut, tracer.updateTargets)
 	ctx := context.Background()
 
