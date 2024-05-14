@@ -55,7 +55,8 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 		select {
 		case event := <-w.ResultChan():
 			if event.Object == nil {
-				continue
+				// watcher is closed, need recreate
+				return nil
 			}
 
 			// Only consider the Added or Modified events
