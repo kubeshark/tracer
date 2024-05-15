@@ -11,7 +11,7 @@ import (
 	"github.com/aquasecurity/libbpfgo/helpers"
 	_ "github.com/aquasecurity/tracee"
 	"github.com/aquasecurity/tracee/pkg/cmd/flags"
-	"github.com/aquasecurity/tracee/pkg/cmd/initialize"
+	"github.com/aquasecurity/tracee/pkg/cmd/initialize" //nolint - depend on generated code
 	"github.com/aquasecurity/tracee/pkg/config"
 	"github.com/aquasecurity/tracee/pkg/ebpf"
 	tracee "github.com/aquasecurity/tracee/pkg/ebpf"

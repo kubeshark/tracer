@@ -14,7 +14,7 @@ Copyright (C) Kubeshark
 static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info* info, __u64 id) {
 	int returnValue = PT_REGS_RC(ctx);
 
-	if (info->count_ptr == NULL) {
+	if (info->count_ptr == 0) {
 		// ssl_read and ssl_write return the number of bytes written/read
 		//
 		return returnValue;

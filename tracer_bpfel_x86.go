@@ -44,13 +44,14 @@ type tracerPidOffset struct {
 }
 
 type tracerPkt struct {
-	CgroupId uint64
-	Id       uint64
-	Num      uint16
-	Len      uint16
-	Last     uint16
-	Buf      [4096]uint8
-	_        [2]byte
+	CgroupId  uint64
+	Id        uint64
+	Num       uint16
+	Len       uint16
+	Last      uint16
+	Direction uint8
+	Buf       [4096]uint8
+	_         [1]byte
 }
 
 type tracerPktData struct {
@@ -87,7 +88,9 @@ type tracerTlsChunk struct {
 	Fd          uint32
 	Flags       uint32
 	AddressInfo tracerAddressInfo
+	Direction   uint8
 	Data        [4096]uint8
+	_           [3]byte
 }
 
 // loadTracer returns the embedded CollectionSpec for tracer.

@@ -44,13 +44,14 @@ type tracer46PidOffset struct {
 }
 
 type tracer46Pkt struct {
-	CgroupId uint64
-	Id       uint64
-	Num      uint16
-	Len      uint16
-	Last     uint16
-	Buf      [4096]uint8
-	_        [2]byte
+	CgroupId  uint64
+	Id        uint64
+	Num       uint16
+	Len       uint16
+	Last      uint16
+	Direction uint8
+	Buf       [4096]uint8
+	_         [1]byte
 }
 
 type tracer46PktData struct {
@@ -87,7 +88,9 @@ type tracer46TlsChunk struct {
 	Fd          uint32
 	Flags       uint32
 	AddressInfo tracer46AddressInfo
+	Direction   uint8
 	Data        [4096]uint8
+	_           [3]byte
 }
 
 // loadTracer46 returns the embedded CollectionSpec for tracer46.

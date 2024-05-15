@@ -64,8 +64,6 @@ type Connection struct {
 	packetDropped uint64
 }
 
-type connCb func(*net.UnixConn)
-
 type Socket struct {
 	name             string
 	counter          uint64

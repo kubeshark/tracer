@@ -9,14 +9,14 @@ import (
 )
 
 type SocketPcap struct {
-	Socket
+	*Socket
 	maxPktSize int
 }
 
 func NewSocketPcap(unixSocketFileName string) *SocketPcap {
 	s := NewSocket(unixSocketFileName)
 	return &SocketPcap{
-		Socket: *s,
+		Socket: s,
 	}
 }
 

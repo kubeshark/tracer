@@ -185,7 +185,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
 
     if (is_tc) {
         struct ethhdr* eth = (struct ethhdr*)cursor;
-        if (eth + 1 > data_end)
+        if (eth + 1 > (struct ethhdr*)data_end)
             return 1;
 
         cursor += sizeof(struct ethhdr);
@@ -195,7 +195,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
     if (skb->protocol == bpf_htons(ETH_P_IP)) {
 
         struct iphdr* ip = (struct iphdr*)cursor;
-        if (ip + 1 > data_end)
+        if (ip + 1 > (struct iphdr*)data_end)
             return 2;
 
         if (src_ip4) {
@@ -221,7 +221,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
         if (ip_proto == IPPROTO_TCP)
         {
             struct tcphdr* tcp = (struct tcphdr*)cursor;
-            if (tcp + 1 > data_end)
+            if (tcp + 1 > (struct tcphdr*)data_end)
                 return 5;
             if (src_port) {
                 *src_port = tcp->source;
@@ -240,7 +240,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
         if (ip_proto == IPPROTO_UDP)
         {
             struct udphdr* udp = (struct udphdr*)cursor;
-            if (udp + 1 > data_end)
+            if (udp + 1 > (struct udphdr*)data_end)
                 return 5;
             if (src_port) {
                 *src_port = udp->source;
