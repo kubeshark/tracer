@@ -42,3 +42,4 @@ jobs:
         with:
           version: latest
           args: --timeout=10m
+          go-version: '1.21'
