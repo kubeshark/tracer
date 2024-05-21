@@ -1,14 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 
 	"encoding/json"
+	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/aquasecurity/libbpfgo/helpers"
+	"github.com/aquasecurity/libbpfgo/helpers" //nolint
 	_ "github.com/aquasecurity/tracee"
 	"github.com/aquasecurity/tracee/pkg/cmd/flags"
 	"github.com/aquasecurity/tracee/pkg/cmd/initialize" //nolint - depend on generated code
@@ -31,16 +33,41 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const traceeLogFile = "/app/data/tracee.log"
+
 type systemEventsTracer struct {
 	tracee        *ebpf.Tracee
 	eventSocket   *socket.SocketEvent
 	checkCgroupID func(uint64) bool
 }
 
-func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer, error) {
+func processTraceLog() {
+	file, err := os.Open(traceeLogFile)
+	if err != nil {
+		log.Error().Err(err).Msg(fmt.Sprintf("open tracee log file failed: %v", traceeLogFile))
+		return
+	}
+	defer file.Close()
+	log.Info().Msg(fmt.Sprintf("opened tracee log file: %v", traceeLogFile))
 
-	//TODO: integrate tracee logger with existing logger
-	logFlags := []string{"info"}
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Info().Msg(fmt.Sprintf("tracee log: %v", line))
+	}
+}
+
+func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer, error) {
+	log.Info().Msg("tracee init started")
+
+	os.Remove(traceeLogFile)
+	err := syscall.Mkfifo(traceeLogFile, 0666)
+	if err != nil {
+		return nil, errors.WrapPrefix(err, "make traceee pipe", 0)
+	}
+	go processTraceLog()
+	logFlags := []string{"info", fmt.Sprintf("file:%v", traceeLogFile)}
 	logCfg, err := flags.PrepareLogger(logFlags, true)
 	if err != nil {
 		return nil, errors.WrapPrefix(err, "tracee logger", 0)
@@ -91,10 +118,6 @@ func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer
 		return nil, errors.WrapPrefix(err, "prepare cache", 0)
 	}
 	cfg.Cache = cache
-	if cfg.Cache != nil {
-		//TODO: log
-		fmt.Printf("Cache", "type", cfg.Cache.String())
-	}
 
 	procTreeFlags := []string{"none"}
 	procTree, err := flags.PrepareProcTree(procTreeFlags)
@@ -187,7 +210,6 @@ func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer
 		return nil, errors.WrapPrefix(err, "ftrace enabling", 0)
 	}
 	if !enabled {
-		//TODO: tracer logger
 		logger.Errorw("ftrace_enabled: ftrace is not enabled, kernel events won't be caught, make sure to enable it by executing echo 1 | sudo tee /proc/sys/kernel/ftrace_enabled")
 	}
 
@@ -201,9 +223,6 @@ func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer
 	if err != nil {
 		return nil, errors.WrapPrefix(err, "bpf object", 0)
 	}
-	//TODO: tracer logger
-	fmt.Printf("bpf objects loaded\n")
-	logger.Debugw("OSInfo", "security_lockdown", lockdown)
 
 	cfg.Output.ParseArguments = true
 	cfg.EngineConfig = engine.Config{
@@ -220,6 +239,8 @@ func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer
 	if err != nil {
 		return nil, errors.WrapPrefix(err, "tracee new", 0)
 	}
+
+	log.Info().Msg("tracee init completed")
 
 	return &systemEventsTracer{
 		tracee:        t,
@@ -279,6 +300,7 @@ func (t *systemEventsTracer) start() (err error) {
 					continue
 				}
 				log.Debug().Str("event", string(prettyJSON)).Msg("event received")
+				log.Info().Msg(fmt.Sprintf("sysevent: %v", string(prettyJSON))) //XXX
 				if err := t.eventSocket.WriteObject(event); err != nil {
 					log.Error().Err(err).Msg("Write object failed")
 				}
