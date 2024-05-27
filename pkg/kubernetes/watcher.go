@@ -55,6 +55,7 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 		case event := <-w.ResultChan():
 			if event.Object == nil {
 				// watcher is closed, need recreate
+				go watcher.infiniteErrorHandleRetryFunc(ctx, watcher.watchKubesharkConfigMap)
 				return nil
 			}
 
