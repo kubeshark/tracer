@@ -28,6 +28,7 @@ var debug = flag.Bool("debug", false, "Enable debug mode")
 var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular buffer 0 means disabled, max value is %v", globCbufMax))
 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
+var enableSyscallEvents = flag.Bool("enable-syscall", false, "Enable syscall events processing")
 
 var tracer *Tracer
 

@@ -264,8 +264,7 @@ func (t *systemEventsTracer) start() (err error) {
 		for {
 			select {
 			case event := <-stream.ReceiveEvents():
-				ch := t.checkCgroupID(uint64(event.CgroupID))
-				if !ch {
+				if !t.checkCgroupID(uint64(event.CgroupID)) {
 					continue
 				}
 
@@ -300,7 +299,7 @@ func (t *systemEventsTracer) start() (err error) {
 					continue
 				}
 				log.Debug().Str("event", string(prettyJSON)).Msg("event received")
-				log.Info().Msg(fmt.Sprintf("sysevent: %v", string(prettyJSON))) //XXX
+
 				if err := t.eventSocket.WriteObject(event); err != nil {
 					log.Error().Err(err).Msg("Write object failed")
 				}

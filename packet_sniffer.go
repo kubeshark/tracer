@@ -10,13 +10,22 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+type podLinks struct {
+	links map[string][2]link.Link
+}
+
+type attachedPods map[string]podLinks
+
+func (p *attachedPods) add(podUuid string, lIngress, lEgress link.Link) {
+}
+
 type packetFilter struct {
 	ingressFilterProgram *ebpf.Program
 	egressFilterProgram  *ebpf.Program
 	ingressPullProgram   *ebpf.Program
 	egressPullProgram    *ebpf.Program
-	attachedPods         map[string][2]link.Link
-	tcClient             TcClient
+	attachedPods map[string]*podLinks
+	tcClient     TcClient
 }
 
 func newPacketFilter(ingressFilterProgram, egressFilterProgram, pullIngress, pullEgress *ebpf.Program, pktsRingBuffer *ebpf.Map) (*packetFilter, error) {
@@ -29,8 +38,8 @@ func newPacketFilter(ingressFilterProgram, egressFilterProgram, pullIngress, pul
 		egressFilterProgram:  egressFilterProgram,
 		ingressPullProgram:   pullIngress,
 		egressPullProgram:    pullEgress,
-		attachedPods:         make(map[string][2]link.Link),
-		tcClient:             tcClient,
+		attachedPods: make(map[string]*podLinks),
+		tcClient:     tcClient,
 	}
 	pf.update()
 	return pf, nil
@@ -74,7 +83,12 @@ func (t *packetFilter) AttachPod(uuid, cgroupV2Path string) error {
 		lIngress.Close()
 		return err
 	}
-	t.attachedPods[uuid] = [2]link.Link{lIngress, lEgress}
+	if t.attachedPods[uuid] == nil {
+		t.attachedPods[uuid] = &podLinks{
+			links: make(map[string][2]link.Link),
+		}
+	}
+	t.attachedPods[uuid].links[cgroupV2Path] = [2]link.Link{lIngress, lEgress}
 	log.Info().Str("pod", uuid).Str("path", cgroupV2Path).Msg("Attaching pod:")
 
 	return nil
@@ -86,8 +100,10 @@ func (t *packetFilter) DetachPod(uuid string) error {
 	if !ok {
 		return fmt.Errorf("pod not attached")
 	}
-	p[0].Close()
-	p[1].Close()
+	for _, l := range p.links {
+		l[0].Close()
+		l[1].Close()
+	}
 	delete(t.attachedPods, uuid)
 	return nil
 }
