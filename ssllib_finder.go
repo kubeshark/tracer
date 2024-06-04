@@ -46,8 +46,18 @@ func findLibraryByPid(procfs string, pid uint32, libraryName string) (string, er
 
 		fpath := parts[5]
 
-		if libraryName != "" && !strings.Contains(fpath, libraryName) {
-			continue
+		if libraryName != "" {
+			found := strings.Contains(fpath, libraryName)
+
+			for _, name := range sslLibsGlobal {
+				if found {
+					break
+				}
+				found = strings.Contains(fpath, name)
+			}
+			if !found {
+				continue
+			}
 		}
 
 		fullpath := fmt.Sprintf("%v/%v/root%v", procfs, pid, fpath)
