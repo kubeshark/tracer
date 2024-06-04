@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	_ "github.com/aquasecurity/libbpfgo"
 	"github.com/aquasecurity/libbpfgo/helpers" //nolint
 	_ "github.com/aquasecurity/tracee"
 	"github.com/aquasecurity/tracee/pkg/cmd/flags"

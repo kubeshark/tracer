@@ -41,5 +41,5 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
-          args: --timeout=10m
+          args: --timeout=10m -v
           go-version: '^1.21'
