@@ -30,6 +30,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y \
+            sudo \
             libpcap-dev \
             llvm \
             libbpf-dev \
