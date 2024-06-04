@@ -30,6 +30,7 @@ jobs:
           sudo apt install -y \
             libpcap-dev \
             llvm \
+            libbpf-dev \
             libelf-dev \
             linux-headers-$(uname -r)
           ./install-capstone.sh
