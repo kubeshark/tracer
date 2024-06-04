@@ -36,8 +36,6 @@ jobs:
             libelf-dev \
             linux-headers-$(uname -r)
           ./install-capstone.sh
-#          sudo chown -R $USER:$USER $GITHUB_WORKSPACE
-#          ./install-libbpf.sh
 
       - name: Generate eBPF object files and Go bindings
         run: make bpf
