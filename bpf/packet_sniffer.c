@@ -1,48 +1,5 @@
 #ifndef NO_PACKET_SNIFFER
 
-/*
-    -------------------------------------------------------------------------------
-                            Simplified packet flow diagram
-
-           eth0 ingress│                                 ▲ eth0 egress
-                       │                                 │
-                       │                                 │
-                       │                                 │
-                       │                                 │
-        tc/ingress hook│                                 │tc/egress hook
-                       │                                 │
-                       │                                 │
-                       │                                 │
-                       │                                 │
-cgroup_skb/ingress hook│                                 │cgroup_skb/egress hook
-                       │                                 │
-                       │                                 │
-                       │                                 │
-                       ▼                                 │
-
-                                k8s applications
-
-    --------------------------------------------------------------------------------
-
-    Two types of hooks are in use:
-    1. tc/ to hook on each kubernetes network interface
-    2. cgroup_skb/ to hook on each targeted cgroup
-
-    Each hook type attached into ingress and egrees parts.
-
-    cgroup_skb programs :
-    - cgroup_skb/ingress program exports incoming packet with 'received' flag onto perf buffer
-    - cgroup_skb/egress program saves ip/port information into the map, the packet expected to be exported into perf buffer once it get into tc/egress
-
-    tc programs :
-    - use bpf_skb_pull_data bpf helper to load whole payload into sk_buf. Without that call kernel loads only first 1500 bytes
-    - export packets with overrided (from cgroup_skb/) ports into perf buffers
-
-    References:
-    https://docs.cilium.io/en/stable/bpf/#bpf-guide
-
-*/
-
 #include "include/headers.h"
 #include "include/util.h"
 #include "include/maps.h"
@@ -50,48 +7,17 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 #include "include/logger_messages.h"
 #include "include/common.h"
 
-/*
-    defining ENABLE_TRACE_PACKETS enables tracing into kernel cyclic buffer
-    which can be fetched on a host system with `cat /sys/kernel/debug/tracing/trace_pipe`
-*/
-
-// #define ENABLE_TRACE_PACKETS
-
-#ifdef ENABLE_TRACE_PACKETS
-#define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID) \
-    bpf_printk("PKT "NAME" len: %d ret: %d, cgroup: %d", (IS_CGROUP?(skb->len+14):skb->len), ret, CGROUP_ID); \
-    bpf_printk("PKT "NAME" ip_local: 0x%x ip_remote: 0x%x", bpf_ntohl(LOCAL_IP), bpf_ntohl(REMOTE_IP)); \
-    bpf_printk("PKT "NAME" port_local: %d port_remote: %d", bpf_ntohl(LOCAL_PORT), bpf_ntohl(REMOTE_PORT)); \
-    bpf_printk("PKT "NAME" port_local: 0x%x port_remote: 0x%x", bpf_ntohl(LOCAL_PORT), bpf_ntohl(REMOTE_PORT)); \
-    if (IS_CGROUP) { \
-        bpf_printk("PKT "NAME" ip_src: 0x%x ip_dst: 0x%x", bpf_ntohl(src_ip), bpf_ntohl(dst_ip)); \
-        bpf_printk("PKT "NAME" port_src: %d port_dst: %d", bpf_ntohl(src_port), bpf_ntohl(dst_port)); \
-    }
-#define TRACE_PACKET_SENT(NAME) \
-        bpf_printk("PKT "NAME" sent");
-#else
-#define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID) \
-    src_ip; dst_ip; src_port; dst_port;
-#define TRACE_PACKET_SENT(NAME)
-#endif
-
 #define ETH_P_IP	0x0800
 
-static __always_inline void save_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
+static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
 static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32* src_ip4, __u16* src_port, __u32* dst_ip4, __u16* dst_port, __u8* ipp);
 
 SEC("cgroup_skb/ingress")
 int filter_ingress_packets(struct __sk_buff* skb) {
 
-    __u32 src_ip = 0;
-    __u16 src_port = 0;
-    __u32 dst_ip = 0;
-    __u16 dst_port = 0;
-    int ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, NULL);
+    int ret = parse_packet(skb, 0, NULL, NULL, NULL, NULL, NULL);
     if (ret) {
-        TRACE_PACKET("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, bpf_skb_cgroup_id(skb));
-        save_packet(skb, 0, 0, 0, 0, 0, bpf_skb_cgroup_id(skb), PACKET_DIRECTION_RECEIVED);
-        TRACE_PACKET_SENT("cg/in");
+        send_packet(skb, 0, 0, 0, 0, 0, bpf_skb_cgroup_id(skb), PACKET_DIRECTION_RECEIVED);
     }
     return 1;
 }
@@ -102,11 +28,8 @@ int filter_egress_packets(struct __sk_buff* skb) {
     __u32 src_ip = 0;
     __u16 src_port = 0;
     __u8 ip_proto = 0;
-    __u32 dst_ip = 0;
-    __u16 dst_port = 0;
-    int ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
+    int ret = parse_packet(skb, 0, &src_ip, &src_port, NULL, NULL, &ip_proto);
     if (ret) {
-        TRACE_PACKET("cg/eg", true, skb->local_ip4, skb->remote_ip4, bpf_htons(skb->local_port & 0xffff), skb->remote_port & 0xffff, bpf_skb_cgroup_id(skb));
         struct pkt_flow egress = {
             .src_ip = src_ip,
             .src_port = src_port,
@@ -130,28 +53,24 @@ int packet_pull_ingress(struct __sk_buff* skb)
 
     __u32 src_ip = 0;
     __u16 src_port = 0;
-    __u32 dst_ip = 0;
-    __u16 dst_port = 0;
     __u8 ip_proto = 0;
     int ret = parse_packet(skb, 1, &src_ip, &src_port, NULL, NULL, &ip_proto);
     if (ret) {
-        TRACE_PACKET("tc/in", false, dst_ip, src_ip, dst_port, src_port, 0);
         struct pkt_flow egress = { };
         egress.size = skb->len;
         egress.src_ip = src_ip;
         egress.src_port = src_port;
         egress.proto = ip_proto;
 
-        // in some cases packet after "cgroup_skb/egress" misses "tc/egress" part and get passed here to "tc/ingress"
         struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
         if (data) {
-            save_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_RECEIVED);
+            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_RECEIVED);
             bpf_map_delete_elem(&pkt_context, &egress);
-            TRACE_PACKET_SENT("tc/in");
         }
     }
     return 0; //TC_ACT_OK
 }
+
 
 SEC("tc/egress")
 int packet_pull_egress(struct __sk_buff* skb)
@@ -159,12 +78,9 @@ int packet_pull_egress(struct __sk_buff* skb)
     bpf_skb_pull_data(skb, skb->len);
     __u32 src_ip = 0;
     __u16 src_port = 0;
-    __u32 dst_ip = 0;
-    __u16 dst_port = 0;
     __u8 ip_proto = 0;
     int ret = parse_packet(skb, 1, &src_ip, &src_port, NULL, NULL, &ip_proto);
     if (ret) {
-        TRACE_PACKET("tc/eg", false, src_ip, dst_ip, src_port, dst_port, 0);
         struct pkt_flow egress = { };
         egress.size = skb->len;
         egress.src_ip = src_ip;
@@ -173,50 +89,14 @@ int packet_pull_egress(struct __sk_buff* skb)
 
         struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
         if (data) {
-            save_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_SENT);
+            send_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_SENT);
             bpf_map_delete_elem(&pkt_context, &egress);
-            TRACE_PACKET_SENT("tc/eg");
         }
     }
     return 0; // TC_ACT_OK
 }
 
-struct pkt_sniffer_ctx {
-    struct __sk_buff* skb;
-    __u32 offset;
-    __u32 rewrite_ip_src;
-    __u16 rewrite_port_src;
-    __u32 rewrite_ip_dst;
-    __u16 rewrite_port_dst;
-    __u64 cgroup_id;
-    __u8 direction;
-};
-
-static __noinline void _save_packet(struct pkt_sniffer_ctx* ctx);
-static __always_inline void save_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction) {
-    struct pkt_sniffer_ctx ctx = {
-        .skb = skb,
-        .rewrite_ip_src = rewrite_ip_src,
-        .rewrite_port_src = rewrite_port_src,
-        .rewrite_ip_dst = rewrite_ip_dst,
-        .rewrite_port_dst = rewrite_port_dst,
-        .cgroup_id = cgroup_id,
-        .direction = direction,
-    };
-    return _save_packet(&ctx);
-}
-
-// mark _save_packet as _noinline to make BPF-to-BPF call
-static __noinline void _save_packet(struct pkt_sniffer_ctx* ctx) {
-    struct __sk_buff* skb = ctx->skb;
-    __u32 offset = ctx->offset;
-    __u32 rewrite_ip_src = ctx->rewrite_ip_src;
-    __u16 rewrite_port_src = ctx->rewrite_port_src;
-    __u32 rewrite_ip_dst = ctx->rewrite_ip_dst;
-    __u16 rewrite_port_dst = ctx->rewrite_port_dst;
-    __u64 cgroup_id = ctx->cgroup_id;
-    __u8 direction = ctx->direction;
-
+static __always_inline void send_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction) {
     void* data = (void*)(long)skb->data;
     __u32 pkt_len = skb->len;
 
@@ -298,11 +178,6 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx* ctx) {
     }
 }
 
-/* parse_packet identifies TLS packet
-  retuns:
-  0 in case packet has TCP source or destination port equal to 443 - in this case packet is treated as TLS and not going to be processed
-  not 0 in other cases
-*/
 static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32* src_ip4, __u16* src_port, __u32* dst_ip4, __u16* dst_port, __u8* ipp) {
     void* data = (void*)(long)skb->data;
     void* data_end = (void*)(long)skb->data_end;
