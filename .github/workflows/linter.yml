@@ -35,6 +35,7 @@ jobs:
             build-essential \
             xz-utils \
             libpcap-dev \
+            clang \
             llvm \
             libbpf-dev \
             libelf-dev
