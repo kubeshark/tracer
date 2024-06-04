@@ -6,6 +6,7 @@ import (
 	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
@@ -29,9 +30,22 @@ var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular 
 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 
+type sslListArray []string
+
+func (i *sslListArray) String() string {
+	return strings.Join((*i)[:], ",")
+}
+func (i *sslListArray) Set(value string) error {
+	*i = append(*i, value)
+	return nil
+}
+
+var sslLibsGlobal sslListArray
+
 var tracer *Tracer
 
 func main() {
+	flag.Var(&sslLibsGlobal, "ssl-libname", "Custom libssl library name")
 	flag.Parse()
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
