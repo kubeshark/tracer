@@ -34,7 +34,7 @@ jobs:
             libpcap-dev \
             llvm \
             libbpf-dev \
-            libelf-dev \
+            libelf-dev
           ./install-capstone.sh
 
       - name: Generate eBPF object files and Go bindings
