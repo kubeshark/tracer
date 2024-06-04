@@ -31,6 +31,9 @@ jobs:
           apt update
           apt install -y \
             sudo \
+            curl \
+            build-essential \
+            xz-utils \
             libpcap-dev \
             llvm \
             libbpf-dev \
