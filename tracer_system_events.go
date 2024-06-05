@@ -10,8 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	_ "github.com/aquasecurity/libbpfgo"
-	"github.com/aquasecurity/libbpfgo/helpers" //nolint
+	"github.com/aquasecurity/libbpfgo/helpers"
 	_ "github.com/aquasecurity/tracee"
 	"github.com/aquasecurity/tracee/pkg/cmd/flags"
 	"github.com/aquasecurity/tracee/pkg/cmd/initialize" //nolint - depend on generated code
