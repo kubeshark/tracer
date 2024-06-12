@@ -25,6 +25,7 @@ type Watcher struct {
 	clientSet     *kubernetes.Clientset
 	regex         *regexp.Regexp
 	namespaces    []string
+	bpfOverride   string
 	isStarted     bool
 	lastUpdatedAt string
 	errOut        chan error
@@ -63,9 +64,9 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 				continue
 			}
 
-			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
+			watcher.regex, watcher.namespaces, watcher.bpfOverride = SyncConfig(event.Object.(*v1.ConfigMap))
 
-			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
+			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.bpfOverride, watcher.callback)
 			if err != nil {
 				log.Error().Err(err).Send()
 			}
