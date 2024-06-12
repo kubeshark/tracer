@@ -15,9 +15,10 @@ const (
 	SUFFIX_CONFIG_MAP = "config-map"
 	CONFIG_POD_REGEX  = "POD_REGEX"
 	CONFIG_NAMESPACES = "NAMESPACES"
+	CONFIG_BPF_OVERRIDE = "BPF_OVERRIDE"
 )
 
-func SyncConfig(configMap *v1.ConfigMap) (*regexp.Regexp, []string) {
+func SyncConfig(configMap *v1.ConfigMap) (*regexp.Regexp, []string, string) {
 	configPodRegex := configMap.Data[CONFIG_POD_REGEX]
 	regex, err := regexp.Compile(configPodRegex)
 	if err != nil {
@@ -26,8 +27,9 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp.Regexp, []string) {
 
 	configNamespaces := configMap.Data[CONFIG_NAMESPACES]
 	namespaces := strings.Split(configNamespaces, ",")
+	bpfOverride := configMap.Data[CONFIG_BPF_OVERRIDE]
 
-	return regex, namespaces
+	return regex, namespaces, bpfOverride
 }
 
 func GetThisNodeName(watcher *Watcher) (name string, err error) {
