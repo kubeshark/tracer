@@ -162,7 +162,7 @@ int packet_pull_egress(struct __sk_buff* skb)
     __u32 dst_ip = 0;
     __u16 dst_port = 0;
     __u8 ip_proto = 0;
-    int ret = parse_packet(skb, 1, &src_ip, &src_port, NULL, NULL, &ip_proto);
+    int ret = parse_packet(skb, 1, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
     if (ret) {
         TRACE_PACKET("tc/eg", false, src_ip, dst_ip, src_port, dst_port, 0);
         struct pkt_flow egress = { };
@@ -196,6 +196,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx* ctx);
 static __always_inline void save_packet(struct __sk_buff* skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction) {
     struct pkt_sniffer_ctx ctx = {
         .skb = skb,
+        .offset = offset,
         .rewrite_ip_src = rewrite_ip_src,
         .rewrite_port_src = rewrite_port_src,
         .rewrite_ip_dst = rewrite_ip_dst,
