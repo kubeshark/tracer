@@ -60,13 +60,10 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 #ifdef ENABLE_TRACE_PACKETS
 #define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID) \
     bpf_printk("PKT "NAME" len: %d ret: %d, cgroup: %d", (IS_CGROUP?(skb->len+14):skb->len), ret, CGROUP_ID); \
-    bpf_printk("PKT "NAME" ip_local: 0x%x ip_remote: 0x%x", bpf_ntohl(LOCAL_IP), bpf_ntohl(REMOTE_IP)); \
-    bpf_printk("PKT "NAME" port_local: %d port_remote: %d", bpf_ntohl(LOCAL_PORT), bpf_ntohl(REMOTE_PORT)); \
-    bpf_printk("PKT "NAME" port_local: 0x%x port_remote: 0x%x", bpf_ntohl(LOCAL_PORT), bpf_ntohl(REMOTE_PORT)); \
-    if (IS_CGROUP) { \
-        bpf_printk("PKT "NAME" ip_src: 0x%x ip_dst: 0x%x", bpf_ntohl(src_ip), bpf_ntohl(dst_ip)); \
-        bpf_printk("PKT "NAME" port_src: %d port_dst: %d", bpf_ntohl(src_port), bpf_ntohl(dst_port)); \
-    }
+    bpf_printk("PKT "NAME" ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP)); \
+    {__u32 __port_local = bpf_ntohl(LOCAL_PORT); __u32 __port_remote= bpf_ntohl(REMOTE_PORT);bpf_printk("PKT "NAME" port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);} \
+    bpf_printk("PKT "NAME" ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip)); \
+    {__u32 __src_port = bpf_ntohl(src_port); __u32 __dst_port= bpf_ntohl(dst_port);bpf_printk("PKT "NAME" port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port); }
 #define TRACE_PACKET_SENT(NAME) \
         bpf_printk("PKT "NAME" sent");
 #else
@@ -133,7 +130,7 @@ int packet_pull_ingress(struct __sk_buff* skb)
     __u32 dst_ip = 0;
     __u16 dst_port = 0;
     __u8 ip_proto = 0;
-    int ret = parse_packet(skb, 1, &src_ip, &src_port, NULL, NULL, &ip_proto);
+    int ret = parse_packet(skb, 1, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
     if (ret) {
         TRACE_PACKET("tc/in", false, dst_ip, src_ip, dst_port, src_port, 0);
         struct pkt_flow egress = { };
@@ -164,7 +161,7 @@ int packet_pull_egress(struct __sk_buff* skb)
     __u8 ip_proto = 0;
     int ret = parse_packet(skb, 1, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
     if (ret) {
-        TRACE_PACKET("tc/eg", false, src_ip, dst_ip, src_port, dst_port, 0);
+        TRACE_PACKET("tc/eg", false, src_ip, dst_ip, src_port, dst_port, bpf_skb_cgroup_id(skb));
         struct pkt_flow egress = { };
         egress.size = skb->len;
         egress.src_ip = src_ip;
