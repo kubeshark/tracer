@@ -41,3 +41,7 @@ func GetTLSSocketPath() string {
 func GetPlainSocketPath() string {
 	return fmt.Sprintf("%s/plain.unix", GetDataDir())
 }
+
+func GetEventSocketPath() string {
+	return fmt.Sprintf("%s/event.unix", GetDataDir())
+}

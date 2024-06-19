@@ -28,19 +28,25 @@ const GlobalWorkerPid = 0
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
-	bpfObjects      tracerObjects
-	syscallHooks    syscallHooks
-	tcpKprobeHooks  tcpKprobeHooks
-	sslHooksStructs []sslHooks
-	goHooksStructs  []goHooks
-	poller          *tlsPoller
-	pktsPoller      *pktsPoller
-	bpfLogger       *bpfLogger
-	packetFilter    *packetFilter
-	procfs          string
-	isCgroupV2      bool
-	pktSnifDisabled bool
-	watchingPods    map[types.UID][]*pidWatcher
+	bpfObjects        tracerObjects
+	syscallHooks      syscallHooks
+	tcpKprobeHooks    tcpKprobeHooks
+	sslHooksStructs   []sslHooks
+	goHooksStructs    []goHooks
+	poller            *tlsPoller
+	pktsPoller        *pktsPoller
+	bpfLogger         *bpfLogger
+	packetFilter      *packetFilter
+	procfs            string
+	isCgroupV2        bool
+	pktSnifDisabled   bool
+	watchingPods      map[types.UID]*watchingPodsInfo
+	targetedCgroupIDs map[uint64]struct{}
+}
+
+type watchingPodsInfo struct {
+	tlsPids   []*pidWatcher
+	cgroupIDs []uint64
 }
 
 // struct pid_info from maps.h
@@ -116,17 +122,12 @@ func (t *Tracer) Init(
 		return err
 	}
 
-	cgroupsVersion := "1"
-	const cgroupV2MagicNumber = 0x63677270
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/sys/fs/cgroup/", &stat); err != nil {
+	t.isCgroupV2, err = isCgroupV2()
+	if err != nil {
 		log.Error().Err(err).Msg("read cgroups information failed:")
-	} else if stat.Type == cgroupV2MagicNumber {
-		t.isCgroupV2 = true
-		cgroupsVersion = "2"
 	}
 
-	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version: %v", kernelVersion, cgroupsVersion))
+	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v", kernelVersion, t.isCgroupV2))
 
 	t.bpfObjects = tracerObjects{}
 	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
@@ -159,6 +160,7 @@ func (t *Tracer) Init(
 			t.bpfObjects = *objs.bpfObjs.(*tracerObjects)
 		} else if err != nil && errors.As(err, &ve) {
 			t.pktSnifDisabled = true
+			log.Warn().Msg(fmt.Sprintf("eBPF packets capture is disabled"))
 
 			objsNoSniff := &BpfObjectsImpl{
 				bpfObjs: &tracerNoSniffObjects{},
@@ -234,7 +236,25 @@ func (t *Tracer) Init(
 		}
 	}
 
+	// Despite tracee works in both cgroup V1 and V2
+	// run it only for V2 as soon as syscall events can be filtered for V2 only
+	if t.isCgroupV2 && *enableSyscallEvents {
+		systemEventsTracer, err := newSystemEventsTracer(t.checkCgroupID)
+		if err != nil {
+			log.Error().Err(err).Msg("System events tracer create failed")
+		} else {
+			if err = systemEventsTracer.start(); err != nil {
+				log.Error().Err(err).Msg("System events tracer start failed")
+			}
+		}
+	}
+
 	return nil
+}
+
+func (t *Tracer) checkCgroupID(cID uint64) bool {
+	_, ok := t.targetedCgroupIDs[cID]
+	return ok
 }
 
 func (t *Tracer) poll(streamsMap *TcpStreamMap) {

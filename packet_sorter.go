@@ -12,6 +12,7 @@ import (
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/socket"
 	"github.com/rs/zerolog/log"
 )
 
@@ -84,8 +85,8 @@ func (s *PacketSorter) WritePlanePacket(cgroupId uint64, pktDirection uint8, fir
 
 type PacketSorter struct {
 	cbufPcap      *CbufPcap
-	socketsTLS    *SocketPcap
-	socketsPlain  *SocketPcap
+	socketsTLS    *socket.SocketPcap
+	socketsPlain  *socket.SocketPcap
 	sortedPackets chan<- *SortedPacket
 	cgroupEnabled bool
 	writer        *pcapgo.Writer
@@ -180,8 +181,8 @@ func (s *PacketSorter) initCbufPcap() {
 }
 
 func (s *PacketSorter) initSocketPcap() {
-	s.socketsTLS = NewSocketPcap(misc.GetTLSSocketPath())
-	s.socketsPlain = NewSocketPcap(misc.GetPlainSocketPath())
+	s.socketsTLS = socket.NewSocketPcap(misc.GetTLSSocketPath())
+	s.socketsPlain = socket.NewSocketPcap(misc.GetPlainSocketPath())
 }
 
 func (s *PacketSorter) Close() {

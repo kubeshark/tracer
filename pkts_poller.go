@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type tracerPktData struct {
+type tracerPacketsData struct {
 	CgroupID  uint64
 	ID        uint64
 	Num       uint16
@@ -96,7 +96,7 @@ func (p *pktsPoller) handlePktChunk(chunk *tracerPktChunk) error {
 	if len(data) != expectedChunkSize {
 		return fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
 	}
-	ptr := (*tracerPktData)(unsafe.Pointer(&data[0]))
+	ptr := (*tracerPacketsData)(unsafe.Pointer(&data[0]))
 
 	pkts, ok := p.pktsMap[chunk.cpu]
 	if !ok {
