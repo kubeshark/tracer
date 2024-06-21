@@ -59,7 +59,7 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 
 #ifdef ENABLE_TRACE_PACKETS
 #define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID) \
-    bpf_printk("PKT "NAME" len: %d ret: %d, cgroup: %d", (IS_CGROUP?(skb->len+14):skb->len), ret, CGROUP_ID); \
+    bpf_printk("PKT "NAME" len: %d ret: %d, cgroup: %d cookie:0x%x", (IS_CGROUP?(skb->len+14):skb->len), ret, CGROUP_ID, bpf_get_socket_cookie(skb)); \
     bpf_printk("PKT "NAME" ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP)); \
     {__u32 __port_local = bpf_ntohl(LOCAL_PORT); __u32 __port_remote= bpf_ntohl(REMOTE_PORT);bpf_printk("PKT "NAME" port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);} \
     bpf_printk("PKT "NAME" ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip)); \
