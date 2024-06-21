@@ -16,9 +16,6 @@ type podInfo struct {
 }
 
 func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error {
-	if t.packetFilter != nil {
-		t.packetFilter.update()
-	}
 	for _, pod := range removedTargetedPods {
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
@@ -63,6 +60,10 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	containerPids, err := findContainerPids(t.procfs, containerIds)
 	if err != nil {
 		return err
+	}
+
+	if t.packetFilter != nil {
+		t.packetFilter.update(t.procfs, containerPids)
 	}
 
 	for _, pod := range addedWatchedPods {
