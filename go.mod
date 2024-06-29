@@ -10,6 +10,7 @@ require (
 	github.com/aquasecurity/tracee v0.20.0
 	github.com/aquasecurity/tracee/types v0.0.0-20240429153945-99bc47ed5c38
 	github.com/cilium/ebpf v0.12.3
+	github.com/dlclark/regexp2 v1.11.0
 	github.com/florianl/go-tc v0.4.3
 	github.com/go-errors/errors v1.4.2
 	github.com/hashicorp/golang-lru v0.5.4
@@ -20,6 +21,7 @@ require (
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
+	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	golang.org/x/sys v0.18.0
 	k8s.io/api v0.28.3
 	k8s.io/apimachinery v0.28.3
@@ -110,7 +112,6 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tchap/go-patricia/v2 v2.3.1 // indirect
 	github.com/urfave/cli/v2 v2.3.0 // indirect
-	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/yashtewari/glob-intersection v0.1.0 // indirect

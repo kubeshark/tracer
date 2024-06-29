@@ -3,8 +3,8 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"regexp"
 
+	"github.com/dlclark/regexp2"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,7 +77,7 @@ func IsPodRunning(pod *v1.Pod) bool {
 	return pod.Status.Phase == v1.PodRunning
 }
 
-func listPodsImpl(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp.Regexp, namespaces []string, listOptions metav1.ListOptions) ([]v1.Pod, error) {
+func listPodsImpl(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp2.Regexp, namespaces []string, listOptions metav1.ListOptions) ([]v1.Pod, error) {
 	var pods []v1.Pod
 	for _, namespace := range namespaces {
 		namespacePods, err := clientSet.CoreV1().Pods(namespace).List(ctx, listOptions)
@@ -90,18 +90,22 @@ func listPodsImpl(ctx context.Context, clientSet *kubernetes.Clientset, regex *r
 
 	matchingPods := make([]v1.Pod, 0)
 	for _, pod := range pods {
-		if regex.MatchString(pod.Name) {
+		matched, err := regex.MatchString(pod.Name)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
 			matchingPods = append(matchingPods, pod)
 		}
 	}
 	return matchingPods, nil
 }
 
-func listAllPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp.Regexp, namespaces []string) ([]v1.Pod, error) {
+func listAllPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp2.Regexp, namespaces []string) ([]v1.Pod, error) {
 	return listPodsImpl(ctx, clientSet, regex, namespaces, metav1.ListOptions{})
 }
 
-func listAllRunningPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp.Regexp, namespaces []string) ([]v1.Pod, error) {
+func listAllRunningPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp2.Regexp, namespaces []string) ([]v1.Pod, error) {
 	pods, err := listAllPodsMatchingRegex(ctx, clientSet, regex, namespaces)
 	if err != nil {
 		return nil, err
@@ -116,12 +120,12 @@ func listAllRunningPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.
 	return matchingPods, nil
 }
 
-var regexAllPods = regexp.MustCompile(`.*`)
+var regexAllPods = regexp2.MustCompile(`.*`, regexp2.Multiline)
 
 func updateCurrentlyTargetedPods(
 	ctx context.Context,
 	clientSet *kubernetes.Clientset,
-	regex *regexp.Regexp,
+	regex *regexp2.Regexp,
 	namespaces []string,
 	callback callbackPodsChanged,
 ) (err error) {

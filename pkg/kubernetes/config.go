@@ -3,9 +3,9 @@ package kubernetes
 import (
 	"context"
 	"errors"
-	"regexp"
 	"strings"
 
+	"github.com/dlclark/regexp2"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,9 +17,9 @@ const (
 	CONFIG_NAMESPACES = "NAMESPACES"
 )
 
-func SyncConfig(configMap *v1.ConfigMap) (*regexp.Regexp, []string) {
+func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string) {
 	configPodRegex := configMap.Data[CONFIG_POD_REGEX]
-	regex, err := regexp.Compile(configPodRegex)
+	regex, err := regexp2.Compile(configPodRegex, regexp2.Multiline)
 	if err != nil {
 		log.Error().Err(err).Str("config", CONFIG_POD_REGEX).Send()
 	}

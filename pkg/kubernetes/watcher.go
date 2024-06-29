@@ -3,8 +3,8 @@ package kubernetes
 import (
 	"context"
 	"errors"
-	"regexp"
 
+	"github.com/dlclark/regexp2"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,7 +23,7 @@ const (
 type Watcher struct {
 	clientConfig  *restclient.Config
 	clientSet     *kubernetes.Clientset
-	regex         *regexp.Regexp
+	regex         *regexp2.Regexp
 	namespaces    []string
 	isStarted     bool
 	lastUpdatedAt string
