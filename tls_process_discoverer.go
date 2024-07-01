@@ -50,17 +50,15 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		delete(t.watchingPods, types.UID(pod.UID))
 	}
 
-	var containerIds map[string]string
-	{
-		for _, pod := range addedWatchedPods {
-			for _, containerId := range pod.ContainerIDs {
-				containerIds[containerId] = string(pod.UID)
-			}
+	containerIds := make(map[string]string)
+	for _, pod := range addedWatchedPods {
+		for _, containerId := range pod.ContainerIDs {
+			containerIds[containerId] = pod.UID
 		}
-		for _, pod := range addedTargetedPods {
-			for _, containerId := range pod.ContainerIDs {
-				containerIds[containerId] = string(pod.UID)
-			}
+	}
+	for _, pod := range addedTargetedPods {
+		for _, containerId := range pod.ContainerIDs {
+			containerIds[containerId] = pod.UID
 		}
 	}
 
