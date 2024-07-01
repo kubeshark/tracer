@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
 	"io/fs"
 	"os"
 	"path"
@@ -12,8 +11,9 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/rs/zerolog/log"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -31,7 +31,7 @@ type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }
 
-func NewTracerCgroup(procfs string, containerIds map[string]v1.Pod) (*tracerCgroup, error) {
+func NewTracerCgroup(procfs string, containerIds map[string]string) (*tracerCgroup, error) {
 
 	tc := &tracerCgroup{
 		pidsInfo: make(map[uint32]pidInformation),
@@ -60,7 +60,7 @@ func NewTracerCgroup(procfs string, containerIds map[string]v1.Pod) (*tracerCgro
 	return tc, nil
 }
 
-func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerIds map[string]v1.Pod) error {
+func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerIds map[string]string) error {
 	cgroupPaths := make(map[string][]uint32)
 
 	for _, pid := range pids {
@@ -94,14 +94,14 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 		containerId := parts[0]
 
 		// filter by ContainerID:
-		pod, ok := containerIds[containerId]
+		podUID, ok := containerIds[containerId]
 		if !ok {
 			continue
 		}
 
 		cgroupPaths[normalyzeCgroupV2Path(cgroupPath)] = append(cgroupPaths[normalyzeCgroupV2Path(cgroupPath)], uint32(n))
 
-		pInfo.podId = pod.UID
+		pInfo.podId = types.UID(podUID)
 
 		t.pidsInfo[uint32(n)] = pInfo
 	}
@@ -150,7 +150,7 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 	return nil
 }
 
-func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerIds map[string]v1.Pod) error {
+func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerIds map[string]string) error {
 
 	for _, pid := range pids {
 		if !numberRegex.MatchString(pid.Name()) {
@@ -194,12 +194,12 @@ func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerId
 
 		cgroupPath = normalizeCgroup(cgroupPath)
 
-		pod, ok := containerIds[cgroupPath]
+		podUID, ok := containerIds[cgroupPath]
 		if !ok {
 			continue
 		}
 
-		pInfo.podId = pod.UID
+		pInfo.podId = types.UID(podUID)
 
 		t.pidsInfo[uint32(n)] = pInfo
 	}

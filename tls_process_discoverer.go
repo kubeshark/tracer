@@ -1,12 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"github.com/rs/zerolog/log"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"net/url"
 	"os"
+
+	"github.com/kubeshark/api"
+	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type podInfo struct {
@@ -15,14 +14,14 @@ type podInfo struct {
 	cgroupIDs    []uint64
 }
 
-func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error {
+func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedPods []api.TargetPod, addedTargetedPods []api.TargetPod, removedTargetedPods []api.TargetPod) error {
 	for _, pod := range removedTargetedPods {
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
 				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
 			}
 		}
-		wInfo, ok := t.watchingPods[pod.UID]
+		wInfo, ok := t.watchingPods[types.UID(pod.UID)]
 		if !ok {
 			continue
 		}
@@ -39,7 +38,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	}
 
 	for _, pod := range removedWatchedPods {
-		wInfo, ok := t.watchingPods[pod.UID]
+		wInfo, ok := t.watchingPods[types.UID(pod.UID)]
 		if !ok {
 			continue
 		}
@@ -48,10 +47,22 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 				return err
 			}
 		}
-		delete(t.watchingPods, pod.UID)
+		delete(t.watchingPods, types.UID(pod.UID))
 	}
 
-	containerIds := buildContainerIdsMap(append(addedWatchedPods, addedTargetedPods...))
+	var containerIds map[string]string
+	{
+		for _, pod := range addedWatchedPods {
+			for _, containerId := range pod.ContainerIDs {
+				containerIds[containerId] = string(pod.UID)
+			}
+		}
+		for _, pod := range addedTargetedPods {
+			for _, containerId := range pod.ContainerIDs {
+				containerIds[containerId] = string(pod.UID)
+			}
+		}
+	}
 
 	if len(containerIds) == 0 {
 		return nil
@@ -67,12 +78,12 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	}
 
 	for _, pod := range addedWatchedPods {
-		pInfo, ok := containerPids[pod.UID]
+		pInfo, ok := containerPids[types.UID(pod.UID)]
 		if !ok {
 			continue
 		}
 
-		if _, ok = t.watchingPods[pod.UID]; ok {
+		if _, ok = t.watchingPods[types.UID(pod.UID)]; ok {
 			log.Error().Str("pod", pod.Name).Msg("pod already watched:")
 			continue
 		}
@@ -94,11 +105,11 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 
 			wInfo.tlsPids = append(wInfo.tlsPids, pw)
 		}
-		t.watchingPods[pod.UID] = wInfo
+		t.watchingPods[types.UID(pod.UID)] = wInfo
 	}
 
 	for _, pod := range addedTargetedPods {
-		pInfo, ok := containerPids[pod.UID]
+		pInfo, ok := containerPids[types.UID(pod.UID)]
 		if !ok {
 			continue
 		}
@@ -110,7 +121,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 			log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
 		}
 
-		wInfo, ok := t.watchingPods[pod.UID]
+		wInfo, ok := t.watchingPods[types.UID(pod.UID)]
 		if !ok {
 			continue
 		}
@@ -131,7 +142,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	return nil
 }
 
-func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[types.UID]*podInfo, error) {
+func findContainerPids(procfs string, containerIds map[string]string) (map[types.UID]*podInfo, error) {
 	result := make(map[types.UID]*podInfo)
 
 	pids, err := os.ReadDir(procfs)
@@ -150,22 +161,4 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[types
 	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Int("results", len(result)).Msg("discovering tls completed:")
 
 	return result, nil
-}
-
-func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
-	result := make(map[string]v1.Pod)
-
-	for _, pod := range pods {
-		for _, container := range pod.Status.ContainerStatuses {
-			parsedUrl, err := url.Parse(container.ContainerID)
-			if err != nil {
-				log.Warn().Msg(fmt.Sprintf("Expecting URL like container ID %v", container.ContainerID))
-				continue
-			}
-
-			result[parsedUrl.Host] = pod
-		}
-	}
-
-	return result
 }

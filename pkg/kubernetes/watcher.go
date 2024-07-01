@@ -65,7 +65,7 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 
 			watcher.regex, watcher.namespaces = SyncConfig(event.Object.(*v1.ConfigMap))
 
-			err = updateCurrentlyTargetedPods(ctx, watcher.clientSet, watcher.regex, watcher.namespaces, watcher.callback)
+			err = updateCurrentlyTargetedPods(watcher.callback)
 			if err != nil {
 				log.Error().Err(err).Send()
 			}
