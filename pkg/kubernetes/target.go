@@ -82,7 +82,7 @@ func updateCurrentlyTargetedPods(
 	}
 
 	addedWatchedPods, removedWatchedPods := getPodArrayDiff(GetAllTargetPods(), newAllTargetPods)
-	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetSelectedTargetPods(), newAllTargetPods)
+	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetSelectedTargetPods(), newSelectedTargetPods)
 
 	SetAllTargetPods(newAllTargetPods)
 	SetSelectedTargetPods(newSelectedTargetPods)
