@@ -31,7 +31,7 @@ type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }
 
-func NewTracerCgroup(procfs string, containerIds map[string]string) (*tracerCgroup, error) {
+func NewTracerCgroup(procfs string, containerIds map[string]types.UID) (*tracerCgroup, error) {
 
 	tc := &tracerCgroup{
 		pidsInfo: make(map[uint32]pidInformation),
@@ -60,7 +60,7 @@ func NewTracerCgroup(procfs string, containerIds map[string]string) (*tracerCgro
 	return tc, nil
 }
 
-func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerIds map[string]string) error {
+func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerIds map[string]types.UID) error {
 	cgroupPaths := make(map[string][]uint32)
 
 	for _, pid := range pids {
@@ -101,7 +101,7 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 
 		cgroupPaths[normalyzeCgroupV2Path(cgroupPath)] = append(cgroupPaths[normalyzeCgroupV2Path(cgroupPath)], uint32(n))
 
-		pInfo.podId = types.UID(podUID)
+		pInfo.podId = podUID
 
 		t.pidsInfo[uint32(n)] = pInfo
 	}
@@ -150,7 +150,7 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 	return nil
 }
 
-func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerIds map[string]string) error {
+func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerIds map[string]types.UID) error {
 
 	for _, pid := range pids {
 		if !numberRegex.MatchString(pid.Name()) {
@@ -199,7 +199,7 @@ func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerId
 			continue
 		}
 
-		pInfo.podId = types.UID(podUID)
+		pInfo.podId = podUID
 
 		t.pidsInfo[uint32(n)] = pInfo
 	}

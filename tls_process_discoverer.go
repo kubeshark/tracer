@@ -21,7 +21,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
 			}
 		}
-		wInfo, ok := t.watchingPods[types.UID(pod.UID)]
+		wInfo, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
@@ -38,7 +38,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 	}
 
 	for _, pod := range removedWatchedPods {
-		wInfo, ok := t.watchingPods[types.UID(pod.UID)]
+		wInfo, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
@@ -47,10 +47,10 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 				return err
 			}
 		}
-		delete(t.watchingPods, types.UID(pod.UID))
+		delete(t.watchingPods, pod.UID)
 	}
 
-	containerIds := make(map[string]string)
+	containerIds := make(map[string]types.UID)
 	for _, pod := range addedWatchedPods {
 		for _, containerId := range pod.ContainerIDs {
 			containerIds[containerId] = pod.UID
@@ -76,12 +76,12 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 	}
 
 	for _, pod := range addedWatchedPods {
-		pInfo, ok := containerPids[types.UID(pod.UID)]
+		pInfo, ok := containerPids[pod.UID]
 		if !ok {
 			continue
 		}
 
-		if _, ok = t.watchingPods[types.UID(pod.UID)]; ok {
+		if _, ok = t.watchingPods[pod.UID]; ok {
 			log.Error().Str("pod", pod.Name).Msg("pod already watched:")
 			continue
 		}
@@ -103,11 +103,11 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 
 			wInfo.tlsPids = append(wInfo.tlsPids, pw)
 		}
-		t.watchingPods[types.UID(pod.UID)] = wInfo
+		t.watchingPods[pod.UID] = wInfo
 	}
 
 	for _, pod := range addedTargetedPods {
-		pInfo, ok := containerPids[types.UID(pod.UID)]
+		pInfo, ok := containerPids[pod.UID]
 		if !ok {
 			continue
 		}
@@ -119,7 +119,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 			log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
 		}
 
-		wInfo, ok := t.watchingPods[types.UID(pod.UID)]
+		wInfo, ok := t.watchingPods[pod.UID]
 		if !ok {
 			continue
 		}
@@ -140,7 +140,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 	return nil
 }
 
-func findContainerPids(procfs string, containerIds map[string]string) (map[types.UID]*podInfo, error) {
+func findContainerPids(procfs string, containerIds map[string]types.UID) (map[types.UID]*podInfo, error) {
 	result := make(map[types.UID]*podInfo)
 
 	pids, err := os.ReadDir(procfs)
