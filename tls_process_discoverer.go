@@ -1,12 +1,11 @@
 package main
 
 import (
-	"fmt"
-	"github.com/rs/zerolog/log"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"net/url"
 	"os"
+
+	"github.com/kubeshark/api"
+	"github.com/rs/zerolog/log"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type podInfo struct {
@@ -15,7 +14,7 @@ type podInfo struct {
 	cgroupIDs    []uint64
 }
 
-func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error {
+func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedPods []api.TargetPod, addedTargetedPods []api.TargetPod, removedTargetedPods []api.TargetPod) error {
 	for _, pod := range removedTargetedPods {
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
@@ -51,7 +50,17 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 		delete(t.watchingPods, pod.UID)
 	}
 
-	containerIds := buildContainerIdsMap(append(addedWatchedPods, addedTargetedPods...))
+	containerIds := make(map[string]types.UID)
+	for _, pod := range addedWatchedPods {
+		for _, containerId := range pod.ContainerIDs {
+			containerIds[containerId] = pod.UID
+		}
+	}
+	for _, pod := range addedTargetedPods {
+		for _, containerId := range pod.ContainerIDs {
+			containerIds[containerId] = pod.UID
+		}
+	}
 
 	if len(containerIds) == 0 {
 		return nil
@@ -131,7 +140,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []v1.Pod, removedWatchedPods []v
 	return nil
 }
 
-func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[types.UID]*podInfo, error) {
+func findContainerPids(procfs string, containerIds map[string]types.UID) (map[types.UID]*podInfo, error) {
 	result := make(map[types.UID]*podInfo)
 
 	pids, err := os.ReadDir(procfs)
@@ -150,22 +159,4 @@ func findContainerPids(procfs string, containerIds map[string]v1.Pod) (map[types
 	log.Info().Str("procfs", procfs).Int("pids", len(pids)).Int("results", len(result)).Msg("discovering tls completed:")
 
 	return result, nil
-}
-
-func buildContainerIdsMap(pods []v1.Pod) map[string]v1.Pod {
-	result := make(map[string]v1.Pod)
-
-	for _, pod := range pods {
-		for _, container := range pod.Status.ContainerStatuses {
-			parsedUrl, err := url.Parse(container.ContainerID)
-			if err != nil {
-				log.Warn().Msg(fmt.Sprintf("Expecting URL like container ID %v", container.ContainerID))
-				continue
-			}
-
-			result[parsedUrl.Host] = pod
-		}
-	}
-
-	return result
 }

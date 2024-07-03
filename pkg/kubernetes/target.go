@@ -1,54 +1,48 @@
 package kubernetes
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"math/rand"
+	"time"
 
-	"github.com/dlclark/regexp2"
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/kubeshark/api"
 	"github.com/rs/zerolog/log"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
-var targetedPods []v1.Pod
+const (
+	hubAddr                    = "http://kubeshark-hub:80"
+	allTargetPodsEndpoint      = "/pods/all"
+	selectedTargetPodsEndpoint = "/pods/targeted"
+	requestJitterIntervalMs    = 2000
+)
 
-var watchedPods []v1.Pod
+var (
+	allTargetPods      []api.TargetPod // allTargetedPods
+	selectedTargetPods []api.TargetPod // selectedTargetedPods
+)
 
-func GetTargetedPods() []v1.Pod {
-	return targetedPods
+func GetSelectedTargetPods() []api.TargetPod {
+	return selectedTargetPods
 }
 
-func GetWatchedPods() []v1.Pod {
-	return watchedPods
+func GetAllTargetPods() []api.TargetPod {
+	return allTargetPods
 }
 
-func SetTargetedPods(pods []v1.Pod) {
-	targetedPods = pods
+func SetAllTargetPods(pods []api.TargetPod) {
+	allTargetPods = pods
 }
 
-func SetWatchedPods(pods []v1.Pod) {
-	watchedPods = pods
+func SetSelectedTargetPods(pods []api.TargetPod) {
+	selectedTargetPods = pods
 }
 
-type callbackPodsChanged func(addedWatchedPods []v1.Pod, removedWatchedPods []v1.Pod, addedTargetedPods []v1.Pod, removedTargetedPods []v1.Pod) error
+type callbackPodsChanged func(addedallTargetedPods []api.TargetPod, removedallTargetedPods []api.TargetPod, addedselectedTargetedPods []api.TargetPod, removedselectedTargetedPods []api.TargetPod) error
 
-func excludeSelfPods(pods []v1.Pod) []v1.Pod {
-	kubesharkLabels := map[string]string{"app.kubernetes.io/name": "kubeshark"}
-
-	nonSelfPods := make([]v1.Pod, 0)
-	for _, pod := range pods {
-		if mapsContain(pod.ObjectMeta.Labels, kubesharkLabels) {
-			// ignore kubeshark pods
-			continue
-		}
-		nonSelfPods = append(nonSelfPods, pod)
-	}
-
-	return nonSelfPods
-}
-
-func getPodArrayDiff(oldPods []v1.Pod, newPods []v1.Pod) (added []v1.Pod, removed []v1.Pod) {
+func getPodArrayDiff(oldPods []api.TargetPod, newPods []api.TargetPod) (added []api.TargetPod, removed []api.TargetPod) {
 	added = getMissingPods(newPods, oldPods)
 	removed = getMissingPods(oldPods, newPods)
 
@@ -56,8 +50,8 @@ func getPodArrayDiff(oldPods []v1.Pod, newPods []v1.Pod) (added []v1.Pod, remove
 }
 
 // returns pods present in pods1 array and missing in pods2 array
-func getMissingPods(pods1 []v1.Pod, pods2 []v1.Pod) []v1.Pod {
-	missingPods := make([]v1.Pod, 0)
+func getMissingPods(pods1 []api.TargetPod, pods2 []api.TargetPod) []api.TargetPod {
+	missingPods := make([]api.TargetPod, 0)
 	for _, pod1 := range pods1 {
 		var found = false
 		for _, pod2 := range pods2 {
@@ -73,94 +67,79 @@ func getMissingPods(pods1 []v1.Pod, pods2 []v1.Pod) []v1.Pod {
 	return missingPods
 }
 
-func IsPodRunning(pod *v1.Pod) bool {
-	return pod.Status.Phase == v1.PodRunning
-}
-
-func listPodsImpl(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp2.Regexp, namespaces []string, listOptions metav1.ListOptions) ([]v1.Pod, error) {
-	var pods []v1.Pod
-	for _, namespace := range namespaces {
-		namespacePods, err := clientSet.CoreV1().Pods(namespace).List(ctx, listOptions)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get pods in ns: [%s], %w", namespace, err)
-		}
-
-		pods = append(pods, namespacePods.Items...)
-	}
-
-	matchingPods := make([]v1.Pod, 0)
-	for _, pod := range pods {
-		matched, err := regex.MatchString(pod.Name)
-		if err != nil {
-			return nil, err
-		}
-		if matched {
-			matchingPods = append(matchingPods, pod)
-		}
-	}
-	return matchingPods, nil
-}
-
-func listAllPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp2.Regexp, namespaces []string) ([]v1.Pod, error) {
-	return listPodsImpl(ctx, clientSet, regex, namespaces, metav1.ListOptions{})
-}
-
-func listAllRunningPodsMatchingRegex(ctx context.Context, clientSet *kubernetes.Clientset, regex *regexp2.Regexp, namespaces []string) ([]v1.Pod, error) {
-	pods, err := listAllPodsMatchingRegex(ctx, clientSet, regex, namespaces)
-	if err != nil {
-		return nil, err
-	}
-
-	matchingPods := make([]v1.Pod, 0)
-	for _, pod := range pods {
-		if IsPodRunning(&pod) {
-			matchingPods = append(matchingPods, pod)
-		}
-	}
-	return matchingPods, nil
-}
-
-var regexAllPods = regexp2.MustCompile(`.*`, regexp2.Multiline)
-
 func updateCurrentlyTargetedPods(
-	ctx context.Context,
-	clientSet *kubernetes.Clientset,
-	regex *regexp2.Regexp,
-	namespaces []string,
 	callback callbackPodsChanged,
 ) (err error) {
 
-	var allPods []v1.Pod
-	if allPods, err = listAllRunningPodsMatchingRegex(ctx, clientSet, regexAllPods, namespaces); err != nil {
-		return
-	}
-	podsToWatch := excludeSelfPods(allPods)
-
-	var matchingPods []v1.Pod
-	if matchingPods, err = listAllRunningPodsMatchingRegex(ctx, clientSet, regex, namespaces); err != nil {
-		return
+	newAllTargetPods, err := getAllTargetPodsFromHub()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get all targeted pods")
 	}
 
-	podsToTarget := excludeSelfPods(matchingPods)
-	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetTargetedPods(), podsToTarget)
-	addedWatchedPods, removedWatchedPods := getPodArrayDiff(GetWatchedPods(), podsToWatch)
-
-	for _, addedPod := range addedWatchedPods {
-		log.Info().Msg(fmt.Sprintf("Watched pod: %s", fmt.Sprintf(Green, addedPod.Name)))
-	}
-	for _, removedPod := range removedWatchedPods {
-		log.Info().Msg(fmt.Sprintf("Unwatchted pod: %s", fmt.Sprintf(Red, removedPod.Name)))
-	}
-	for _, addedPod := range addedTargetedPods {
-		log.Info().Msg(fmt.Sprintf("Targeted pod: %s", fmt.Sprintf(Green, addedPod.Name)))
-	}
-	for _, removedPod := range removedTargetedPods {
-		log.Info().Msg(fmt.Sprintf("Untargeted pod: %s", fmt.Sprintf(Red, removedPod.Name)))
+	newSelectedTargetPods, err := getSelectedTargetedPodsFromHub()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get selected targeted pods")
 	}
 
-	SetTargetedPods(podsToTarget)
-	SetWatchedPods(podsToWatch)
+	addedWatchedPods, removedWatchedPods := getPodArrayDiff(GetAllTargetPods(), newAllTargetPods)
+	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetSelectedTargetPods(), newSelectedTargetPods)
+
+	SetAllTargetPods(newAllTargetPods)
+	SetSelectedTargetPods(newSelectedTargetPods)
+
 	err = callback(addedWatchedPods, removedWatchedPods, addedTargetedPods, removedTargetedPods)
 
 	return
+}
+
+func getAllTargetPodsFromHub() (targetPods []api.TargetPod, err error) {
+	return getTargetPodsFromHub(allTargetPodsEndpoint)
+}
+
+func getSelectedTargetedPodsFromHub() (targetPods []api.TargetPod, err error) {
+	return getTargetPodsFromHub(selectedTargetPodsEndpoint)
+}
+
+func getTargetPodsFromHub(endpoint string) (targetPods []api.TargetPod, err error) {
+
+	url := hubAddr + endpoint
+
+	var content []byte
+
+	jitter := time.Duration(rand.Intn(requestJitterIntervalMs)) * time.Millisecond
+	time.Sleep(jitter)
+
+	log.Debug().Str("url", url).Msg("Retrieving target pods from the hub")
+
+	resp, err := retryablehttp.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make GET request on url=%s: %w",
+			url, err)
+	}
+
+	defer resp.Body.Close()
+	content, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed reading the response body from url=%s: %w",
+			url, err)
+	}
+
+	if content == nil {
+		return nil, fmt.Errorf("failed to get response after retries on url=%s: %w",
+			url, err)
+	}
+
+	type targetPodsResponse struct {
+		TargetPods []api.TargetPod `json:"targets"`
+	}
+
+	var data targetPodsResponse
+	err = json.Unmarshal(content, &data)
+	if err != nil {
+		log.Warn().Str("url", url).Err(err).Msg("Failed unmarshalling list of target pods:")
+		return nil, fmt.Errorf("failed unmarshalling list of target pod from url=%s: %w",
+			url, err)
+	}
+
+	return data.TargetPods, nil
 }
