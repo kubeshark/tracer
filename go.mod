@@ -17,7 +17,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
-	github.com/kubeshark/api v1.1.6-0.20240702175820-b17472a0c85d
+	github.com/kubeshark/api v1.1.6
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.1-0.20240510161528-848ea6c4ec73
 	github.com/moby/moby v25.0.4+incompatible
