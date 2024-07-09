@@ -95,6 +95,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
     }
 
     chunk->flags = flags;
+    chunk->timestamp = bpf_ktime_get_tai_ns();
     chunk->cgroup_id = cgroup_id;
     chunk->pid = id >> 32;
     chunk->tgid = id;
