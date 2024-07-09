@@ -15,6 +15,7 @@ import (
 )
 
 type tracerPacketsData struct {
+	Timestamp uint64
 	CgroupID  uint64
 	ID        uint64
 	Num       uint16
@@ -91,7 +92,7 @@ func (p *pktsPoller) handlePktChunk(chunk *tracerPktChunk) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
-	const expectedChunkSize = 4124
+	const expectedChunkSize = 4132
 	data := chunk.buf
 	if len(data) != expectedChunkSize {
 		return fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
@@ -118,7 +119,7 @@ func (p *pktsPoller) handlePktChunk(chunk *tracerPktChunk) error {
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
 	pkts.len += uint32(ptr.Len)
 	if ptr.Last != 0 {
-		err := p.sorter.WritePlanePacket(ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
+		err := p.sorter.WritePlanePacket(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 		if err != nil {
 			return err
 		}

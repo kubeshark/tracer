@@ -246,6 +246,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx* ctx) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 4, 0l, 0l);
         return;
     }
+    p->timestamp = bpf_ktime_get_tai_ns();
     p->cgroup_id = cgroup_id;
     p->direction = direction;
     p->id = *pkt_id_ptr;

@@ -33,6 +33,7 @@ struct address_info {
 };
 
 struct tls_chunk {
+    __u64 timestamp;
     __u32 cgroup_id;
     __u32 pid;
     __u32 tgid;
@@ -92,6 +93,7 @@ struct {
 #define PACKET_DIRECTION_RECEIVED 0
 #define PACKET_DIRECTION_SENT 1
 struct pkt {
+    __u64 timestamp;
     __u64 cgroup_id;
     __u64 id;
     __u16 num;

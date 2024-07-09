@@ -21,7 +21,7 @@ type SortedPacket struct {
 	Data []byte
 }
 
-func (s *PacketSorter) WriteTLSPacket(cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+func (s *PacketSorter) WriteTLSPacket(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
 	if !s.cgroupEnabled {
 		cgroupId = 0
 	}
@@ -56,13 +56,13 @@ func (s *PacketSorter) WriteTLSPacket(cgroupId uint64, direction uint8, firstLay
 	}
 
 	if s.socketsTLS != nil {
-		err = s.socketsTLS.WritePacket(cgroupId, direction, buf)
+		err = s.socketsTLS.WritePacket(timestamp, cgroupId, direction, buf)
 	}
 
 	return
 }
 
-func (s *PacketSorter) WritePlanePacket(cgroupId uint64, pktDirection uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+func (s *PacketSorter) WritePlanePacket(timestamp uint64, cgroupId uint64, pktDirection uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
 	if !s.cgroupEnabled {
 		cgroupId = 0
 	}
@@ -78,7 +78,7 @@ func (s *PacketSorter) WritePlanePacket(cgroupId uint64, pktDirection uint8, fir
 		return
 	}
 
-	err = s.socketsPlain.WritePacket(cgroupId, pktDirection, buf)
+	err = s.socketsPlain.WritePacket(timestamp, cgroupId, pktDirection, buf)
 
 	return
 }
