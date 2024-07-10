@@ -138,8 +138,8 @@ func (p *tlsPoller) handleTlsChunk(chunk *tracerTlsChunk, streamsMap *TcpStreamM
 		streamsMap.Store(stream.getId(), stream)
 		p.streams[key] = stream
 
-		stream.client = NewTlsReader(p.buildTcpId(address, true), stream, true)
-		stream.server = NewTlsReader(p.buildTcpId(address, false), stream, false)
+		stream.client = NewTlsReader(p.buildTcpId(address, chunk.isClient()), stream, true)
+		stream.server = NewTlsReader(p.buildTcpId(address, !chunk.isClient()), stream, false)
 	}
 
 	reader := chunk.getReader(stream)
