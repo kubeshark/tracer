@@ -59,7 +59,7 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 
 #ifdef ENABLE_TRACE_PACKETS
 #define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID) \
-    bpf_printk("PKT "NAME" len: %d ret: %d, cgroup: %d cookie:0x%x", (IS_CGROUP?(skb->len+14):skb->len), ret, CGROUP_ID, bpf_get_socket_cookie(skb)); \
+    bpf_printk("PKT "NAME" skb: %p len: %d ret: %d, cgroup: %d cookie:0x%x", skb, (IS_CGROUP?(skb->len+14):skb->len), ret, CGROUP_ID, bpf_get_socket_cookie(skb)); \
     bpf_printk("PKT "NAME" ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP)); \
     {__u32 __port_local = bpf_ntohl(LOCAL_PORT); __u32 __port_remote= bpf_ntohl(REMOTE_PORT);bpf_printk("PKT "NAME" port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);} \
     bpf_printk("PKT "NAME" ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip)); \
@@ -104,18 +104,13 @@ int filter_egress_packets(struct __sk_buff* skb) {
     int ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
     if (ret) {
         TRACE_PACKET("cg/eg", true, skb->local_ip4, skb->remote_ip4, bpf_htons(skb->local_port & 0xffff), skb->remote_port & 0xffff, bpf_skb_cgroup_id(skb));
-        struct pkt_flow egress = {
-            .src_ip = src_ip,
-            .src_port = src_port,
-            .size = skb->len + sizeof(struct ethhdr),
-            .proto = ip_proto,
-            .pad = 0,
-        };
         struct pkt_data data = {
             .cgroup_id = bpf_skb_cgroup_id(skb),
             .rewrite_src_port = bpf_htons(skb->local_port & 0xffff),
         };
-        bpf_map_update_elem(&pkt_context, &egress, &data, BPF_ANY);
+
+        __u64 key_skb = (__u64)skb;
+        bpf_map_update_elem(&pkt_context, &key_skb, &data, BPF_ANY);
     }
     return 1;
 }
@@ -133,17 +128,13 @@ int packet_pull_ingress(struct __sk_buff* skb)
     int ret = parse_packet(skb, 1, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
     if (ret) {
         TRACE_PACKET("tc/in", false, dst_ip, src_ip, dst_port, src_port, 0);
-        struct pkt_flow egress = { };
-        egress.size = skb->len;
-        egress.src_ip = src_ip;
-        egress.src_port = src_port;
-        egress.proto = ip_proto;
 
         // in some cases packet after "cgroup_skb/egress" misses "tc/egress" part and get passed here to "tc/ingress"
-        struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
+        __u64 key_skb = (__u64)skb;
+        struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &key_skb);
         if (data) {
             save_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_RECEIVED);
-            bpf_map_delete_elem(&pkt_context, &egress);
+            bpf_map_delete_elem(&pkt_context, &key_skb);
             TRACE_PACKET_SENT("tc/in");
         }
     }
@@ -162,16 +153,12 @@ int packet_pull_egress(struct __sk_buff* skb)
     int ret = parse_packet(skb, 1, &src_ip, &src_port, &dst_ip, &dst_port, &ip_proto);
     if (ret) {
         TRACE_PACKET("tc/eg", false, src_ip, dst_ip, src_port, dst_port, bpf_skb_cgroup_id(skb));
-        struct pkt_flow egress = { };
-        egress.size = skb->len;
-        egress.src_ip = src_ip;
-        egress.src_port = src_port;
-        egress.proto = ip_proto;
 
-        struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &egress);
+        __u64 key_skb = (__u64)skb;
+        struct pkt_data* data = bpf_map_lookup_elem(&pkt_context, &key_skb);
         if (data) {
             save_packet(skb, sizeof(struct ethhdr), 0, data->rewrite_src_port, 0, 0, data->cgroup_id, PACKET_DIRECTION_SENT);
-            bpf_map_delete_elem(&pkt_context, &egress);
+            bpf_map_delete_elem(&pkt_context, &key_skb);
             TRACE_PACKET_SENT("tc/eg");
         }
     }
