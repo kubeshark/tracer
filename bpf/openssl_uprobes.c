@@ -42,6 +42,9 @@ static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info*
 static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t buffer, int num, void* map_fd, uintptr_t count_ptr) {
 	long err;
 
+    if (capture_disabled())
+        return;
+
 	__u64 id = tracer_get_current_pid_tgid();
 
 	if (!should_target(id >> 32)) {
@@ -62,6 +65,9 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t
 
 static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u32 flags) {
 	__u64 id = tracer_get_current_pid_tgid();
+
+    if (capture_disabled())
+        return;
 
 	if (!should_target(id >> 32)) {
 		return;

@@ -137,3 +137,9 @@ static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, void
 
     return info;
 }
+
+static __always_inline int capture_disabled() {
+    __u32 zero = 0;
+    struct configuration* s = bpf_map_lookup_elem(&settings, &zero);
+    return s && (s->flags & CONFIGURATION_FLAG_CAPTURE_STOPPED);
+}

@@ -80,6 +80,9 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
 SEC("cgroup_skb/ingress")
 int filter_ingress_packets(struct __sk_buff* skb) {
 
+    if (capture_disabled())
+        return 1;
+
     __u32 src_ip = 0;
     __u16 src_port = 0;
     __u32 dst_ip = 0;
@@ -95,6 +98,9 @@ int filter_ingress_packets(struct __sk_buff* skb) {
 
 SEC("cgroup_skb/egress")
 int filter_egress_packets(struct __sk_buff* skb) {
+
+    if (capture_disabled())
+        return 1;
 
     __u32 src_ip = 0;
     __u16 src_port = 0;
@@ -118,6 +124,9 @@ int filter_egress_packets(struct __sk_buff* skb) {
 SEC("tc/ingress")
 int packet_pull_ingress(struct __sk_buff* skb)
 {
+    if (capture_disabled())
+        return 1;
+
     bpf_skb_pull_data(skb, skb->len);
 
     __u32 src_ip = 0;
@@ -144,6 +153,9 @@ int packet_pull_ingress(struct __sk_buff* skb)
 SEC("tc/egress")
 int packet_pull_egress(struct __sk_buff* skb)
 {
+    if (capture_disabled())
+        return 1;
+
     bpf_skb_pull_data(skb, skb->len);
     __u32 src_ip = 0;
     __u16 src_port = 0;

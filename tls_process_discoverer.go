@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"github.com/cilium/ebpf"
 	"github.com/kubeshark/api"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
@@ -14,7 +15,10 @@ type podInfo struct {
 	cgroupIDs    []uint64
 }
 
-func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedPods []api.TargetPod, addedTargetedPods []api.TargetPod, removedTargetedPods []api.TargetPod) error {
+func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedPods []api.TargetPod, addedTargetedPods []api.TargetPod, removedTargetedPods []api.TargetPod, settings uint32) error {
+	if err := t.bpfObjects.tracerMaps.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
+		log.Error().Err(err).Msg("Update capture settings failed:")
+	}
 	for _, pod := range removedTargetedPods {
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
