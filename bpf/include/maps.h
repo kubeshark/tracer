@@ -123,6 +123,11 @@ struct pkt_data {
     __u16 pad2;
 };
 
+#define CONFIGURATION_FLAG_CAPTURE_STOPPED (1 << 0)
+struct configuration {
+    __u32 flags;
+};
+
 #define BPF_MAP(_name, _type, _key_type, _value_type, _max_entries)     \
     struct {                          \
         __uint(type, _type);                \
@@ -140,6 +145,9 @@ struct pkt_data {
 #define BPF_LRU_HASH(_name, _key_type, _value_type) \
     BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH)
 
+#define BPF_ARRAY(_name, _key_type, _value_type, _max_entries) \
+    BPF_MAP(_name, BPF_MAP_TYPE_ARRAY, _key_type, _value_type, _max_entries)
+
 // Generic
 BPF_HASH(target_pids_map, __u32, __u32);
 BPF_HASH(watch_pids_map, __u32, __u32);
@@ -148,6 +156,7 @@ BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(pkts_buffer);
 BPF_PERF_OUTPUT(log_buffer);
+BPF_ARRAY(settings, __u32, struct configuration, 1);
 
 // OpenSSL specific
 BPF_LRU_HASH(openssl_write_context, __u64, struct ssl_info);

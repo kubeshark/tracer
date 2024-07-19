@@ -22,6 +22,8 @@ type tracerNoSniffAddressInfo struct {
 	Dport  uint16
 }
 
+type tracerNoSniffConfiguration struct{ Flags uint32 }
+
 type tracerNoSniffConnectInfo struct {
 	Fd      uint64
 	Addrlen uint32
@@ -44,6 +46,7 @@ type tracerNoSniffPidOffset struct {
 }
 
 type tracerNoSniffPkt struct {
+	Timestamp uint64
 	CgroupId  uint64
 	Id        uint64
 	Num       uint16
@@ -61,14 +64,6 @@ type tracerNoSniffPktData struct {
 	Pad2           uint16
 }
 
-type tracerNoSniffPktFlow struct {
-	Size    uint32
-	SrcIp   uint32
-	SrcPort uint16
-	Proto   uint8
-	Pad     uint8
-}
-
 type tracerNoSniffSslInfo struct {
 	Buffer        uint64
 	BufferLen     uint32
@@ -79,6 +74,7 @@ type tracerNoSniffSslInfo struct {
 }
 
 type tracerNoSniffTlsChunk struct {
+	Timestamp   uint64
 	CgroupId    uint32
 	Pid         uint32
 	Tgid        uint32
@@ -90,7 +86,7 @@ type tracerNoSniffTlsChunk struct {
 	AddressInfo tracerNoSniffAddressInfo
 	Direction   uint8
 	Data        [4096]uint8
-	_           [3]byte
+	_           [7]byte
 }
 
 // loadTracerNoSniff returns the embedded CollectionSpec for tracerNoSniff.
@@ -186,6 +182,7 @@ type tracerNoSniffMapSpecs struct {
 	PktHeap                  *ebpf.MapSpec `ebpf:"pkt_heap"`
 	PktId                    *ebpf.MapSpec `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
+	Settings                 *ebpf.MapSpec `ebpf:"settings"`
 	TargetPidsMap            *ebpf.MapSpec `ebpf:"target_pids_map"`
 	WatchPidsMap             *ebpf.MapSpec `ebpf:"watch_pids_map"`
 }
@@ -229,6 +226,7 @@ type tracerNoSniffMaps struct {
 	PktHeap                  *ebpf.Map `ebpf:"pkt_heap"`
 	PktId                    *ebpf.Map `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
+	Settings                 *ebpf.Map `ebpf:"settings"`
 	TargetPidsMap            *ebpf.Map `ebpf:"target_pids_map"`
 	WatchPidsMap             *ebpf.Map `ebpf:"watch_pids_map"`
 }
@@ -255,6 +253,7 @@ func (m *tracerNoSniffMaps) Close() error {
 		m.PktHeap,
 		m.PktId,
 		m.PktsBuffer,
+		m.Settings,
 		m.TargetPidsMap,
 		m.WatchPidsMap,
 	)

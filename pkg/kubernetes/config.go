@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/dlclark/regexp2"
@@ -15,9 +16,12 @@ const (
 	SUFFIX_CONFIG_MAP = "config-map"
 	CONFIG_POD_REGEX  = "POD_REGEX"
 	CONFIG_NAMESPACES = "NAMESPACES"
+	CONFIG_STOPPED    = "STOPPED"
 )
 
-func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string) {
+const CONFIGURATION_FLAG_CAPTURE_STOPPED = 1 << 0
+
+func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 	configPodRegex := configMap.Data[CONFIG_POD_REGEX]
 	regex, err := regexp2.Compile(configPodRegex, regexp2.Multiline)
 	if err != nil {
@@ -27,7 +31,14 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string) {
 	configNamespaces := configMap.Data[CONFIG_NAMESPACES]
 	namespaces := strings.Split(configNamespaces, ",")
 
-	return regex, namespaces
+	var settings uint32
+	if stopped, err := strconv.ParseBool(configMap.Data[CONFIG_STOPPED]); err != nil {
+		log.Error().Err(err).Str("config", CONFIG_STOPPED).Send()
+	} else if stopped {
+		settings |= CONFIGURATION_FLAG_CAPTURE_STOPPED
+	}
+
+	return regex, namespaces, settings
 }
 
 func GetThisNodeName(watcher *Watcher) (name string, err error) {

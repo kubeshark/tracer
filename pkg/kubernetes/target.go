@@ -40,7 +40,7 @@ func SetSelectedTargetPods(pods []api.TargetPod) {
 	selectedTargetPods = pods
 }
 
-type callbackPodsChanged func(addedallTargetedPods []api.TargetPod, removedallTargetedPods []api.TargetPod, addedselectedTargetedPods []api.TargetPod, removedselectedTargetedPods []api.TargetPod) error
+type callbackPodsChanged func(addedallTargetedPods []api.TargetPod, removedallTargetedPods []api.TargetPod, addedselectedTargetedPods []api.TargetPod, removedselectedTargetedPods []api.TargetPod, settings uint32) error
 
 func getPodArrayDiff(oldPods []api.TargetPod, newPods []api.TargetPod) (added []api.TargetPod, removed []api.TargetPod) {
 	added = getMissingPods(newPods, oldPods)
@@ -69,6 +69,7 @@ func getMissingPods(pods1 []api.TargetPod, pods2 []api.TargetPod) []api.TargetPo
 
 func updateCurrentlyTargetedPods(
 	callback callbackPodsChanged,
+	settings uint32,
 ) (err error) {
 
 	newAllTargetPods, err := getAllTargetPodsFromHub()
@@ -87,7 +88,7 @@ func updateCurrentlyTargetedPods(
 	SetAllTargetPods(newAllTargetPods)
 	SetSelectedTargetPods(newSelectedTargetPods)
 
-	err = callback(addedWatchedPods, removedWatchedPods, addedTargetedPods, removedTargetedPods)
+	err = callback(addedWatchedPods, removedWatchedPods, addedTargetedPods, removedTargetedPods, settings)
 
 	return
 }
