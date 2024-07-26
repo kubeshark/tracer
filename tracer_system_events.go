@@ -156,13 +156,9 @@ func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer
 			"net_flow_tcp_begin",
 			"net_flow_tcp_end",
 			"security_socket_listen",
-			"security_socket_accept",
-			"security_socket_bind",
-			"security_socket_connect",
 			"net_packet_http",
 			"net_packet_http_request",
 			"net_packet_http_response",
-			"bind",
 	*/
 	// actual events received tracer get subsribed:
 	eventFlags := []string{
@@ -171,6 +167,10 @@ func newSystemEventsTracer(checkCgroupID func(uint64) bool) (*systemEventsTracer
 		"accept",
 		"accept4",
 		"connect",
+		"bind",
+		"security_socket_accept",
+		"security_socket_bind",
+		"security_socket_connect",
 	}
 
 	policyScopeMap, err := flags.PrepareScopeMapFromFlags(scopeFlags)
