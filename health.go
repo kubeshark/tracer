@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kubeshark/api"
+	"github.com/rs/zerolog/log"
 	"github.com/struCoder/pidusage"
 )
 
@@ -21,7 +22,7 @@ func dumpHealthEvery10Seconds(nodeName string) {
 			case <-ticker.C:
 				err := dumpHealth(nodeName)
 				if err != nil {
-					fmt.Printf("Error saving health: %v\n", err)
+					log.Error().Err(err).Msg("Failed to dump health data")
 				}
 			}
 		}
