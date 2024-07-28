@@ -1,8 +1,8 @@
 module github.com/kubeshark/tracer
 
-go 1.21
+go 1.22.0
 
-toolchain go1.21.1
+toolchain go1.22.5
 
 require (
 	github.com/Masterminds/semver v1.5.0
@@ -17,7 +17,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
-	github.com/kubeshark/api v1.1.6
+	github.com/kubeshark/api v1.1.13-0.20240728122150-22eb9546b306
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.1-0.20240510161528-848ea6c4ec73
 	github.com/moby/moby v25.0.4+incompatible
@@ -113,6 +113,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/struCoder/pidusage v0.2.1 // indirect
 	github.com/tchap/go-patricia/v2 v2.3.1 // indirect
 	github.com/urfave/cli/v2 v2.3.0 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect

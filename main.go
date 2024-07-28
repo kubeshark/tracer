@@ -81,11 +81,14 @@ func run() {
 	watcher := kubernetes.NewFromInCluster(errOut, tracer.updateTargets)
 	ctx := context.Background()
 
+	nodeName, err := kubernetes.GetThisNodeName(watcher)
+	if err != nil {
+		log.Fatal().Err(err).Send()
+	}
+
+	go dumpHealthEvery10Seconds(nodeName)
+
 	if clusterMode {
-		nodeName, err := kubernetes.GetThisNodeName(watcher)
-		if err != nil {
-			log.Fatal().Err(err).Send()
-		}
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
 	}
 
