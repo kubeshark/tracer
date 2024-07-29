@@ -44,7 +44,11 @@ func (s *SocketPcap) WritePacket(timestamp uint64, cgroupId uint64, direction ui
 
 	p := unixpacket.PacketUnixSocket(hdrBytes)
 	hdr := p.GetHeader()
-	hdr.Timestamp = timestamp - s.getTAIOffset()
+	if timestamp != 0 {
+		hdr.Timestamp = timestamp - s.getTAIOffset()
+	} else {
+		hdr.Timestamp = uint64(time.Now().UnixNano())
+	}
 	hdr.CgroupID = cgroupId
 	hdr.Direction = unixpacket.PacketDirection(direction)
 	// clear buffer at the end as soon as it is prepended with specific data

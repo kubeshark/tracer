@@ -72,7 +72,6 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 
 		bytes, err := os.ReadFile(fpath)
 		if err != nil {
-			log.Debug().Err(err).Str("pid", pid.Name()).Msg("Couldn't read cgroup file.")
 			continue
 		}
 
@@ -266,7 +265,7 @@ func normalizeCgroup(cgrouppath string) string {
 	basename := strings.TrimSpace(path.Base(cgrouppath))
 
 	if strings.Contains(basename, "-") {
-		basename = basename[strings.Index(basename, "-")+1:]
+		basename = basename[strings.LastIndex(basename, "-")+1:]
 	}
 
 	if strings.Contains(basename, ".") {
