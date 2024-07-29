@@ -1,4 +1,4 @@
-#ifndef NO_PACKET_SNIFFER
+#ifndef EBPF_FALLBACK
 
 /*
     -------------------------------------------------------------------------------
@@ -378,4 +378,4 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
     return 6;
 }
 
-#endif // NO_PACKET_SNIFFER
+#endif // EBPF_FALLBACK
