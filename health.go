@@ -17,17 +17,12 @@ func dumpHealthEvery10Seconds(nodeName string) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				err := dumpHealth(nodeName)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to dump health data")
-				}
-			}
+	for range ticker.C {
+		err := dumpHealth(nodeName)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to dump health data")
 		}
-	}()
+	}
 }
 
 // Tracer health data file is read by sniffer to construct the health object
