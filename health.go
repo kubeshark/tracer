@@ -13,6 +13,7 @@ import (
 )
 
 func dumpHealthEvery10Seconds(nodeName string) {
+	log.Debug().Str("nodename", nodeName).Msg("Dumping health data every 10 seconds")
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -32,6 +33,7 @@ func dumpHealthEvery10Seconds(nodeName string) {
 // Tracer health data file is read by sniffer to construct the health object
 // for both the sniffer and the tracer.
 func dumpHealth(nodeName string) error {
+	log.Debug().Str("nodename", nodeName).Msg("Dumping health data")
 
 	memAlloc, memSys := getMemoryUsage()
 	memUsage := float64(memAlloc) / float64(memSys) * 100
