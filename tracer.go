@@ -23,7 +23,7 @@ const GlobalWorkerPid = 0
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DNO_PACKET_SNIFFER" -type tls_chunk -type goid_offsets tracerNoSniff bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DEBPF_FALLBACK" -type tls_chunk -type goid_offsets tracerNoSniff bpf/tracer.c
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
@@ -66,7 +66,7 @@ type BpfObjectsImpl struct {
 	specs   *ebpf.CollectionSpec
 }
 
-func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64) error {
+func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, reader *bytes.Reader) error {
 	var err error
 	opts := ebpf.CollectionOptions{
 		Programs: ebpf.ProgramOptions{
@@ -74,7 +74,6 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64) error
 		},
 	}
 
-	reader := bytes.NewReader(_TracerBytes)
 	objs.specs, err = ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
 		return err
@@ -155,7 +154,7 @@ func (t *Tracer) Init(
 		}
 
 		var ve *ebpf.VerifierError
-		err = objs.loadBpfObjects(bpfConsts)
+		err = objs.loadBpfObjects(bpfConsts, bytes.NewReader(_TracerBytes))
 		if err == nil {
 			t.bpfObjects = *objs.bpfObjs.(*tracerObjects)
 		} else if err != nil && errors.As(err, &ve) {
@@ -165,7 +164,7 @@ func (t *Tracer) Init(
 			objsNoSniff := &BpfObjectsImpl{
 				bpfObjs: &tracerNoSniffObjects{},
 			}
-			err = objsNoSniff.loadBpfObjects(bpfConsts)
+			err = objsNoSniff.loadBpfObjects(bpfConsts, bytes.NewReader(_TracerNoSniffBytes))
 
 			if err == nil {
 				o := objsNoSniff.bpfObjs.(*tracerNoSniffObjects)
