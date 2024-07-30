@@ -47,7 +47,7 @@ func DumpHealthEvery30Seconds(nodeName string) {
 // Tracer health data file is read by sniffer to construct the health object
 // for both the sniffer and the tracer.
 func dumpHealth(nodeName string) error {
-	log.Debug().Str("nodename", nodeName).Msg("dumping health data")
+	log.Debug().Str("nodename", nodeName).Msg("Dumping health data")
 
 	memAlloc, memSys := getMemoryUsage()
 	memUsage := float64(memAlloc) / float64(memSys) * 100
@@ -90,7 +90,8 @@ func initTracerHealth() {
 	}
 
 	if clientSet == nil {
-		log.Debug().Msg("failed to create clientSet")
+		log.Error().Msg("Failed to create clientSet")
+		return
 	}
 
 	var tracerResources v1.ResourceRequirements
@@ -99,7 +100,7 @@ func initTracerHealth() {
 
 	currentPod, err := getCurrentPod(clientSet)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to get current pod")
+		log.Debug().Err(err).Msg("Failed to get current pod")
 	} else if currentPod != nil {
 		for _, container := range currentPod.Spec.Containers {
 			if container.Name == tracerContainerName {
