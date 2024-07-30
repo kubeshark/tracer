@@ -52,13 +52,9 @@ func dumpHealth(nodeName string) error {
 	memAlloc, memSys := getMemoryUsage()
 	memUsage := float64(memAlloc) / float64(memSys) * 100
 
-	cpuUsage := getCPUUsage()
-
-	tracerHealth := &api.HealthWorkerComponent{
-		CPUUsage:    cpuUsage,
-		MemoryAlloc: memAlloc,
-		MemoryUsage: memUsage,
-	}
+	tracerHealth.CPUUsage = getCPUUsage()
+	tracerHealth.MemoryAlloc = memAlloc
+	tracerHealth.MemoryUsage = memUsage
 
 	tracerHealthData, err := json.Marshal(tracerHealth)
 	if err != nil {
