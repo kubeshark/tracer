@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -30,6 +31,9 @@ type cgroupVersion uint8
 type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }
+
+// TODO: make component:
+var cgroupsInfo, _ = lru.New[uint64, string](4096)
 
 func NewTracerCgroup(procfs string, containerIds map[string]types.UID) (*tracerCgroup, error) {
 
@@ -92,6 +96,14 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 		parts = strings.Split(parts[len(parts)-1], ".")
 
 		containerId := parts[0]
+
+		//TODO: fast scan
+		cgroupId, err := getCgroupId(fpath)
+		if err != nil {
+			log.Warn().Err(err).Str("path", fpath).Msg("Couldn't get container cgroup ID.")
+			continue
+		}
+		cgroupsInfo.Add(cgroupId, containerId)
 
 		// filter by ContainerID:
 		podUID, ok := containerIds[containerId]

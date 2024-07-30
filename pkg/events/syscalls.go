@@ -3,6 +3,8 @@ package events
 type SyscallEventMessage struct {
 	Command [16]byte
 
+	CgroupID uint64
+
 	IpSrc         uint32
 	IpDst         uint32
 	Pid           uint32
@@ -13,4 +15,9 @@ type SyscallEventMessage struct {
 	EventId uint16
 	PortSrc uint16
 	PortDst uint16
+}
+
+type SyscallEvent struct {
+	SyscallEventMessage
+	ContainerID string
 }

@@ -22,12 +22,16 @@ BPF_LRU_HASH(accept_context, __u64, struct accept_data);
 
 struct syscall_event {
     char comm[16];
+
+    __u64 cgroup_id;
+
     __be32 ip_src;
     __be32 ip_dst;
     __be32 pid;
     __be32 parentPid;
     __be32 hostPid;
     __be32 hostParentPid;
+
     __u16 event_id;
     __be16 port_src;
     __be16 port_dst;
@@ -63,6 +67,7 @@ void BPF_KPROBE(tcp_connect) {
     struct syscall_event ev = {
         .event_id = SYSCALL_EVENT_ID_CONNECT,
         .hostPid = BPF_CORE_READ(task, pid),
+        .cgroup_id = cgroup_id,
         // TODO:
         //pid;
         //parentPid;
@@ -85,6 +90,7 @@ SEC("kretprobe/accept4")
 void BPF_KRETPROBE(syscall__accept4) {
     long err;
     __u64 id = tracer_get_current_pid_tgid();
+    __u64 cgroup_id = bpf_get_current_cgroup_id();
     struct accept_data* data = bpf_map_lookup_elem(&accept_context, &id);
     if (!data) {
         return;
@@ -112,6 +118,7 @@ void BPF_KRETPROBE(syscall__accept4) {
     struct syscall_event ev = {
         .event_id = SYSCALL_EVENT_ID_ACCEPT,
         .hostPid = BPF_CORE_READ(task, pid),
+        .cgroup_id = cgroup_id,
         // TODO:
         //pid;
         //parentPid;
