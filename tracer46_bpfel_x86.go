@@ -12,6 +12,8 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type tracer46AcceptData struct{ Sock uint64 }
+
 type tracer46AcceptInfo struct{ Addrlen uint64 }
 
 type tracer46AddressInfo struct {
@@ -130,6 +132,8 @@ type tracer46Specs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracer46ProgramSpecs struct {
+	Accept                        *ebpf.ProgramSpec `ebpf:"accept"`
+	Accept4                       *ebpf.ProgramSpec `ebpf:"accept4"`
 	FilterEgressPackets           *ebpf.ProgramSpec `ebpf:"filter_egress_packets"`
 	FilterIngressPackets          *ebpf.ProgramSpec `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
@@ -142,6 +146,7 @@ type tracer46ProgramSpecs struct {
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
 	PacketPullEgress              *ebpf.ProgramSpec `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.ProgramSpec `ebpf:"packet_pull_ingress"`
+	SecuritySocketAccept          *ebpf.ProgramSpec `ebpf:"security_socket_accept"`
 	SslRead                       *ebpf.ProgramSpec `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.ProgramSpec `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.ProgramSpec `ebpf:"ssl_ret_read"`
@@ -158,15 +163,20 @@ type tracer46ProgramSpecs struct {
 	SysExitConnect                *ebpf.ProgramSpec `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.ProgramSpec `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
+	SyscallAccept4                *ebpf.ProgramSpec `ebpf:"syscall__accept4"`
+	TcpConnect                    *ebpf.ProgramSpec `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
+	TraceCgroupConnect4           *ebpf.ProgramSpec `ebpf:"trace_cgroup_connect4"`
 }
 
 // tracer46MapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracer46MapSpecs struct {
+	AcceptContext            *ebpf.MapSpec `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
+	CgroupIds                *ebpf.MapSpec `ebpf:"cgroup_ids"`
 	ChunksBuffer             *ebpf.MapSpec `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.MapSpec `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
@@ -187,6 +197,7 @@ type tracer46MapSpecs struct {
 	PktId                    *ebpf.MapSpec `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
+	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TargetPidsMap            *ebpf.MapSpec `ebpf:"target_pids_map"`
 	WatchPidsMap             *ebpf.MapSpec `ebpf:"watch_pids_map"`
 }
@@ -210,7 +221,9 @@ func (o *tracer46Objects) Close() error {
 //
 // It can be passed to loadTracer46Objects or ebpf.CollectionSpec.LoadAndAssign.
 type tracer46Maps struct {
+	AcceptContext            *ebpf.Map `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
+	CgroupIds                *ebpf.Map `ebpf:"cgroup_ids"`
 	ChunksBuffer             *ebpf.Map `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.Map `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
@@ -231,13 +244,16 @@ type tracer46Maps struct {
 	PktId                    *ebpf.Map `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
 	Settings                 *ebpf.Map `ebpf:"settings"`
+	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TargetPidsMap            *ebpf.Map `ebpf:"target_pids_map"`
 	WatchPidsMap             *ebpf.Map `ebpf:"watch_pids_map"`
 }
 
 func (m *tracer46Maps) Close() error {
 	return _Tracer46Close(
+		m.AcceptContext,
 		m.AcceptSyscallContext,
+		m.CgroupIds,
 		m.ChunksBuffer,
 		m.ConnectSyscallInfo,
 		m.ConnectionContext,
@@ -258,6 +274,7 @@ func (m *tracer46Maps) Close() error {
 		m.PktId,
 		m.PktsBuffer,
 		m.Settings,
+		m.SyscallEvents,
 		m.TargetPidsMap,
 		m.WatchPidsMap,
 	)
@@ -267,6 +284,8 @@ func (m *tracer46Maps) Close() error {
 //
 // It can be passed to loadTracer46Objects or ebpf.CollectionSpec.LoadAndAssign.
 type tracer46Programs struct {
+	Accept                        *ebpf.Program `ebpf:"accept"`
+	Accept4                       *ebpf.Program `ebpf:"accept4"`
 	FilterEgressPackets           *ebpf.Program `ebpf:"filter_egress_packets"`
 	FilterIngressPackets          *ebpf.Program `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
@@ -279,6 +298,7 @@ type tracer46Programs struct {
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
 	PacketPullEgress              *ebpf.Program `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.Program `ebpf:"packet_pull_ingress"`
+	SecuritySocketAccept          *ebpf.Program `ebpf:"security_socket_accept"`
 	SslRead                       *ebpf.Program `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.Program `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.Program `ebpf:"ssl_ret_read"`
@@ -295,12 +315,17 @@ type tracer46Programs struct {
 	SysExitConnect                *ebpf.Program `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.Program `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
+	SyscallAccept4                *ebpf.Program `ebpf:"syscall__accept4"`
+	TcpConnect                    *ebpf.Program `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
+	TraceCgroupConnect4           *ebpf.Program `ebpf:"trace_cgroup_connect4"`
 }
 
 func (p *tracer46Programs) Close() error {
 	return _Tracer46Close(
+		p.Accept,
+		p.Accept4,
 		p.FilterEgressPackets,
 		p.FilterIngressPackets,
 		p.GoCryptoTlsAbi0Read,
@@ -313,6 +338,7 @@ func (p *tracer46Programs) Close() error {
 		p.GoCryptoTlsAbiInternalWriteEx,
 		p.PacketPullEgress,
 		p.PacketPullIngress,
+		p.SecuritySocketAccept,
 		p.SslRead,
 		p.SslReadEx,
 		p.SslRetRead,
@@ -329,8 +355,11 @@ func (p *tracer46Programs) Close() error {
 		p.SysExitConnect,
 		p.SysExitRead,
 		p.SysExitWrite,
+		p.SyscallAccept4,
+		p.TcpConnect,
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
+		p.TraceCgroupConnect4,
 	)
 }
 

@@ -3,8 +3,6 @@ package socket
 import (
 	"bytes"
 
-	"github.com/aquasecurity/tracee/types/trace"
-
 	"github.com/kubeshark/tracerproto/pkg/sysevent"
 	"github.com/rs/zerolog/log"
 )
@@ -24,7 +22,7 @@ func NewSocketEvent(unixSocketFileName string) *SocketEvent {
 	return &se
 }
 
-func (s *SocketEvent) WriteObject(ev trace.Event) error {
+func (s *SocketEvent) WriteObject(ev any) error {
 	if err := s.eventWriter.Write(ev); err != nil {
 		log.Error().Err(err).Msg("syscall write failed")
 		return err

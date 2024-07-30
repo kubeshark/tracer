@@ -8,7 +8,6 @@ require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/aquasecurity/libbpfgo/helpers v0.4.6-0.20240111220235-90dbffffbdab
 	github.com/aquasecurity/tracee v0.20.0
-	github.com/aquasecurity/tracee/types v0.0.0-20240429153945-99bc47ed5c38
 	github.com/cilium/ebpf v0.12.3
 	github.com/dlclark/regexp2 v1.11.0
 	github.com/florianl/go-tc v0.4.3
@@ -19,7 +18,7 @@ require (
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/api v1.1.6
 	github.com/kubeshark/gopacket v1.1.30
-	github.com/kubeshark/tracerproto v1.0.1-0.20240510161528-848ea6c4ec73
+	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
@@ -40,6 +39,7 @@ require (
 	github.com/agnivade/levenshtein v1.1.1 // indirect
 	github.com/aquasecurity/libbpfgo v0.7.0-libbpf-1.4 // indirect
 	github.com/aquasecurity/tracee/api v0.0.0-20240118133111-07e087b036d4 // indirect
+	github.com/aquasecurity/tracee/types v0.0.0-20240122122429-7f84f526758d // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/containerd/cgroups v1.1.0 // indirect

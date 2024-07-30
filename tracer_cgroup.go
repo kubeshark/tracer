@@ -72,6 +72,7 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 
 		bytes, err := os.ReadFile(fpath)
 		if err != nil {
+			log.Debug().Err(err).Str("pid", pid.Name()).Msg("Couldn't read cgroup file.")
 			continue
 		}
 

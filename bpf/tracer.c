@@ -19,5 +19,6 @@ Copyright (C) Kubeshark
 #include "fd_tracepoints.c"
 #include "fd_to_address_tracepoints.c"
 #include "packet_sniffer.c"
+#include "events.c"
 
 char _license[] SEC("license") = "GPL";

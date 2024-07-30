@@ -23,6 +23,8 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
 				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
+			} else {
+				log.Error().Err(err).Str("pod", pod.Name).Msg("Detach pod failed from cgroup:")
 			}
 		}
 		wInfo, ok := t.watchingPods[pod.UID]
@@ -117,7 +119,8 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		}
 
 		if t.packetFilter != nil {
-			if err := t.packetFilter.AttachPod(string(pod.UID), pInfo.cgroupV2Path); err != nil {
+			if err := t.packetFilter.AttachPod(string(pod.UID), pInfo.cgroupV2Path, pInfo.cgroupIDs); err != nil {
+				log.Error().Err(err).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
 				return err
 			}
 			log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")

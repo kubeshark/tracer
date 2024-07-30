@@ -12,6 +12,8 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type tracerNoSniffAcceptData struct{ Sock uint64 }
+
 type tracerNoSniffAcceptInfo struct{ Addrlen uint64 }
 
 type tracerNoSniffAddressInfo struct {
@@ -130,6 +132,8 @@ type tracerNoSniffSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerNoSniffProgramSpecs struct {
+	Accept                        *ebpf.ProgramSpec `ebpf:"accept"`
+	Accept4                       *ebpf.ProgramSpec `ebpf:"accept4"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_write"`
@@ -138,6 +142,7 @@ type tracerNoSniffProgramSpecs struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
+	SecuritySocketAccept          *ebpf.ProgramSpec `ebpf:"security_socket_accept"`
 	SslRead                       *ebpf.ProgramSpec `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.ProgramSpec `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.ProgramSpec `ebpf:"ssl_ret_read"`
@@ -154,15 +159,20 @@ type tracerNoSniffProgramSpecs struct {
 	SysExitConnect                *ebpf.ProgramSpec `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.ProgramSpec `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
+	SyscallAccept4                *ebpf.ProgramSpec `ebpf:"syscall__accept4"`
+	TcpConnect                    *ebpf.ProgramSpec `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
+	TraceCgroupConnect4           *ebpf.ProgramSpec `ebpf:"trace_cgroup_connect4"`
 }
 
 // tracerNoSniffMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerNoSniffMapSpecs struct {
+	AcceptContext            *ebpf.MapSpec `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
+	CgroupIds                *ebpf.MapSpec `ebpf:"cgroup_ids"`
 	ChunksBuffer             *ebpf.MapSpec `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.MapSpec `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
@@ -183,6 +193,7 @@ type tracerNoSniffMapSpecs struct {
 	PktId                    *ebpf.MapSpec `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
+	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TargetPidsMap            *ebpf.MapSpec `ebpf:"target_pids_map"`
 	WatchPidsMap             *ebpf.MapSpec `ebpf:"watch_pids_map"`
 }
@@ -206,7 +217,9 @@ func (o *tracerNoSniffObjects) Close() error {
 //
 // It can be passed to loadTracerNoSniffObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerNoSniffMaps struct {
+	AcceptContext            *ebpf.Map `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
+	CgroupIds                *ebpf.Map `ebpf:"cgroup_ids"`
 	ChunksBuffer             *ebpf.Map `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.Map `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
@@ -227,13 +240,16 @@ type tracerNoSniffMaps struct {
 	PktId                    *ebpf.Map `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
 	Settings                 *ebpf.Map `ebpf:"settings"`
+	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TargetPidsMap            *ebpf.Map `ebpf:"target_pids_map"`
 	WatchPidsMap             *ebpf.Map `ebpf:"watch_pids_map"`
 }
 
 func (m *tracerNoSniffMaps) Close() error {
 	return _TracerNoSniffClose(
+		m.AcceptContext,
 		m.AcceptSyscallContext,
+		m.CgroupIds,
 		m.ChunksBuffer,
 		m.ConnectSyscallInfo,
 		m.ConnectionContext,
@@ -254,6 +270,7 @@ func (m *tracerNoSniffMaps) Close() error {
 		m.PktId,
 		m.PktsBuffer,
 		m.Settings,
+		m.SyscallEvents,
 		m.TargetPidsMap,
 		m.WatchPidsMap,
 	)
@@ -263,6 +280,8 @@ func (m *tracerNoSniffMaps) Close() error {
 //
 // It can be passed to loadTracerNoSniffObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerNoSniffPrograms struct {
+	Accept                        *ebpf.Program `ebpf:"accept"`
+	Accept4                       *ebpf.Program `ebpf:"accept4"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.Program `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.Program `ebpf:"go_crypto_tls_abi0_write"`
@@ -271,6 +290,7 @@ type tracerNoSniffPrograms struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
+	SecuritySocketAccept          *ebpf.Program `ebpf:"security_socket_accept"`
 	SslRead                       *ebpf.Program `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.Program `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.Program `ebpf:"ssl_ret_read"`
@@ -287,12 +307,17 @@ type tracerNoSniffPrograms struct {
 	SysExitConnect                *ebpf.Program `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.Program `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
+	SyscallAccept4                *ebpf.Program `ebpf:"syscall__accept4"`
+	TcpConnect                    *ebpf.Program `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
+	TraceCgroupConnect4           *ebpf.Program `ebpf:"trace_cgroup_connect4"`
 }
 
 func (p *tracerNoSniffPrograms) Close() error {
 	return _TracerNoSniffClose(
+		p.Accept,
+		p.Accept4,
 		p.GoCryptoTlsAbi0Read,
 		p.GoCryptoTlsAbi0ReadEx,
 		p.GoCryptoTlsAbi0Write,
@@ -301,6 +326,7 @@ func (p *tracerNoSniffPrograms) Close() error {
 		p.GoCryptoTlsAbiInternalReadEx,
 		p.GoCryptoTlsAbiInternalWrite,
 		p.GoCryptoTlsAbiInternalWriteEx,
+		p.SecuritySocketAccept,
 		p.SslRead,
 		p.SslReadEx,
 		p.SslRetRead,
@@ -317,8 +343,11 @@ func (p *tracerNoSniffPrograms) Close() error {
 		p.SysExitConnect,
 		p.SysExitRead,
 		p.SysExitWrite,
+		p.SyscallAccept4,
+		p.TcpConnect,
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
+		p.TraceCgroupConnect4,
 	)
 }
 

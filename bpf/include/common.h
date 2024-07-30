@@ -6,7 +6,8 @@ Copyright (C) Kubeshark
 #ifndef __COMMON__
 #define __COMMON__
 
-#define AF_INET	2	/* Internet IP Protocol */
+#define AF_INET	2	/* IPv4 Protocol */
+#define AF_INET6 10	/* IPv6 Protocol */
 
 const __s32 invalid_fd = -1;
 
