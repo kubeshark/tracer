@@ -1,0 +1,16 @@
+package events
+
+type SyscallEventMessage struct {
+	Command [16]byte
+
+	IpSrc         uint32
+	IpDst         uint32
+	Pid           uint32
+	ParentPid     uint32
+	HostPid       uint32
+	HostParentPid uint32
+
+	EventId uint16
+	PortSrc uint16
+	PortDst uint16
+}

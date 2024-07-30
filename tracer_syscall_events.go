@@ -9,22 +9,10 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
+	"github.com/kubeshark/tracer/pkg/events"
 	"github.com/kubeshark/tracer/socket"
 	"github.com/rs/zerolog/log"
 )
-
-type SyscallEventMessage struct {
-	Command       [16]byte
-	IpSrc         uint32
-	IpDst         uint32
-	Pid           uint32
-	ParentPid     uint32
-	HostPid       uint32
-	HostParentPid uint32
-	EventId       uint16
-	PortSrc       uint16
-	PortDst       uint16
-}
 
 type syscallEventsTracer struct {
 	eventReader *perf.Reader
@@ -78,7 +66,7 @@ func (t *syscallEventsTracer) pollEvents() {
 
 		buffer := bytes.NewReader(record.RawSample)
 
-		var e SyscallEventMessage
+		var e events.SyscallEventMessage
 
 		if err := binary.Read(buffer, binary.LittleEndian, &e); err != nil {
 			log.Error().Err(err).Msg("Parse syscall event failed")
