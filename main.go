@@ -15,6 +15,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+
+	"github.com/kubeshark/tracer/pkg/health"
 )
 
 const (
@@ -86,7 +88,7 @@ func run() {
 		log.Fatal().Err(err).Send()
 	}
 
-	go dumpHealthEvery10Seconds(nodeName)
+	go health.DumpHealthEvery30Seconds(nodeName)
 
 	if clusterMode {
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
