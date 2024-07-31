@@ -55,6 +55,7 @@ func dumpHealth(nodeName string) error {
 	tracerHealth.CPUUsage = getCPUUsage()
 	tracerHealth.MemoryAlloc = memAlloc
 	tracerHealth.MemoryUsage = memUsage
+	tracerHealth.Timestamp = time.Now().String()
 
 	tracerHealthData, err := json.Marshal(tracerHealth)
 	if err != nil {

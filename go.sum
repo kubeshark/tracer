@@ -236,6 +236,8 @@ github.com/kubeshark/api v1.1.13-0.20240728122150-22eb9546b306 h1:onUF3pz101jXng
 github.com/kubeshark/api v1.1.13-0.20240728122150-22eb9546b306/go.mod h1:1EDkoNqHkfNsK1gxiCdC2zL1SH0a12ritiR7x+7PRVY=
 github.com/kubeshark/api v1.1.13-0.20240729172121-4e0c1bebbf27 h1:uCOLV7nY8Hzlt5/1ZTZE57+/glVf8xDryRS0zsxzoz8=
 github.com/kubeshark/api v1.1.13-0.20240729172121-4e0c1bebbf27/go.mod h1:1EDkoNqHkfNsK1gxiCdC2zL1SH0a12ritiR7x+7PRVY=
+github.com/kubeshark/api v1.1.13-0.20240731132305-94f5df41d135 h1:LQeWuFl+Cv6JDhzvmPZt2O73XJannR3OjzWcJoFdf90=
+github.com/kubeshark/api v1.1.13-0.20240731132305-94f5df41d135/go.mod h1:1EDkoNqHkfNsK1gxiCdC2zL1SH0a12ritiR7x+7PRVY=
 github.com/kubeshark/gopacket v1.1.30 h1:Dz6eo7b6+NdVCrgiyKxlGEVTm0L6PwgbVvSomsuwIyU=
 github.com/kubeshark/gopacket v1.1.30/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj7M/Arv8MKm8=
 github.com/kubeshark/tracerproto v1.0.0/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
