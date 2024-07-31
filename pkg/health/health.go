@@ -26,14 +26,14 @@ const (
 
 var tracerHealth *api.HealthWorkerComponent
 
-func DumpHealthEvery30Seconds(nodeName string) {
+func DumpHealthEvery10Seconds(nodeName string) {
 	log.Debug().Str("nodename", nodeName).Msg("Dumping health data every 10 seconds")
 
 	if tracerHealth == nil {
 		initTracerHealth()
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {

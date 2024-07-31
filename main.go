@@ -88,7 +88,7 @@ func run() {
 		log.Fatal().Err(err).Send()
 	}
 
-	go health.DumpHealthEvery30Seconds(nodeName)
+	go health.DumpHealthEvery10Seconds(nodeName)
 
 	if clusterMode {
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
