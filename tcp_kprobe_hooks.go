@@ -6,8 +6,11 @@ import (
 )
 
 type tcpKprobeHooks struct {
-	tcpSendmsg link.Link
-	tcpRecvmsg link.Link
+	tcpSendmsg  link.Link
+	tcpRecvmsg  link.Link
+	tcp4Connect link.Link
+	accept      link.Link
+	accept4     link.Link
 }
 
 func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *tracerObjects) error {
@@ -19,6 +22,18 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *tracerObjects) error 
 	}
 
 	s.tcpRecvmsg, err = link.Kprobe("tcp_recvmsg", bpfObjects.TcpRecvmsg, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.tcp4Connect, err = link.Kprobe("tcp_connect", bpfObjects.TcpConnect, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.accept, err = link.Kretprobe("sys_accept4", bpfObjects.SyscallAccept4, nil)
+
+	s.accept4, err = link.Kprobe("security_socket_accept", bpfObjects.SecuritySocketAccept, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -37,6 +52,24 @@ func (s *tcpKprobeHooks) close() []error {
 
 	if s.tcpRecvmsg != nil {
 		if err := s.tcpRecvmsg.Close(); err != nil {
+			returnValue = append(returnValue, err)
+		}
+	}
+
+	if s.tcp4Connect != nil {
+		if err := s.tcp4Connect.Close(); err != nil {
+			returnValue = append(returnValue, err)
+		}
+	}
+
+	if s.accept != nil {
+		if err := s.accept.Close(); err != nil {
+			returnValue = append(returnValue, err)
+		}
+	}
+
+	if s.accept4 != nil {
+		if err := s.accept4.Close(); err != nil {
 			returnValue = append(returnValue, err)
 		}
 	}

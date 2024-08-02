@@ -13,6 +13,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/jinzhu/copier"
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/socket"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
@@ -219,7 +220,7 @@ func (t *Tracer) Init(
 	}
 
 	if !*disableEbpfCapture && t.isCgroupV2 && !t.pktSnifDisabled {
-		t.packetFilter, err = newPacketFilter(t.bpfObjects.FilterIngressPackets, t.bpfObjects.FilterEgressPackets, t.bpfObjects.PacketPullIngress, t.bpfObjects.PacketPullEgress, t.bpfObjects.PktsBuffer)
+		t.packetFilter, err = newPacketFilter(t.bpfObjects.FilterIngressPackets, t.bpfObjects.FilterEgressPackets, t.bpfObjects.PacketPullIngress, t.bpfObjects.PacketPullEgress, t.bpfObjects.TraceCgroupConnect4, t.bpfObjects.CgroupIds)
 		if err != nil {
 			return err
 		}
@@ -245,6 +246,15 @@ func (t *Tracer) Init(
 			if err = systemEventsTracer.start(); err != nil {
 				log.Error().Err(err).Msg("System events tracer start failed")
 			}
+		}
+	}
+
+	syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
+	if err != nil {
+		log.Error().Err(err).Msg("Syscall events tracer create failed")
+	} else {
+		if err = syscallEventsTracer.start(); err != nil {
+			log.Error().Err(err).Msg("Syscall events tracer start failed")
 		}
 	}
 

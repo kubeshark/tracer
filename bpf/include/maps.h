@@ -157,6 +157,7 @@ BPF_PERF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(pkts_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 BPF_ARRAY(settings, __u32, struct configuration, 1);
+BPF_LRU_HASH(cgroup_ids, __u64, __u32);
 
 // OpenSSL specific
 BPF_LRU_HASH(openssl_write_context, __u64, struct ssl_info);
