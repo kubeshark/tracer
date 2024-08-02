@@ -3,46 +3,13 @@ SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
 
-#include "include/headers.h"
-#include "include/util.h"
-#include "include/maps.h"
-#include "include/log.h"
-#include "include/logger_messages.h"
-#include "include/pids.h"
-#include "include/common.h"
-
-struct accept_data {
-    unsigned long sock;
-};
-
-BPF_LRU_HASH(accept_context, __u64, struct accept_data);
-
-#define SYSCALL_EVENT_ID_CONNECT 0
-#define SYSCALL_EVENT_ID_ACCEPT 1
-
-struct syscall_event {
-    char comm[16];
-
-    __u64 cgroup_id;
-
-    __be32 ip_src;
-    __be32 ip_dst;
-    __be32 pid;
-    __be32 parentPid;
-    __be32 hostPid;
-    __be32 hostParentPid;
-
-    __u16 event_id;
-    __be16 port_src;
-    __be16 port_dst;
-};
-
-BPF_PERF_OUTPUT(syscall_events);
-
-static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk, __be32* saddr, __be16* sport, __be32* daddr, __be16* dport);
+#include "events.h"
 
 SEC("kprobe/tcp_connect")
 void BPF_KPROBE(tcp_connect) {
+    if (capture_disabled())
+        return;
+
     long err;
     __u64 cgroup_id = bpf_get_current_cgroup_id();
     if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
@@ -66,14 +33,12 @@ void BPF_KPROBE(tcp_connect) {
     struct task_struct* task = (struct task_struct*)bpf_get_current_task();
     struct syscall_event ev = {
         .event_id = SYSCALL_EVENT_ID_CONNECT,
-        .hostPid = BPF_CORE_READ(task, pid),
         .cgroup_id = cgroup_id,
-        // TODO:
-        //pid;
-        //parentPid;
-        //hostParentPid;
+        .pid = get_task_pid(task),
+        .parent_pid = get_task_pid(get_parent_task(task)),
+        .host_pid = BPF_CORE_READ(task, tgid),
+        .host_parent_pid = get_parent_task_pid(task),
     };
-
 
     if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst)) {
         return;
@@ -88,6 +53,9 @@ void BPF_KPROBE(tcp_connect) {
 
 SEC("kretprobe/accept4")
 void BPF_KRETPROBE(syscall__accept4) {
+    if (capture_disabled())
+        return;
+
     long err;
     __u64 id = tracer_get_current_pid_tgid();
     __u64 cgroup_id = bpf_get_current_cgroup_id();
@@ -100,16 +68,14 @@ void BPF_KRETPROBE(syscall__accept4) {
     if (!sock) {
         return;
     }
+
     struct sock* sk = BPF_CORE_READ(sock, sk);
     short unsigned int family;
 
-    err = bpf_probe_read(&family, sizeof(family), (void*)&sk->__sk_common.skc_family);
-    if (err != 0) {
-        log_error(ctx, LOG_ERROR_READING_SOCKET_FAMILY, id, err, 0l);
-        return;
-    }
+    struct sock_common *common = (void *) sk;
+    family = BPF_CORE_READ(common, skc_family);
 
-    if (family != AF_INET) {
+    if (family != AF_INET && family != AF_INET6) {
         return;
     }
 
@@ -117,12 +83,11 @@ void BPF_KRETPROBE(syscall__accept4) {
 
     struct syscall_event ev = {
         .event_id = SYSCALL_EVENT_ID_ACCEPT,
-        .hostPid = BPF_CORE_READ(task, pid),
         .cgroup_id = cgroup_id,
-        // TODO:
-        //pid;
-        //parentPid;
-        //hostParentPid;
+        .pid = get_task_pid(task),
+        .parent_pid = get_task_pid(get_parent_task(task)),
+        .host_pid = BPF_CORE_READ(task, tgid),
+        .host_parent_pid = get_parent_task_pid(task),
     };
 
     if (read_addrs_ports(ctx, sk, &ev.ip_dst, &ev.port_dst, &ev.ip_src, &ev.port_src)) {
@@ -139,6 +104,9 @@ void BPF_KRETPROBE(syscall__accept4) {
 
 SEC("kprobe/security_socket_accept")
 int BPF_KPROBE(security_socket_accept) {
+    if (capture_disabled())
+        return 0;
+
     __u64 cgroup_id = bpf_get_current_cgroup_id();
     if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
         return 0;
@@ -156,6 +124,9 @@ int BPF_KPROBE(security_socket_accept) {
 
 SEC("cgroup/connect4")
 int trace_cgroup_connect4(struct bpf_sock_addr* ctx) {
+    if (capture_disabled())
+        return 1;
+
     return 1;
 }
 

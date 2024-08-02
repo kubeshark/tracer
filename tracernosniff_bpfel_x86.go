@@ -132,8 +132,6 @@ type tracerNoSniffSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerNoSniffProgramSpecs struct {
-	Accept                        *ebpf.ProgramSpec `ebpf:"accept"`
-	Accept4                       *ebpf.ProgramSpec `ebpf:"accept4"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_write"`
@@ -280,8 +278,6 @@ func (m *tracerNoSniffMaps) Close() error {
 //
 // It can be passed to loadTracerNoSniffObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerNoSniffPrograms struct {
-	Accept                        *ebpf.Program `ebpf:"accept"`
-	Accept4                       *ebpf.Program `ebpf:"accept4"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.Program `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.Program `ebpf:"go_crypto_tls_abi0_write"`
@@ -316,8 +312,6 @@ type tracerNoSniffPrograms struct {
 
 func (p *tracerNoSniffPrograms) Close() error {
 	return _TracerNoSniffClose(
-		p.Accept,
-		p.Accept4,
 		p.GoCryptoTlsAbi0Read,
 		p.GoCryptoTlsAbi0ReadEx,
 		p.GoCryptoTlsAbi0Write,

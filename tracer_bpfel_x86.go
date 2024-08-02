@@ -132,8 +132,6 @@ type tracerSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerProgramSpecs struct {
-	Accept                        *ebpf.ProgramSpec `ebpf:"accept"`
-	Accept4                       *ebpf.ProgramSpec `ebpf:"accept4"`
 	FilterEgressPackets           *ebpf.ProgramSpec `ebpf:"filter_egress_packets"`
 	FilterIngressPackets          *ebpf.ProgramSpec `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
@@ -284,8 +282,6 @@ func (m *tracerMaps) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerPrograms struct {
-	Accept                        *ebpf.Program `ebpf:"accept"`
-	Accept4                       *ebpf.Program `ebpf:"accept4"`
 	FilterEgressPackets           *ebpf.Program `ebpf:"filter_egress_packets"`
 	FilterIngressPackets          *ebpf.Program `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
@@ -324,8 +320,6 @@ type tracerPrograms struct {
 
 func (p *tracerPrograms) Close() error {
 	return _TracerClose(
-		p.Accept,
-		p.Accept4,
 		p.FilterEgressPackets,
 		p.FilterIngressPackets,
 		p.GoCryptoTlsAbi0Read,

@@ -89,7 +89,7 @@ func (t *syscallEventsTracer) pollEvents() {
 		if e.EventId == 1 {
 			evName = "accept"
 		}
-		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %x",
+		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v",
 			evName,
 			toIP(e.IpSrc),
 			toPort(e.PortSrc),
@@ -107,11 +107,7 @@ func (t *syscallEventsTracer) pollEvents() {
 		ev.SyscallEventMessage = e
 		ev.ContainerID, _ = cgroupsInfo.Get(e.CgroupID)
 
-		if err := t.eventSocket.WriteObject(ev); err != nil {
-			log.Error().Err(err).Msg("Write syscall event failed")
-			continue
-		}
-
+		t.eventSocket.WriteObject(ev)
 	}
 
 }

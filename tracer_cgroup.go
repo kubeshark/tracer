@@ -32,7 +32,7 @@ type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }
 
-// TODO: make component:
+// TODO: make as object component:
 var cgroupsInfo, _ = lru.New[uint64, string](4096)
 
 func NewTracerCgroup(procfs string, containerIds map[string]types.UID) (*tracerCgroup, error) {
@@ -97,14 +97,6 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 
 		containerId := parts[0]
 
-		//TODO: fast scan
-		cgroupId, err := getCgroupId(fpath)
-		if err != nil {
-			log.Warn().Err(err).Str("path", fpath).Msg("Couldn't get container cgroup ID.")
-			continue
-		}
-		cgroupsInfo.Add(cgroupId, containerId)
-
 		// filter by ContainerID:
 		podUID, ok := containerIds[containerId]
 		if !ok {
@@ -132,9 +124,9 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 					log.Warn().Err(err).Str("path", s).Msg("Couldn't get container cgroup ID.")
 					continue
 				}
+				cgroupsInfo.Add(containerCgroupId, getContainerIdFromCgroupPath(cgroupPath))
 
 				for _, p := range cgroupPaths[cgroupPath] {
-
 					pInfo := t.pidsInfo[p]
 
 					pInfo.containerCgroupIds = append(pInfo.containerCgroupIds, containerCgroupId)
@@ -160,6 +152,31 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 	}
 
 	return nil
+}
+
+func getContainerIdFromCgroupPath(cgroupPath string) (cid string) {
+	cgroupParts := strings.Split(cgroupPath, "/")
+
+	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
+		p := cgroupParts[i]
+		if len(p) < 28 {
+			continue
+		}
+		id := strings.TrimSuffix(p, ".scope")
+		switch {
+		case strings.HasPrefix(id, "docker-"):
+			cid = strings.TrimPrefix(id, "docker-")
+		case strings.HasPrefix(id, "crio-"):
+			cid = strings.TrimPrefix(id, "crio-")
+		case strings.HasPrefix(id, "cri-containerd-"):
+			cid = strings.TrimPrefix(id, "cri-containerd-")
+		case strings.Contains(p, ":cri-containerd:"):
+			cid = p[strings.LastIndex(p, ":cri-containerd:")+len(":cri-containerd:"):]
+		case strings.HasPrefix(id, "libpod-"):
+			cid = strings.TrimPrefix(id, "libpod-")
+		}
+	}
+	return
 }
 
 func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerIds map[string]types.UID) error {

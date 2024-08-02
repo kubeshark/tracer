@@ -300,9 +300,7 @@ func (t *systemEventsTracer) start() (err error) {
 				}
 				log.Debug().Str("event", string(prettyJSON)).Msg("event received")
 
-				if err := t.eventSocket.WriteObject(event); err != nil {
-					log.Error().Err(err).Msg("Write object failed")
-				}
+				t.eventSocket.WriteObject(event)
 			case <-ctx.Done():
 				log.Info().Msg("event reading stopped")
 				return
