@@ -15,6 +15,8 @@ type SyscallEventMessage struct {
 	EventId uint16
 	PortSrc uint16
 	PortDst uint16
+
+	Pad [10]byte
 }
 
 type SyscallEvent struct {

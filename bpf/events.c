@@ -47,7 +47,7 @@ void BPF_KPROBE(tcp_connect) {
     bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
 
     ev.port_dst = bpf_ntohs(ev.port_dst);
-    bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event));
+    bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event)); //XXX1
 }
 
 
@@ -97,7 +97,7 @@ void BPF_KRETPROBE(syscall__accept4) {
     bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
 
     ev.port_src = bpf_ntohs(ev.port_src);
-    bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event));
+    bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event)); //XXX2
 
     return;
 }

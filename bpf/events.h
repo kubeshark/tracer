@@ -35,6 +35,8 @@ struct syscall_event {
     __u16 event_id;
     __be16 port_src;
     __be16 port_dst;
+
+    char comm[10]; //padding
 };
 
 BPF_PERF_OUTPUT(syscall_events);
