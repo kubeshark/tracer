@@ -66,9 +66,9 @@ func (t *syscallEventsTracer) pollEvents() {
 
 		buffer := bytes.NewReader(record.RawSample)
 
-		var e events.SyscallEventMessage
+		var ev events.SyscallEventMessage
 
-		if err := binary.Read(buffer, binary.LittleEndian, &e); err != nil {
+		if err := binary.Read(buffer, binary.LittleEndian, &ev); err != nil {
 			log.Error().Err(err).Msg("Parse syscall event failed")
 			continue
 		}
@@ -83,13 +83,18 @@ func (t *syscallEventsTracer) pollEvents() {
 		}
 
 		var evName string
-		if e.EventId == 0 {
+		if ev.EventId == 0 {
 			evName = "connect"
 		}
-		if e.EventId == 1 {
+		if ev.EventId == 1 {
 			evName = "accept"
 		}
-		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v",
+
+		var e events.SyscallEvent
+		e.SyscallEventMessage = ev
+		e.ContainerID, _ = cgroupsInfo.Get(ev.CgroupID)
+
+		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v container id: %v",
 			evName,
 			toIP(e.IpSrc),
 			toPort(e.PortSrc),
@@ -101,13 +106,10 @@ func (t *syscallEventsTracer) pollEvents() {
 			e.Pid,
 			e.ParentPid,
 			e.CgroupID,
+			e.ContainerID,
 		))
 
-		var ev events.SyscallEvent
-		ev.SyscallEventMessage = e
-		ev.ContainerID, _ = cgroupsInfo.Get(e.CgroupID)
-
-		t.eventSocket.WriteObject(ev)
+		t.eventSocket.WriteObject(e)
 	}
 
 }

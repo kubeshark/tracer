@@ -154,28 +154,79 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 	return nil
 }
 
-func getContainerIdFromCgroupPath(cgroupPath string) (cid string) {
+type RuntimeId int
+
+const (
+	runtimeUnknown RuntimeId = iota
+	runtimeDocker
+	runtimeContainerd
+	runtimeCrio
+	runtimePodman
+	runtimeGarden
+)
+
+var (
+	containerIdFromCgroupRegex       = regexp.MustCompile(`^[A-Fa-f0-9]{64}$`)
+	gardenContainerIdFromCgroupRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){4}$`)
+)
+
+// Borrowed from https://github.com/aquasecurity/tracee/blob/main/pkg/containers/containers.go
+func getContainerIdFromCgroupPath(cgroupPath string) (id string) {
 	cgroupParts := strings.Split(cgroupPath, "/")
 
 	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
-		p := cgroupParts[i]
-		if len(p) < 28 {
+		pc := cgroupParts[i]
+		if len(pc) < 28 {
 			continue
 		}
-		id := strings.TrimSuffix(p, ".scope")
+
+		runtime := runtimeUnknown
+		id = strings.TrimSuffix(pc, ".scope")
+
 		switch {
 		case strings.HasPrefix(id, "docker-"):
-			cid = strings.TrimPrefix(id, "docker-")
+			runtime = runtimeDocker
+			id = strings.TrimPrefix(id, "docker-")
 		case strings.HasPrefix(id, "crio-"):
-			cid = strings.TrimPrefix(id, "crio-")
+			runtime = runtimeCrio
+			id = strings.TrimPrefix(id, "crio-")
 		case strings.HasPrefix(id, "cri-containerd-"):
-			cid = strings.TrimPrefix(id, "cri-containerd-")
-		case strings.Contains(p, ":cri-containerd:"):
-			cid = p[strings.LastIndex(p, ":cri-containerd:")+len(":cri-containerd:"):]
+			runtime = runtimeContainerd
+			id = strings.TrimPrefix(id, "cri-containerd-")
+		case strings.Contains(pc, ":cri-containerd:"):
+			runtime = runtimeContainerd
+			id = pc[strings.LastIndex(pc, ":cri-containerd:")+len(":cri-containerd:"):]
 		case strings.HasPrefix(id, "libpod-"):
-			cid = strings.TrimPrefix(id, "libpod-")
+			runtime = runtimePodman
+			id = strings.TrimPrefix(id, "libpod-")
+		}
+
+		if runtime != runtimeUnknown {
+			return
+		}
+
+		if matched := containerIdFromCgroupRegex.MatchString(id); matched && i > 0 {
+			prevPart := cgroupParts[i-1]
+			if prevPart == "docker" {
+				runtime = runtimeDocker
+			}
+			if prevPart == "actions_job" {
+				runtime = runtimeDocker
+			}
+			if strings.HasPrefix(prevPart, "pod") {
+				runtime = runtimeContainerd
+			}
+
+			return
+		}
+
+		if matched := gardenContainerIdFromCgroupRegex.MatchString(id); matched {
+			runtime = runtimeGarden
+			return id
 		}
 	}
+
+	id = ""
 	return
 }
 
