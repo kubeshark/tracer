@@ -8,4 +8,8 @@ Copyright (C) Kubeshark
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
+#ifndef memcpy
+#define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
+#endif
+
 #endif /* __UTIL__ */
