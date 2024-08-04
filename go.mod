@@ -1,8 +1,8 @@
 module github.com/kubeshark/tracer
 
-go 1.21
+go 1.22.0
 
-toolchain go1.21.1
+toolchain go1.22.5
 
 require (
 	github.com/Masterminds/semver v1.5.0
@@ -17,11 +17,13 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.2
 	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
-	github.com/kubeshark/api v1.1.14
+	github.com/kubeshark/api v1.1.15
+
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
+	github.com/struCoder/pidusage v0.2.1
 	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	golang.org/x/sys v0.20.0

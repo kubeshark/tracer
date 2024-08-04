@@ -15,6 +15,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
+
+	"github.com/kubeshark/tracer/pkg/health"
 )
 
 const (
@@ -81,11 +83,14 @@ func run() {
 	watcher := kubernetes.NewFromInCluster(errOut, tracer.updateTargets)
 	ctx := context.Background()
 
+	nodeName, err := kubernetes.GetThisNodeName(watcher)
+	if err != nil {
+		log.Fatal().Err(err).Send()
+	}
+
+	go health.DumpHealthEvery10Seconds(nodeName)
+
 	if clusterMode {
-		nodeName, err := kubernetes.GetThisNodeName(watcher)
-		if err != nil {
-			log.Fatal().Err(err).Send()
-		}
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
 	}
 
