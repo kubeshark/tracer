@@ -3,6 +3,11 @@ SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
 
+/*
+
+"kprobe/security_*" tracepoints are not used here as soon as they can not be implemented in some platforms (for example arm64 M1)
+*/
+
 #include "events.h"
 
 SEC("kprobe/tcp_connect")
@@ -52,7 +57,7 @@ void BPF_KPROBE(tcp_connect) {
 
 
 SEC("kretprobe/accept4")
-void BPF_KRETPROBE(syscall__accept4) {
+void BPF_KRETPROBE(syscall__accept4_ret) {
     if (capture_disabled())
         return;
 
@@ -72,7 +77,7 @@ void BPF_KRETPROBE(syscall__accept4) {
     struct sock* sk = BPF_CORE_READ(sock, sk);
     short unsigned int family;
 
-    struct sock_common *common = (void *) sk;
+    struct sock_common* common = (void*)sk;
     family = BPF_CORE_READ(common, skc_family);
 
     if (family != AF_INET && family != AF_INET6) {
@@ -102,24 +107,30 @@ void BPF_KRETPROBE(syscall__accept4) {
     return;
 }
 
-SEC("kprobe/security_socket_accept")
-int BPF_KPROBE(security_socket_accept) {
+SEC("kretprobe/do_accept")
+void BPF_KPROBE(syscall__accept4) {
     if (capture_disabled())
-        return 0;
+        return;
 
     __u64 cgroup_id = bpf_get_current_cgroup_id();
     if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
-        return 0;
+        return;
     }
-    struct socket* sock = (struct socket*)PT_REGS_PARM1(ctx);
-    struct socket* newsock = (struct socket*)PT_REGS_PARM2(ctx);
-    long err;
+    struct file* f = (struct file*)PT_REGS_RC(ctx);
+    if (!f)
+        return;
+
+    void *sock = BPF_CORE_READ(f, private_data);
+    if (!sock) {
+        return;
+    }
+
     __u64 id = tracer_get_current_pid_tgid();
     struct accept_data data = {
-        .sock = (unsigned long)newsock,
+        .sock = (unsigned long)sock,
     };
     bpf_map_update_elem(&accept_context, &id, &data, BPF_ANY);
-    return 0;
+    return;
 }
 
 SEC("cgroup/connect4")

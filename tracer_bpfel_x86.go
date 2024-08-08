@@ -144,7 +144,6 @@ type tracerProgramSpecs struct {
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
 	PacketPullEgress              *ebpf.ProgramSpec `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.ProgramSpec `ebpf:"packet_pull_ingress"`
-	SecuritySocketAccept          *ebpf.ProgramSpec `ebpf:"security_socket_accept"`
 	SslRead                       *ebpf.ProgramSpec `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.ProgramSpec `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.ProgramSpec `ebpf:"ssl_ret_read"`
@@ -162,6 +161,7 @@ type tracerProgramSpecs struct {
 	SysExitRead                   *ebpf.ProgramSpec `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
 	SyscallAccept4                *ebpf.ProgramSpec `ebpf:"syscall__accept4"`
+	SyscallAccept4Ret             *ebpf.ProgramSpec `ebpf:"syscall__accept4_ret"`
 	TcpConnect                    *ebpf.ProgramSpec `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
@@ -294,7 +294,6 @@ type tracerPrograms struct {
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
 	PacketPullEgress              *ebpf.Program `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.Program `ebpf:"packet_pull_ingress"`
-	SecuritySocketAccept          *ebpf.Program `ebpf:"security_socket_accept"`
 	SslRead                       *ebpf.Program `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.Program `ebpf:"ssl_read_ex"`
 	SslRetRead                    *ebpf.Program `ebpf:"ssl_ret_read"`
@@ -312,6 +311,7 @@ type tracerPrograms struct {
 	SysExitRead                   *ebpf.Program `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
 	SyscallAccept4                *ebpf.Program `ebpf:"syscall__accept4"`
+	SyscallAccept4Ret             *ebpf.Program `ebpf:"syscall__accept4_ret"`
 	TcpConnect                    *ebpf.Program `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
@@ -332,7 +332,6 @@ func (p *tracerPrograms) Close() error {
 		p.GoCryptoTlsAbiInternalWriteEx,
 		p.PacketPullEgress,
 		p.PacketPullIngress,
-		p.SecuritySocketAccept,
 		p.SslRead,
 		p.SslReadEx,
 		p.SslRetRead,
@@ -350,6 +349,7 @@ func (p *tracerPrograms) Close() error {
 		p.SysExitRead,
 		p.SysExitWrite,
 		p.SyscallAccept4,
+		p.SyscallAccept4Ret,
 		p.TcpConnect,
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
