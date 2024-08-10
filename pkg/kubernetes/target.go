@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -112,14 +113,22 @@ func getTargetPodsFromHub(endpoint string) (targetPods []api.TargetPod, err erro
 
 	log.Debug().Str("url", url).Msg("Retrieving target pods from the hub")
 
-	resp, err := retryablehttp.Get(url)
+	retryClient := retryablehttp.NewClient()
+	req, err := retryablehttp.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make GET build request on url=%s: %w",
+			url, err)
+	}
+	req.Header.Set("X-Kubeshark-Capture", "ignore")
+
+	res, err := retryClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make GET request on url=%s: %w",
 			url, err)
 	}
 
-	defer resp.Body.Close()
-	content, err = io.ReadAll(resp.Body)
+	defer res.Body.Close()
+	content, err = io.ReadAll(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed reading the response body from url=%s: %w",
 			url, err)
