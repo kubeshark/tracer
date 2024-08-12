@@ -132,6 +132,7 @@ type tracerSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerProgramSpecs struct {
+	DoAccept                      *ebpf.ProgramSpec `ebpf:"do_accept"`
 	FilterEgressPackets           *ebpf.ProgramSpec `ebpf:"filter_egress_packets"`
 	FilterIngressPackets          *ebpf.ProgramSpec `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
@@ -160,7 +161,6 @@ type tracerProgramSpecs struct {
 	SysExitConnect                *ebpf.ProgramSpec `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.ProgramSpec `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
-	SyscallAccept4                *ebpf.ProgramSpec `ebpf:"syscall__accept4"`
 	SyscallAccept4Ret             *ebpf.ProgramSpec `ebpf:"syscall__accept4_ret"`
 	TcpConnect                    *ebpf.ProgramSpec `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
@@ -282,6 +282,7 @@ func (m *tracerMaps) Close() error {
 //
 // It can be passed to loadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerPrograms struct {
+	DoAccept                      *ebpf.Program `ebpf:"do_accept"`
 	FilterEgressPackets           *ebpf.Program `ebpf:"filter_egress_packets"`
 	FilterIngressPackets          *ebpf.Program `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
@@ -310,7 +311,6 @@ type tracerPrograms struct {
 	SysExitConnect                *ebpf.Program `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.Program `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
-	SyscallAccept4                *ebpf.Program `ebpf:"syscall__accept4"`
 	SyscallAccept4Ret             *ebpf.Program `ebpf:"syscall__accept4_ret"`
 	TcpConnect                    *ebpf.Program `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
@@ -320,6 +320,7 @@ type tracerPrograms struct {
 
 func (p *tracerPrograms) Close() error {
 	return _TracerClose(
+		p.DoAccept,
 		p.FilterEgressPackets,
 		p.FilterIngressPackets,
 		p.GoCryptoTlsAbi0Read,
@@ -348,7 +349,6 @@ func (p *tracerPrograms) Close() error {
 		p.SysExitConnect,
 		p.SysExitRead,
 		p.SysExitWrite,
-		p.SyscallAccept4,
 		p.SyscallAccept4Ret,
 		p.TcpConnect,
 		p.TcpRecvmsg,

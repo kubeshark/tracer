@@ -108,7 +108,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
 }
 
 SEC("kretprobe/do_accept")
-void BPF_KPROBE(syscall__accept4) {
+void BPF_KRETPROBE(do_accept) {
     if (capture_disabled())
         return;
 

@@ -132,6 +132,7 @@ type tracerNoSniffSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type tracerNoSniffProgramSpecs struct {
+	DoAccept                      *ebpf.ProgramSpec `ebpf:"do_accept"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_write"`
@@ -156,7 +157,6 @@ type tracerNoSniffProgramSpecs struct {
 	SysExitConnect                *ebpf.ProgramSpec `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.ProgramSpec `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.ProgramSpec `ebpf:"sys_exit_write"`
-	SyscallAccept4                *ebpf.ProgramSpec `ebpf:"syscall__accept4"`
 	SyscallAccept4Ret             *ebpf.ProgramSpec `ebpf:"syscall__accept4_ret"`
 	TcpConnect                    *ebpf.ProgramSpec `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
@@ -278,6 +278,7 @@ func (m *tracerNoSniffMaps) Close() error {
 //
 // It can be passed to loadTracerNoSniffObjects or ebpf.CollectionSpec.LoadAndAssign.
 type tracerNoSniffPrograms struct {
+	DoAccept                      *ebpf.Program `ebpf:"do_accept"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.Program `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.Program `ebpf:"go_crypto_tls_abi0_write"`
@@ -302,7 +303,6 @@ type tracerNoSniffPrograms struct {
 	SysExitConnect                *ebpf.Program `ebpf:"sys_exit_connect"`
 	SysExitRead                   *ebpf.Program `ebpf:"sys_exit_read"`
 	SysExitWrite                  *ebpf.Program `ebpf:"sys_exit_write"`
-	SyscallAccept4                *ebpf.Program `ebpf:"syscall__accept4"`
 	SyscallAccept4Ret             *ebpf.Program `ebpf:"syscall__accept4_ret"`
 	TcpConnect                    *ebpf.Program `ebpf:"tcp_connect"`
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
@@ -312,6 +312,7 @@ type tracerNoSniffPrograms struct {
 
 func (p *tracerNoSniffPrograms) Close() error {
 	return _TracerNoSniffClose(
+		p.DoAccept,
 		p.GoCryptoTlsAbi0Read,
 		p.GoCryptoTlsAbi0ReadEx,
 		p.GoCryptoTlsAbi0Write,
@@ -336,7 +337,6 @@ func (p *tracerNoSniffPrograms) Close() error {
 		p.SysExitConnect,
 		p.SysExitRead,
 		p.SysExitWrite,
-		p.SyscallAccept4,
 		p.SyscallAccept4Ret,
 		p.TcpConnect,
 		p.TcpRecvmsg,

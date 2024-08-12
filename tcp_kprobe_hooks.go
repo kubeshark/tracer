@@ -32,8 +32,11 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *tracerObjects) error 
 	}
 
 	s.accept, err = link.Kretprobe("sys_accept4", bpfObjects.SyscallAccept4Ret, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
 
-	s.accept4, err = link.Kprobe("security_socket_accept", bpfObjects.SyscallAccept4, nil)
+	s.accept4, err = link.Kretprobe("do_accept", bpfObjects.DoAccept, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
