@@ -51,5 +51,8 @@ run-tls: setcap ## Run the program with TLS capture enabled. Requires Hub being 
 	KUBESHARK_GLOBAL_LIBSSL_PID=$(shell ps -ef | awk '$$8=="python3" && $$9=="tls.py" {print $$2}') \
 		./tracer -debug
 
+run-pprof: setcap ## Run the program with profiling enabled. Requires Hub being available on port 8898
+	PROFILING_ENABLED=true ./tracer -port 30002 -debug
+
 test:
 	$(GOTEST) ./... -coverpkg=./... -race -coverprofile=coverage.out -covermode=atomic -v
