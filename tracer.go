@@ -160,7 +160,8 @@ func (t *Tracer) Init(
 			t.bpfObjects = *objs.bpfObjs.(*tracerObjects)
 		} else if err != nil && errors.As(err, &ve) {
 			t.pktSnifDisabled = true
-			log.Warn().Msg(fmt.Sprintf("eBPF packets capture is disabled"))
+			CompatibleMode = true
+			log.Warn().Msg(fmt.Sprintf("eBPF packets capture and syscall events are disabled"))
 
 			objsNoSniff := &BpfObjectsImpl{
 				bpfObjs: &tracerNoSniffObjects{},
