@@ -248,17 +248,19 @@ func (t *Tracer) Init(
 				log.Error().Err(err).Msg("System events tracer start failed")
 			}
 		}
+
 	}
 
-	syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
-	if err != nil {
-		log.Error().Err(err).Msg("Syscall events tracer create failed")
-	} else {
-		if err = syscallEventsTracer.start(); err != nil {
-			log.Error().Err(err).Msg("Syscall events tracer start failed")
+	if !CompatibleMode {
+		syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
+		if err != nil {
+			log.Error().Err(err).Msg("Syscall events tracer create failed")
+		} else {
+			if err = syscallEventsTracer.start(); err != nil {
+				log.Error().Err(err).Msg("Syscall events tracer start failed")
+			}
 		}
 	}
-
 	return nil
 }
 
