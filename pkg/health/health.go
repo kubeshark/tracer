@@ -117,11 +117,11 @@ func initTracerHealth() {
 	}
 
 	tracerHealth = &api.HealthWorkerComponent{
-		Resources:                  tracerResources,
-		Restarts:                   tracerRestarts,
-		LastRestartReason:          tracerLastRestartReason,
-		tracerLastRestartTimestamp: tracerLastRestartTimestamp,
-		Timestamp:                  time.Now().Format(time.RFC3339),
+		Resources:            tracerResources,
+		Restarts:             tracerRestarts,
+		LastRestartReason:    tracerLastRestartReason,
+		LastRestartTimestamp: tracerLastRestartTimestamp,
+		Timestamp:            time.Now().Format(time.RFC3339),
 	}
 }
 
