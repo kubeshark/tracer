@@ -11,6 +11,7 @@ import (
 
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
+	"github.com/kubeshark/tracer/server"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
@@ -22,6 +23,8 @@ import (
 const (
 	globCbufMax = 10_000
 )
+
+var port = flag.Int("port", 80, "Port number of the HTTP server")
 
 // capture
 var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
@@ -107,6 +110,12 @@ func run() {
 	watcher.Start(ctx, clusterMode)
 
 	tracer.poll(streamsMap)
+
+	if server.GetProfilingEnabled() {
+		log.Info().Msg("Profiling enabled")
+		ginApp := server.Build()
+		server.Start(ginApp, *port)
+	}
 }
 
 func createTracer() (err error) {
