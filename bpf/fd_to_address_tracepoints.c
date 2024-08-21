@@ -31,10 +31,6 @@ SEC("tracepoint/syscalls/sys_enter_accept4")
 void sys_enter_accept4(struct sys_enter_accept4_ctx* ctx) {
 	__u64 id = tracer_get_current_pid_tgid();
 
-	if (!should_watch(id >> 32)) {
-		return;
-	}
-
 	struct accept_info info = {};
 
 	info.addrlen = ctx->addrlen;
@@ -56,10 +52,6 @@ struct sys_exit_accept4_ctx {
 SEC("tracepoint/syscalls/sys_exit_accept4")
 void sys_exit_accept4(struct sys_exit_accept4_ctx* ctx) {
 	__u64 id = tracer_get_current_pid_tgid();
-
-	if (!should_watch(id >> 32)) {
-		return;
-	}
 
 	if (ctx->ret < 0) {
 		bpf_map_delete_elem(&accept_syscall_context, &id);
@@ -124,10 +116,6 @@ SEC("tracepoint/syscalls/sys_enter_connect")
 void sys_enter_connect(struct sys_enter_connect_ctx* ctx) {
 	__u64 id = tracer_get_current_pid_tgid();
 
-	if (!should_watch(id >> 32)) {
-		return;
-	}
-
 	struct connect_info info = {};
 
 	info.addrlen = ctx->addrlen;
@@ -150,10 +138,6 @@ struct sys_exit_connect_ctx {
 SEC("tracepoint/syscalls/sys_exit_connect")
 void sys_exit_connect(struct sys_exit_connect_ctx* ctx) {
 	__u64 id = tracer_get_current_pid_tgid();
-
-	if (!should_watch(id >> 32)) {
-		return;
-	}
 
 	// Commented because of async connect which set errno to EINPROGRESS
 	//

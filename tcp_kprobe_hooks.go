@@ -5,6 +5,8 @@ import (
 	"github.com/go-errors/errors"
 )
 
+var CompatibleMode = false
+
 type tcpKprobeHooks struct {
 	tcpSendmsg  link.Link
 	tcpRecvmsg  link.Link
@@ -26,19 +28,21 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *tracerObjects) error 
 		return errors.Wrap(err, 0)
 	}
 
-	s.tcp4Connect, err = link.Kprobe("tcp_connect", bpfObjects.TcpConnect, nil)
-	if err != nil {
-		return errors.Wrap(err, 0)
-	}
+	if !CompatibleMode {
+		s.tcp4Connect, err = link.Kprobe("tcp_connect", bpfObjects.TcpConnect, nil)
+		if err != nil {
+			return errors.Wrap(err, 0)
+		}
 
-	s.accept, err = link.Kretprobe("sys_accept4", bpfObjects.SyscallAccept4Ret, nil)
-	if err != nil {
-		return errors.Wrap(err, 0)
-	}
+		s.accept, err = link.Kretprobe("sys_accept4", bpfObjects.SyscallAccept4Ret, nil)
+		if err != nil {
+			return errors.Wrap(err, 0)
+		}
 
-	s.accept4, err = link.Kretprobe("do_accept", bpfObjects.DoAccept, nil)
-	if err != nil {
-		return errors.Wrap(err, 0)
+		s.accept4, err = link.Kretprobe("do_accept", bpfObjects.DoAccept, nil)
+		if err != nil {
+			return errors.Wrap(err, 0)
+		}
 	}
 
 	return nil

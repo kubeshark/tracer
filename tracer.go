@@ -160,7 +160,8 @@ func (t *Tracer) Init(
 			t.bpfObjects = *objs.bpfObjs.(*tracerObjects)
 		} else if err != nil && errors.As(err, &ve) {
 			t.pktSnifDisabled = true
-			log.Warn().Msg(fmt.Sprintf("eBPF packets capture is disabled"))
+			CompatibleMode = true
+			log.Warn().Msg(fmt.Sprintf("eBPF packets capture and syscall events are disabled"))
 
 			objsNoSniff := &BpfObjectsImpl{
 				bpfObjs: &tracerNoSniffObjects{},
@@ -247,17 +248,19 @@ func (t *Tracer) Init(
 				log.Error().Err(err).Msg("System events tracer start failed")
 			}
 		}
+
 	}
 
-	syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
-	if err != nil {
-		log.Error().Err(err).Msg("Syscall events tracer create failed")
-	} else {
-		if err = syscallEventsTracer.start(); err != nil {
-			log.Error().Err(err).Msg("Syscall events tracer start failed")
+	if !CompatibleMode {
+		syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
+		if err != nil {
+			log.Error().Err(err).Msg("Syscall events tracer create failed")
+		} else {
+			if err = syscallEventsTracer.start(); err != nil {
+				log.Error().Err(err).Msg("Syscall events tracer start failed")
+			}
 		}
 	}
-
 	return nil
 }
 

@@ -94,6 +94,7 @@ func initTracerHealth() {
 	var tracerResources v1.ResourceRequirements
 	var tracerRestarts int
 	var tracerLastRestartReason string
+	var tracerLastRestartTimestamp string
 
 	currentPod, err := getCurrentPod(clientSet)
 	if err != nil {
@@ -109,16 +110,18 @@ func initTracerHealth() {
 				tracerRestarts = int(containerStatus.RestartCount)
 				if containerStatus.LastTerminationState.Terminated != nil {
 					tracerLastRestartReason = containerStatus.LastTerminationState.Terminated.Reason
+					tracerLastRestartTimestamp = containerStatus.LastTerminationState.Terminated.FinishedAt.Format(time.RFC3339)
 				}
 			}
 		}
 	}
 
 	tracerHealth = &api.HealthWorkerComponent{
-		Resources:         tracerResources,
-		Restarts:          tracerRestarts,
-		LastRestartReason: tracerLastRestartReason,
-		Timestamp:         time.Now().Format(time.RFC3339),
+		Resources:            tracerResources,
+		Restarts:             tracerRestarts,
+		LastRestartReason:    tracerLastRestartReason,
+		LastRestartTimestamp: tracerLastRestartTimestamp,
+		Timestamp:            time.Now().Format(time.RFC3339),
 	}
 }
 
