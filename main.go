@@ -109,12 +109,13 @@ func run() {
 
 	watcher.Start(ctx, clusterMode)
 
-	tracer.poll(streamsMap)
-
 	if server.GetProfilingEnabled() {
+		go tracer.poll(streamsMap)
 		log.Info().Msg("Profiling enabled")
 		ginApp := server.Build()
 		server.Start(ginApp, *port)
+	} else {
+		tracer.poll(streamsMap)
 	}
 }
 
