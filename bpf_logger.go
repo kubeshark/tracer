@@ -29,11 +29,14 @@ type logMessage struct {
 }
 
 type bpfLogger struct {
-	logReader *perf.Reader
+	logDisabled bool
+	logReader   *perf.Reader
 }
 
-func newBpfLogger(bpfObjects *tracerObjects, bufferSize int) (p *bpfLogger, err error) {
-	p = &bpfLogger{}
+func newBpfLogger(bpfObjects *tracerObjects, bufferSize int, logDisabled bool) (p *bpfLogger, err error) {
+	p = &bpfLogger{
+		logDisabled: logDisabled,
+	}
 
 	p.logReader, err = perf.NewReader(bpfObjects.LogBuffer, bufferSize)
 
@@ -64,6 +67,9 @@ func (p *bpfLogger) poll() {
 			return
 		}
 
+		if p.logDisabled {
+			continue
+		}
 		if record.LostSamples != 0 {
 			log.Info().Msg(fmt.Sprintf("Log buffer is full, dropped %d logs", record.LostSamples))
 			continue

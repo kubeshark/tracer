@@ -197,7 +197,7 @@ func (t *Tracer) Init(
 
 	t.sslHooksStructs = make([]sslHooks, 0)
 
-	t.bpfLogger, err = newBpfLogger(&t.bpfObjects, logBufferSize)
+	t.bpfLogger, err = newBpfLogger(&t.bpfObjects, logBufferSize, *disableTlsLog)
 	if err != nil {
 		return err
 	}
