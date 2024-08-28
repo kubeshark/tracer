@@ -35,6 +35,7 @@ var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular 
 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 var enableSyscallEvents = flag.Bool("enable-syscall", false, "Enable syscall events processing")
+var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
 type sslListArray []string
 
