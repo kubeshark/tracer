@@ -4,11 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	stdlog "log"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
+	runtimeDebug "runtime/debug"
 	"strings"
 	"time"
 
+	zlogsentry "github.com/archdx/zerolog-sentry"
+	"github.com/getsentry/sentry-go"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/server"
@@ -37,6 +41,8 @@ var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packe
 var enableSyscallEvents = flag.Bool("enable-syscall", false, "Enable syscall events processing")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
+const sentryDsn = "https://c0b7399e76173c4601a82aab28eb4be8@o4507855877505024.ingest.us.sentry.io/4507886789263360"
+
 type sslListArray []string
 
 func (i *sslListArray) String() string {
@@ -52,15 +58,47 @@ var sslLibsGlobal sslListArray
 var tracer *Tracer
 
 func main() {
-	flag.Var(&sslLibsGlobal, "ssl-libname", "Custom libssl library name")
-	flag.Parse()
+	// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:           sentryDsn,
+		EnableTracing: true,
+		// Set TracesSampleRate to 1.0 to capture 100%
+		// of transactions for tracing.
+		// We recommend adjusting this value in production,
+		TracesSampleRate: 1.0,
+	}); err != nil {
+		log.Error().Err(err).Msg("Sentry initialization failed:")
+	} else {
+		defer sentry.Flush(2 * time.Second)
+	}
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Caller().Logger()
+
+	w, err := zlogsentry.New(
+		sentryDsn,
+	)
+	if err != nil {
+		stdlog.Fatal(err)
+	}
+
+	defer w.Close()
+
+	multi := zerolog.MultiLevelWriter(w, zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
+	log.Logger = zerolog.New(multi).With().Timestamp().Caller().Logger()
+
+	flag.Var(&sslLibsGlobal, "ssl-libname", "Custom libssl library name")
+	flag.Parse()
 
 	if *debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
+
+	runtimeDebug.SetPanicOnFault(true)
+	defer func() {
+		if err := recover(); err != nil {
+			log.Fatal().Err(fmt.Errorf("panic: %v", err)).Send()
+		}
+	}()
 
 	misc.InitDataDir()
 
