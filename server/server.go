@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	sentrygin "github.com/getsentry/sentry-go/gin"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 	"github.com/kubeshark/tracer/server/middlewares"
@@ -21,6 +22,11 @@ const (
 
 func Build() *gin.Engine {
 	ginApp := gin.New()
+
+	ginApp.Use(sentrygin.New(sentrygin.Options{
+		Repanic: true,
+	}))
+
 	ginApp.Use(middlewares.DefaultStructuredLogger())
 	ginApp.Use(gin.Recovery())
 
