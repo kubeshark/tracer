@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/kubeshark/tracer/pkg/health"
-	"github.com/kubeshark/tracer/pkg/version"
 )
 
 const (
