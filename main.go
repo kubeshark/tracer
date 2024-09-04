@@ -15,6 +15,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
+	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -22,6 +23,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/kubeshark/tracer/pkg/health"
+	"github.com/kubeshark/tracer/pkg/version"
 )
 
 const (
@@ -66,6 +68,7 @@ func main() {
 		// of transactions for tracing.
 		// We recommend adjusting this value in production,
 		TracesSampleRate: 1.0,
+		Release:          version.Ver,
 	}); err != nil {
 		log.Error().Err(err).Msg("Sentry initialization failed:")
 	} else {
