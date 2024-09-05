@@ -80,7 +80,7 @@ func (s *Connection) Run(conn *net.UnixConn, sock *Socket) {
 			if errors.Is(err, syscall.EPIPE) {
 				log.Info().Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection closed:")
 			} else {
-				log.Warn().Err(err).Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection error:")
+				log.Error().Err(err).Str("Address", conn.RemoteAddr().String()).Msg("Unix socket connection error:")
 			}
 			sock.Disconnected(conn)
 			return
@@ -124,7 +124,7 @@ func (c *Socket) acceptClients(l *net.UnixListener) {
 	for {
 		conn, err := l.AcceptUnix()
 		if err != nil {
-			log.Warn().Err(err).Msg("Accept unix socket failed:")
+			log.Error().Err(err).Msg("Accept unix socket failed:")
 			time.Sleep(time.Second)
 			continue
 		}

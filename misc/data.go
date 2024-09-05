@@ -12,7 +12,7 @@ var dataDir = "data"
 func InitDataDir() {
 	err := os.MkdirAll(dataDir, os.ModePerm)
 	if err != nil {
-		log.Warn().Err(err).Str("data-dir", dataDir).Msg("Unable to create the new data directory:")
+		log.Error().Err(err).Str("data-dir", dataDir).Msg("Unable to create the new data directory:")
 	} else {
 		log.Info().Str("data-dir", dataDir).Msg("Set the data directory to:")
 	}

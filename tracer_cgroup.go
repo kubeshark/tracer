@@ -268,7 +268,7 @@ func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerId
 		}
 
 		if cgroupPath == "" {
-			log.Warn().Str("pid", pid.Name()).Msg(fmt.Sprintf("Cgroup path not found. Lines: %v", lines))
+			log.Error().Str("pid", pid.Name()).Msg(fmt.Sprintf("Cgroup path not found. Lines: %v", lines))
 			continue
 		}
 

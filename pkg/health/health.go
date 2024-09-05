@@ -39,7 +39,7 @@ func DumpHealthEvery10Seconds(nodeName string) {
 	for range ticker.C {
 		err := dumpHealth(nodeName)
 		if err != nil {
-			log.Warn().Err(err).Msg("Failed to dump health data")
+			log.Error().Err(err).Msg("Failed to dump health data")
 		}
 	}
 }
@@ -87,7 +87,7 @@ func initTracerHealth() {
 	}
 
 	if clientSet == nil {
-		log.Warn().Msg("Failed to create clientSet")
+		log.Error().Msg("Failed to create clientSet")
 		return
 	}
 

@@ -75,12 +75,12 @@ func updateCurrentlyTargetedPods(
 
 	newAllTargetPods, err := getAllTargetPodsFromHub()
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get all targeted pods")
+		log.Error().Err(err).Msg("Failed to get all targeted pods")
 	}
 
 	newSelectedTargetPods, err := getSelectedTargetedPodsFromHub()
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get selected targeted pods")
+		log.Error().Err(err).Msg("Failed to get selected targeted pods")
 	}
 
 	addedWatchedPods, removedWatchedPods := getPodArrayDiff(GetAllTargetPods(), newAllTargetPods)

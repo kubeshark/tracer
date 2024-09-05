@@ -68,7 +68,7 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 
 			err = updateCurrentlyTargetedPods(watcher.callback, settings)
 			if err != nil {
-				log.Warn().Err(err).Send()
+				log.Error().Err(err).Send()
 			}
 			watcher.lastUpdatedAt = event.Object.(*v1.ConfigMap).ObjectMeta.Annotations[resolverHistoryAnnotation]
 		case <-ctx.Done():

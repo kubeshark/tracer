@@ -33,7 +33,7 @@ func (s *PacketSorter) WriteTLSPacket(timestamp uint64, cgroupId uint64, directi
 
 	err = gopacket.SerializeLayers(buf, opts, l...)
 	if err != nil {
-		log.Warn().Err(err).Msg("Error serializing packet:")
+		log.Error().Err(err).Msg("Error serializing packet:")
 		return
 	}
 
@@ -74,7 +74,7 @@ func (s *PacketSorter) WritePlanePacket(timestamp uint64, cgroupId uint64, pktDi
 
 	err = gopacket.SerializeLayers(buf, opts, l...)
 	if err != nil {
-		log.Warn().Err(err).Msg("Error serializing packet:")
+		log.Error().Err(err).Msg("Error serializing packet:")
 		return
 	}
 
@@ -117,24 +117,24 @@ func (s *PacketSorter) initMasterPcap() {
 	if _, err = os.Stat(misc.GetMasterPcapPath()); errors.Is(err, os.ErrNotExist) {
 		err = syscall.Mkfifo(misc.GetMasterPcapPath(), 0666)
 		if err != nil {
-			log.Warn().Err(err).Msg("Couldn't create the named pipe:")
+			log.Error().Err(err).Msg("Couldn't create the named pipe:")
 		}
 		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_APPEND|os.O_WRONLY, os.ModeNamedPipe)
 		if err != nil {
-			log.Warn().Err(err).Msg("Couldn't create master PCAP:")
+			log.Error().Err(err).Msg("Couldn't create master PCAP:")
 		} else {
 			s.Lock()
 			defer s.Unlock()
 			s.writer = pcapgo.NewWriter(file)
 			err = s.writer.WriteFileHeader(uint32(misc.Snaplen), layers.LinkTypeEthernet)
 			if err != nil {
-				log.Warn().Err(err).Msg("While writing the PCAP header:")
+				log.Error().Err(err).Msg("While writing the PCAP header:")
 			}
 		}
 	} else {
 		file, err = os.OpenFile(misc.GetMasterPcapPath(), os.O_APPEND|os.O_WRONLY, os.ModeNamedPipe)
 		if err != nil {
-			log.Warn().Err(err).Msg("Couldn't open master PCAP:")
+			log.Error().Err(err).Msg("Couldn't open master PCAP:")
 		} else {
 			s.Lock()
 			defer s.Unlock()
@@ -148,14 +148,14 @@ func (s *PacketSorter) initCbufPcap() {
 		return
 	}
 	if *globCbuf < 0 || *globCbuf > globCbufMax {
-		log.Warn().Msg(fmt.Sprintf("Circullar buffer size can not be greater than %v", globCbufMax))
+		log.Error().Msg(fmt.Sprintf("Circullar buffer size can not be greater than %v", globCbufMax))
 		return
 	}
 
 	if _, err := os.Stat(misc.GetCbufPcapPath()); errors.Is(err, os.ErrNotExist) {
 		err = syscall.Mkfifo(misc.GetCbufPcapPath(), 0666)
 		if err != nil {
-			log.Warn().Err(err).Msg("Couldn't create the named pipe:")
+			log.Error().Err(err).Msg("Couldn't create the named pipe:")
 		}
 	}
 
@@ -165,12 +165,12 @@ func (s *PacketSorter) initCbufPcap() {
 		for {
 			file, err := os.OpenFile(misc.GetCbufPcapPath(), os.O_APPEND|os.O_WRONLY, os.ModeNamedPipe)
 			if err != nil {
-				log.Warn().Err(err).Msg("Couldn't create cbuf PCAP:")
+				log.Error().Err(err).Msg("Couldn't create cbuf PCAP:")
 				break
 			}
 			err = s.cbufPcap.DumptoPcapFile(file, *globCbuf)
 			if err != nil {
-				log.Warn().Err(err).Msg("Couldn't dump cbuf PCAP:")
+				log.Error().Err(err).Msg("Couldn't dump cbuf PCAP:")
 			}
 			file.Close()
 			// wait read side to close the file

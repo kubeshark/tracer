@@ -110,7 +110,7 @@ func (t *tlsStream) writePacket(timestamp uint64, cgroupId uint64, direction uin
 
 	err := t.poller.sorter.WriteTLSPacket(timestamp, cgroupId, direction, firstLayerType, l...)
 	if err != nil {
-		log.Warn().Err(err).Msg("Error writing PCAP:")
+		log.Error().Err(err).Msg("Error writing PCAP:")
 		return
 	}
 }
@@ -142,7 +142,7 @@ func (t *tlsStream) setLayers(timestamp uint64, cgroupId uint64, direction uint8
 	tcp := t.newTCPLayer(reader)
 	err := tcp.SetNetworkLayerForChecksum(ipv4)
 	if err != nil {
-		log.Warn().Err(err).Send()
+		log.Error().Err(err).Send()
 	}
 
 	if t.layers == nil {

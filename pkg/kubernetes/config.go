@@ -25,7 +25,7 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 	configPodRegex := configMap.Data[CONFIG_POD_REGEX]
 	regex, err := regexp2.Compile(configPodRegex, regexp2.Multiline)
 	if err != nil {
-		log.Warn().Err(err).Str("config", CONFIG_POD_REGEX).Send()
+		log.Error().Err(err).Str("config", CONFIG_POD_REGEX).Send()
 	}
 
 	configNamespaces := configMap.Data[CONFIG_NAMESPACES]
@@ -33,7 +33,7 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 
 	var settings uint32
 	if stopped, err := strconv.ParseBool(configMap.Data[CONFIG_STOPPED]); err != nil {
-		log.Warn().Err(err).Str("config", CONFIG_STOPPED).Send()
+		log.Error().Err(err).Str("config", CONFIG_STOPPED).Send()
 	} else if stopped {
 		settings |= CONFIGURATION_FLAG_CAPTURE_STOPPED
 	}

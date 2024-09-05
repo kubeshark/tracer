@@ -32,13 +32,13 @@ func (s *SocketEvent) processSocket() {
 		_ = os.Remove(s.unixSocketFileName)
 		l, err := net.ListenUnix("unixpacket", &net.UnixAddr{Name: s.unixSocketFileName, Net: "unixpacket"})
 		if err != nil {
-			log.Warn().Err(err).Str("Name", s.unixSocketFileName).Msg("Listen event unix socket failed:")
+			log.Error().Err(err).Str("Name", s.unixSocketFileName).Msg("Listen event unix socket failed:")
 			return
 		}
 
 		conn, err := l.AcceptUnix()
 		if err != nil {
-			log.Warn().Err(err).Str("Name", s.unixSocketFileName).Msg("Accept event unix socket failed:")
+			log.Error().Err(err).Str("Name", s.unixSocketFileName).Msg("Accept event unix socket failed:")
 			time.Sleep(time.Second)
 			continue
 		}
@@ -59,7 +59,7 @@ func (s *SocketEvent) processSocket() {
 
 		for ev := range s.events {
 			if err := encoder.Encode(ev); err != nil {
-				log.Warn().Err(err).Str("Name", s.unixSocketFileName).Msg("Encode to unix socket failed:")
+				log.Error().Err(err).Str("Name", s.unixSocketFileName).Msg("Encode to unix socket failed:")
 				conn.Close()
 				break
 			}

@@ -58,7 +58,7 @@ func (p *packetFilter) update(procfs string, pods map[types.UID]*podInfo) {
 	var ifaces []int
 	links, err := netlink.LinkList()
 	if err != nil {
-		log.Warn().Err(err).Msg("Get link list failed:")
+		log.Error().Err(err).Msg("Get link list failed:")
 		return
 	}
 	for _, link := range links {
@@ -67,7 +67,7 @@ func (p *packetFilter) update(procfs string, pods map[types.UID]*podInfo) {
 
 	for _, l := range ifaces {
 		if err := p.tcClient.SetupTC(l, p.ingressPullProgram.FD(), p.egressPullProgram.FD()); err != nil {
-			log.Warn().Int("link", l).Err(err).Msg("Setup TC failed:")
+			log.Error().Int("link", l).Err(err).Msg("Setup TC failed:")
 			continue
 		}
 		log.Info().Int("link", l).Msg("Attached TC programs:")
@@ -131,7 +131,7 @@ func (p *packetFilter) update(procfs string, pods map[types.UID]*podInfo) {
 			}
 
 			if err := p.tcClient.SetupTC(lo, p.ingressPullProgram.FD(), p.egressPullProgram.FD()); err != nil {
-				log.Warn().Int("link", lo).Err(err).Msg("Setup TC failed:")
+				log.Error().Int("link", lo).Err(err).Msg("Setup TC failed:")
 				errors <- fmt.Errorf("Unable to setup tc netns: %v iface: %v error: %v", h, lo, err)
 				return
 			}
@@ -147,7 +147,7 @@ func (p *packetFilter) update(procfs string, pods map[types.UID]*podInfo) {
 
 		select {
 		case err := <-errors:
-			log.Warn().Err(err).Msg("Setup netns program failed:")
+			log.Error().Err(err).Msg("Setup netns program failed:")
 		case <-done:
 		}
 	}

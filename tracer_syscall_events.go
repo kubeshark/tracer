@@ -55,7 +55,7 @@ func (t *syscallEventsTracer) pollEvents() {
 				return
 			}
 
-			log.Warn().Err(err).Msg("Reading syscall event failed")
+			log.Error().Err(err).Msg("Reading syscall event failed")
 			return
 		}
 
@@ -69,7 +69,7 @@ func (t *syscallEventsTracer) pollEvents() {
 		var ev events.SyscallEventMessage
 
 		if err := binary.Read(buffer, binary.LittleEndian, &ev); err != nil {
-			log.Warn().Err(err).Msg("Parse syscall event failed")
+			log.Error().Err(err).Msg("Parse syscall event failed")
 			continue
 		}
 

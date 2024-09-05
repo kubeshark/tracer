@@ -62,7 +62,7 @@ func Start(app *gin.Engine, port int) {
 		// Run server.
 		log.Info().Int("port", port).Msg("Starting the server...")
 		if err := app.Run(fmt.Sprintf(":%d", port)); err != nil {
-			log.Warn().Err(err).Msg("Server is not running!")
+			log.Error().Err(err).Msg("Server is not running!")
 		}
 	}()
 
@@ -72,6 +72,6 @@ func Start(app *gin.Engine, port int) {
 	defer cancel()
 	err := srv.Shutdown(ctx)
 	if err != nil {
-		log.Warn().Err(err).Send()
+		log.Error().Err(err).Send()
 	}
 }

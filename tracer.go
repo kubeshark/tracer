@@ -124,7 +124,7 @@ func (t *Tracer) Init(
 
 	t.isCgroupV2, err = isCgroupV2()
 	if err != nil {
-		log.Warn().Err(err).Msg("read cgroups information failed:")
+		log.Error().Err(err).Msg("read cgroups information failed:")
 	}
 
 	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v", kernelVersion, t.isCgroupV2))
@@ -180,7 +180,7 @@ func (t *Tracer) Init(
 		}
 
 		if err != nil {
-			log.Warn().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
+			log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
 			return err
 		}
 	}
@@ -242,10 +242,10 @@ func (t *Tracer) Init(
 	if t.isCgroupV2 && *enableSyscallEvents {
 		systemEventsTracer, err := newSystemEventsTracer(t.checkCgroupID)
 		if err != nil {
-			log.Warn().Err(err).Msg("System events tracer create failed")
+			log.Error().Err(err).Msg("System events tracer create failed")
 		} else {
 			if err = systemEventsTracer.start(); err != nil {
-				log.Warn().Err(err).Msg("System events tracer start failed")
+				log.Error().Err(err).Msg("System events tracer start failed")
 			}
 		}
 
@@ -254,10 +254,10 @@ func (t *Tracer) Init(
 	if !CompatibleMode {
 		syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
 		if err != nil {
-			log.Warn().Err(err).Msg("Syscall events tracer create failed")
+			log.Error().Err(err).Msg("Syscall events tracer create failed")
 		} else {
 			if err = syscallEventsTracer.start(); err != nil {
-				log.Warn().Err(err).Msg("Syscall events tracer start failed")
+				log.Error().Err(err).Msg("Syscall events tracer start failed")
 			}
 		}
 	}
@@ -369,8 +369,8 @@ func setupRLimit() error {
 func logError(err error) {
 	var e *errors.Error
 	if errors.As(err, &e) {
-		log.Warn().Str("stack", e.ErrorStack()).Send()
+		log.Error().Str("stack", e.ErrorStack()).Send()
 	} else {
-		log.Warn().Err(err).Send()
+		log.Error().Err(err).Send()
 	}
 }
