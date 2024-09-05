@@ -15,8 +15,6 @@ jobs:
   golint:
     name: Golint
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:24.04
     steps:
       - uses: actions/checkout@v4
         with:
