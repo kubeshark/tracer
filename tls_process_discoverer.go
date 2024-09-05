@@ -17,14 +17,14 @@ type podInfo struct {
 
 func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedPods []api.TargetPod, addedTargetedPods []api.TargetPod, removedTargetedPods []api.TargetPod, settings uint32) error {
 	if err := t.bpfObjects.tracerMaps.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
-		log.Error().Err(err).Msg("Update capture settings failed:")
+		log.Warn().Err(err).Msg("Update capture settings failed:")
 	}
 	for _, pod := range removedTargetedPods {
 		if t.packetFilter != nil {
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
 				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
 			} else {
-				log.Error().Err(err).Str("pod", pod.Name).Msg("Detach pod failed from cgroup:")
+				log.Warn().Err(err).Str("pod", pod.Name).Msg("Detach pod failed from cgroup:")
 			}
 		}
 		wInfo, ok := t.watchingPods[pod.UID]
@@ -88,7 +88,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		}
 
 		if _, ok = t.watchingPods[pod.UID]; ok {
-			log.Error().Str("pod", pod.Name).Msg("pod already watched:")
+			log.Warn().Str("pod", pod.Name).Msg("pod already watched:")
 			continue
 		}
 
@@ -99,7 +99,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		for _, containerPid := range pInfo.pids {
 			pw, err := NewPodWatcher(t.procfs, &t.bpfObjects, containerPid)
 			if err != nil {
-				log.Error().Err(err).Str("pod", pod.Name).Uint32("pid", containerPid).Msg("create pod watcher failed:")
+				log.Warn().Err(err).Str("pod", pod.Name).Uint32("pid", containerPid).Msg("create pod watcher failed:")
 				continue
 			}
 			if pw == nil {
@@ -120,7 +120,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 
 		if t.packetFilter != nil {
 			if err := t.packetFilter.AttachPod(string(pod.UID), pInfo.cgroupV2Path, pInfo.cgroupIDs); err != nil {
-				log.Error().Err(err).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+				log.Warn().Err(err).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
 				return err
 			}
 			log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
@@ -137,7 +137,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		for _, p := range wInfo.tlsPids {
 			err := p.Target(&t.bpfObjects)
 			if err != nil {
-				log.Error().Err(err).Str("pod", pod.Name).Msg("target pod failed:")
+				log.Warn().Err(err).Str("pod", pod.Name).Msg("target pod failed:")
 				continue
 			}
 		}

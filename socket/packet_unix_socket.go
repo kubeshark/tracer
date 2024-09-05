@@ -96,7 +96,7 @@ func (s *SocketPcap) getTAIOffset() uint64 {
 func (s *SocketPcap) assignTAI() {
 	tai, err := getTAIOffset()
 	if err != nil {
-		log.Error().Err(err).Msg("Get TAI failed:")
+		log.Warn().Err(err).Msg("Get TAI failed:")
 		return
 	}
 	s.taiMtx.Lock()

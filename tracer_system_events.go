@@ -44,7 +44,7 @@ type systemEventsTracer struct {
 func processTraceLog() {
 	file, err := os.Open(traceeLogFile)
 	if err != nil {
-		log.Error().Err(err).Msg(fmt.Sprintf("open tracee log file failed: %v", traceeLogFile))
+		log.Warn().Err(err).Msg(fmt.Sprintf("open tracee log file failed: %v", traceeLogFile))
 		return
 	}
 	defer file.Close()
@@ -295,7 +295,7 @@ func (t *systemEventsTracer) start() (err error) {
 
 				prettyJSON, err := json.MarshalIndent(event, "", "    ")
 				if err != nil {
-					log.Error().Err(err).Msg("Marshal failed:")
+					log.Warn().Err(err).Msg("Marshal failed:")
 					continue
 				}
 				log.Debug().Str("event", string(prettyJSON)).Msg("event received")
@@ -313,7 +313,7 @@ func (t *systemEventsTracer) start() (err error) {
 		defer t.tracee.Unsubscribe(stream)
 		err = t.tracee.Run(ctx)
 		if err != nil {
-			log.Error().Err(err).Msg("tracee start failed")
+			log.Warn().Err(err).Msg("tracee start failed")
 			return
 		}
 		log.Info().Msg("tracee stopped")

@@ -69,7 +69,7 @@ func main() {
 		TracesSampleRate: 1.0,
 		Release:          version.Ver,
 	}); err != nil {
-		log.Error().Err(err).Msg("Sentry initialization failed:")
+		log.Warn().Err(err).Msg("Sentry initialization failed:")
 	} else {
 		defer sentry.Flush(2 * time.Second)
 	}
@@ -121,7 +121,7 @@ func run() {
 	errOut := make(chan error, 100)
 	go func() {
 		for err := range errOut {
-			log.Error().Err(err).Msg("watch failed:")
+			log.Warn().Err(err).Msg("watch failed:")
 		}
 	}()
 	watcher := kubernetes.NewFromInCluster(errOut, tracer.updateTargets)
