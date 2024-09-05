@@ -237,20 +237,6 @@ func (t *Tracer) Init(
 		}
 	}
 
-	// Despite tracee works in both cgroup V1 and V2
-	// run it only for V2 as soon as syscall events can be filtered for V2 only
-	if t.isCgroupV2 && *enableSyscallEvents {
-		systemEventsTracer, err := newSystemEventsTracer(t.checkCgroupID)
-		if err != nil {
-			log.Error().Err(err).Msg("System events tracer create failed")
-		} else {
-			if err = systemEventsTracer.start(); err != nil {
-				log.Error().Err(err).Msg("System events tracer start failed")
-			}
-		}
-
-	}
-
 	if !CompatibleMode {
 		syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
 		if err != nil {
