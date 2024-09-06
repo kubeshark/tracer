@@ -19,11 +19,6 @@ type podLinks struct {
 	cgroupIDs []uint64
 }
 
-type attachedPods map[string]podLinks
-
-func (p *attachedPods) add(podUuid string, lIngress, lEgress link.Link) {
-}
-
 type packetFilter struct {
 	ingressFilterProgram *ebpf.Program
 	egressFilterProgram  *ebpf.Program
@@ -191,7 +186,7 @@ func (t *packetFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) e
 	for _, cgroupID := range cgoupIDs {
 		err := t.cgroupHashMap.Update(cgroupID, uint32(0), ebpf.UpdateNoExist)
 		if err != nil && !errors.Is(err, ebpf.ErrKeyExist) {
-			return fmt.Errorf("adding cgroup % failed: %v", cgroupID, err)
+			return fmt.Errorf("adding cgroup %v failed: %v", cgroupID, err)
 		} else if err == nil {
 			t.attachedPods[uuid].cgroupIDs = append(t.attachedPods[uuid].cgroupIDs, cgroupID)
 		}
@@ -209,7 +204,7 @@ func (t *packetFilter) DetachPod(uuid string) error {
 
 	for _, cgroupID := range p.cgroupIDs {
 		if err := t.cgroupHashMap.Delete(cgroupID); err != nil {
-			return fmt.Errorf("deleting cgroup % failed: %v", cgroupID, err)
+			return fmt.Errorf("deleting cgroup %v failed: %v", cgroupID, err)
 		}
 	}
 

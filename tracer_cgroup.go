@@ -26,8 +26,6 @@ type pidInformation struct {
 	containerCgroupIds []uint64
 }
 
-type cgroupVersion uint8
-
 type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }
@@ -124,7 +122,8 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 					log.Warn().Err(err).Str("path", s).Msg("Couldn't get container cgroup ID.")
 					continue
 				}
-				cgroupsInfo.Add(containerCgroupId, getContainerIdFromCgroupPath(cgroupPath))
+				id, _ := getContainerIdFromCgroupPath(cgroupPath)
+				cgroupsInfo.Add(containerCgroupId, id)
 
 				for _, p := range cgroupPaths[cgroupPath] {
 					pInfo := t.pidsInfo[p]
@@ -171,7 +170,7 @@ var (
 )
 
 // Borrowed from https://github.com/aquasecurity/tracee/blob/main/pkg/containers/containers.go
-func getContainerIdFromCgroupPath(cgroupPath string) (id string) {
+func getContainerIdFromCgroupPath(cgroupPath string) (id string, runtime RuntimeId) {
 	cgroupParts := strings.Split(cgroupPath, "/")
 
 	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
@@ -180,7 +179,7 @@ func getContainerIdFromCgroupPath(cgroupPath string) (id string) {
 			continue
 		}
 
-		runtime := runtimeUnknown
+		runtime = runtimeUnknown
 		id = strings.TrimSuffix(pc, ".scope")
 
 		switch {
@@ -222,7 +221,7 @@ func getContainerIdFromCgroupPath(cgroupPath string) (id string) {
 
 		if matched := gardenContainerIdFromCgroupRegex.MatchString(id); matched {
 			runtime = runtimeGarden
-			return id
+			return
 		}
 	}
 

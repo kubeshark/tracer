@@ -29,20 +29,21 @@ const GlobalWorkerPid = 0
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
 
 type Tracer struct {
-	bpfObjects        tracerObjects
-	syscallHooks      syscallHooks
-	tcpKprobeHooks    tcpKprobeHooks
-	sslHooksStructs   []sslHooks
-	goHooksStructs    []goHooks
-	poller            *tlsPoller
-	pktsPoller        *pktsPoller
-	bpfLogger         *bpfLogger
-	packetFilter      *packetFilter
-	procfs            string
-	isCgroupV2        bool
-	pktSnifDisabled   bool
-	watchingPods      map[types.UID]*watchingPodsInfo
-	targetedCgroupIDs map[uint64]struct{}
+	bpfObjects          tracerObjects
+	syscallHooks        syscallHooks
+	tcpKprobeHooks      tcpKprobeHooks
+	sslHooksStructs     []sslHooks
+	goHooksStructs      []goHooks
+	poller              *tlsPoller
+	pktsPoller          *pktsPoller
+	bpfLogger           *bpfLogger
+	packetFilter        *packetFilter
+	procfs              string
+	isCgroupV2          bool
+	pktSnifDisabled     bool
+	watchingPods        map[types.UID]*watchingPodsInfo
+	targetedCgroupIDs   map[uint64]struct{}
+	syscallEventsTracer *syscallEventsTracer
 }
 
 type watchingPodsInfo struct {
@@ -161,7 +162,7 @@ func (t *Tracer) Init(
 		} else if err != nil && errors.As(err, &ve) {
 			t.pktSnifDisabled = true
 			CompatibleMode = true
-			log.Warn().Msg(fmt.Sprintf("eBPF packets capture and syscall events are disabled"))
+			log.Warn().Msg("eBPF packets capture and syscall events are disabled")
 
 			objsNoSniff := &BpfObjectsImpl{
 				bpfObjs: &tracerNoSniffObjects{},
@@ -238,21 +239,16 @@ func (t *Tracer) Init(
 	}
 
 	if !CompatibleMode {
-		syscallEventsTracer, err := newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
+		t.syscallEventsTracer, err = newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
 		if err != nil {
 			log.Error().Err(err).Msg("Syscall events tracer create failed")
 		} else {
-			if err = syscallEventsTracer.start(); err != nil {
+			if err = t.syscallEventsTracer.start(); err != nil {
 				log.Error().Err(err).Msg("Syscall events tracer start failed")
 			}
 		}
 	}
 	return nil
-}
-
-func (t *Tracer) checkCgroupID(cID uint64) bool {
-	_, ok := t.targetedCgroupIDs[cID]
-	return ok
 }
 
 func (t *Tracer) poll(streamsMap *TcpStreamMap) {
@@ -305,6 +301,10 @@ func (t *Tracer) globalGoTarget(procfs string, pid string) error {
 }
 
 func (t *Tracer) close() []error {
+	if t.syscallEventsTracer != nil {
+		t.syscallEventsTracer.stop()
+	}
+
 	if t.packetFilter != nil {
 		t.packetFilter.close()
 	}
