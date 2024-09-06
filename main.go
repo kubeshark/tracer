@@ -39,7 +39,6 @@ var debug = flag.Bool("debug", false, "Enable debug mode")
 var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular buffer 0 means disabled, max value is %v", globCbufMax))
 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
-var enableSyscallEvents = flag.Bool("enable-syscall", false, "Enable syscall events processing")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
 const sentryDsn = "https://c0b7399e76173c4601a82aab28eb4be8@o4507855877505024.ingest.us.sentry.io/4507886789263360"

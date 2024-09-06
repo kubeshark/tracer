@@ -36,12 +36,3 @@ func GetSelfPodName() string {
 	}
 	return ""
 }
-
-func mapsContain(m1, m2 map[string]string) bool {
-	for key, value := range m2 {
-		if m1Value, found := m1[key]; !found || m1Value != value {
-			return false
-		}
-	}
-	return true
-}

@@ -37,8 +37,8 @@ func (t *syscallEventsTracer) start() (err error) {
 	return nil
 }
 
-func (t *syscallEventsTracer) stop() (err error) {
-	return t.eventReader.Close()
+func (t *syscallEventsTracer) stop() {
+	_ = t.eventReader.Close()
 }
 
 func (t *syscallEventsTracer) pollEvents() {

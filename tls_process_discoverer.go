@@ -88,7 +88,7 @@ func (t *Tracer) updateTargets(addedWatchedPods []api.TargetPod, removedWatchedP
 		}
 
 		if _, ok = t.watchingPods[pod.UID]; ok {
-			log.Error().Str("pod", pod.Name).Msg("pod already watched:")
+			log.Warn().Str("pod", pod.Name).Msg("pod already watched:")
 			continue
 		}
 
