@@ -24,7 +24,7 @@ import (
 
 	"github.com/kubeshark/tracer/pkg/health"
 
-	sentrypkg "github.com/kubeshark/hub/pkg/sentry"
+	sentrypkg "github.com/kubeshark/tracer/pkg/sentry"
 )
 
 const (
