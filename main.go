@@ -58,14 +58,14 @@ var sslLibsGlobal sslListArray
 var tracer *Tracer
 
 func main() {
-	sentryDsn, error := sentrypkg.GetDSN(context.Background())
+	sentryDSN, error := sentrypkg.GetDSN(context.Background())
 	if error != nil {
 		log.Error().Err(error).Msg("Failed to get Sentry DSN")
 	}
 
 	// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
 	if err := sentry.Init(sentry.ClientOptions{
-		Dsn:           sentryDsn,
+		Dsn:           sentryDSN,
 		EnableTracing: true,
 		// Set TracesSampleRate to 1.0 to capture 100%
 		// of transactions for tracing.
