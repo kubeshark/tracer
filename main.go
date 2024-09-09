@@ -23,6 +23,8 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/kubeshark/tracer/pkg/health"
+
+	sentrypkg "github.com/kubeshark/hub/pkg/sentry"
 )
 
 const (
@@ -41,8 +43,6 @@ var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
-const sentryDsn = "https://c0b7399e76173c4601a82aab28eb4be8@o4507855877505024.ingest.us.sentry.io/4507886789263360"
-
 type sslListArray []string
 
 func (i *sslListArray) String() string {
@@ -58,6 +58,11 @@ var sslLibsGlobal sslListArray
 var tracer *Tracer
 
 func main() {
+	sentryDsn, error := sentrypkg.GetDSN(context.Background())
+	if error != nil {
+		log.Error().Err(error).Msg("Failed to get Sentry DSN")
+	}
+
 	// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
 	if err := sentry.Init(sentry.ClientOptions{
 		Dsn:           sentryDsn,
