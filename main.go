@@ -81,7 +81,7 @@ func main() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	w, err := zlogsentry.New(
-		sentryDsn,
+		sentryDSN,
 	)
 	if err != nil {
 		stdlog.Fatal(err)
