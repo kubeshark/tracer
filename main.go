@@ -58,24 +58,27 @@ var sslLibsGlobal sslListArray
 var tracer *Tracer
 
 func main() {
-	sentryDSN, error := sentrypkg.GetDSN(context.Background())
-	if error != nil {
-		log.Error().Err(error).Msg("Failed to get Sentry DSN")
-	}
+	var sentryDSN string
+	if sentrypkg.IsSentryEnabled() {
+		sentryDSN, error := sentrypkg.GetDSN(context.Background())
+		if error != nil {
+			log.Error().Err(error).Msg("Failed to get Sentry DSN")
+		}
 
-	// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
-	if err := sentry.Init(sentry.ClientOptions{
-		Dsn:           sentryDSN,
-		EnableTracing: true,
-		// Set TracesSampleRate to 1.0 to capture 100%
-		// of transactions for tracing.
-		// We recommend adjusting this value in production,
-		TracesSampleRate: 1.0,
-		Release:          version.Ver,
-	}); err != nil {
-		log.Error().Err(err).Msg("Sentry initialization failed:")
-	} else {
-		defer sentry.Flush(2 * time.Second)
+		// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:           sentryDSN,
+			EnableTracing: true,
+			// Set TracesSampleRate to 1.0 to capture 100%
+			// of transactions for tracing.
+			// We recommend adjusting this value in production,
+			TracesSampleRate: 1.0,
+			Release:          version.Ver,
+		}); err != nil {
+			log.Error().Err(err).Msg("Sentry initialization failed:")
+		} else {
+			defer sentry.Flush(2 * time.Second)
+		}
 	}
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)

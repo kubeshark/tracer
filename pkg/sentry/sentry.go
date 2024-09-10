@@ -12,7 +12,6 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/rs/zerolog/log"
-	
 )
 
 type Request struct {
@@ -22,6 +21,10 @@ type Request struct {
 
 type DSNResponse struct {
 	DSN string `json:"dsn"`
+}
+
+func IsSentryEnabled() bool {
+	return os.Getenv("SENTRY_ENABLED") == "true"
 }
 
 func GetDSN(ctx context.Context) (string, error) {
