@@ -23,6 +23,8 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/kubeshark/tracer/pkg/health"
+
+	sentrypkg "github.com/kubeshark/tracer/pkg/sentry"
 )
 
 const (
@@ -41,8 +43,6 @@ var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
-const sentryDsn = "https://c0b7399e76173c4601a82aab28eb4be8@o4507855877505024.ingest.us.sentry.io/4507886789263360"
-
 type sslListArray []string
 
 func (i *sslListArray) String() string {
@@ -58,25 +58,33 @@ var sslLibsGlobal sslListArray
 var tracer *Tracer
 
 func main() {
-	// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
-	if err := sentry.Init(sentry.ClientOptions{
-		Dsn:           sentryDsn,
-		EnableTracing: true,
-		// Set TracesSampleRate to 1.0 to capture 100%
-		// of transactions for tracing.
-		// We recommend adjusting this value in production,
-		TracesSampleRate: 1.0,
-		Release:          version.Ver,
-	}); err != nil {
-		log.Error().Err(err).Msg("Sentry initialization failed:")
-	} else {
-		defer sentry.Flush(2 * time.Second)
+	var sentryDSN string
+	if sentrypkg.IsSentryEnabled() {
+		sentryDSN, error := sentrypkg.GetDSN(context.Background())
+		if error != nil {
+			log.Error().Err(error).Msg("Failed to get Sentry DSN")
+		}
+
+		// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:           sentryDSN,
+			EnableTracing: true,
+			// Set TracesSampleRate to 1.0 to capture 100%
+			// of transactions for tracing.
+			// We recommend adjusting this value in production,
+			TracesSampleRate: 1.0,
+			Release:          version.Ver,
+		}); err != nil {
+			log.Error().Err(err).Msg("Sentry initialization failed:")
+		} else {
+			defer sentry.Flush(2 * time.Second)
+		}
 	}
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
 	w, err := zlogsentry.New(
-		sentryDsn,
+		sentryDSN,
 	)
 	if err != nil {
 		stdlog.Fatal(err)
