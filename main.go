@@ -59,9 +59,9 @@ var tracer *Tracer
 func main() {
 	var sentryDSN string
 	if sentrypkg.IsSentryEnabled() {
-		sentryDSN, error := sentrypkg.GetDSN(context.Background())
-		if error != nil {
-			log.Error().Err(error).Msg("Failed to get Sentry DSN")
+		sentryDSN, err := sentrypkg.GetDSN(context.Background(), "tracer", version.Ver)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get Sentry DSN")
 		}
 
 		// To initialize Sentry's handler, you need to initialize Sentry itself beforehand
