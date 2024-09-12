@@ -159,6 +159,8 @@ github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c h1:Km6Wm+A
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
 github.com/kubeshark/utils v0.0.0-20240912114101-271ed42ebd29 h1:O/t6Nd12MyX6flppOojsAh0gS1pjb0VdsdyxmIEFbjQ=
 github.com/kubeshark/utils v0.0.0-20240912114101-271ed42ebd29/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
+github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11 h1:g+f7OCI1onHRqEqE5dMlhLfwfdxFI9wmeOvlUaxNzPQ=
+github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
 github.com/leodido/go-urn v1.2.1/go.mod h1:zt4jvISO2HfUBqxjfIshjdMTYS56ZS/qv49ictyFfxY=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
 github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=

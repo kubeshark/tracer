@@ -22,7 +22,7 @@ require (
 	github.com/kubeshark/api v1.1.20
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
-	github.com/kubeshark/utils v0.0.0-20240912114101-271ed42ebd29
+	github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
 	github.com/struCoder/pidusage v0.2.1
