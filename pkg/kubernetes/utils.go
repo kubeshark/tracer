@@ -1,8 +1,11 @@
 package kubernetes
 
 import (
+	"context"
 	"os"
 	"strings"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -35,4 +38,16 @@ func GetSelfPodName() string {
 		return name
 	}
 	return ""
+}
+
+// GetClusterID returns the UID field of the `kube-system` namespace object
+// This is used as a unique identifier for the cluster
+func GetClusterID(watcher *Watcher) (string, error) {
+
+	namespaceObj, err := watcher.clientSet.CoreV1().Namespaces().Get(context.Background(), "kube-system", metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return string(namespaceObj.GetUID()), nil
 }

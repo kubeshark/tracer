@@ -17,14 +17,13 @@ import (
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
+	sentrypkg "github.com/kubeshark/utils/sentry"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
 	"github.com/kubeshark/tracer/pkg/health"
-
-	sentrypkg "github.com/kubeshark/tracer/pkg/sentry"
 )
 
 const (
@@ -74,6 +73,7 @@ func main() {
 			// We recommend adjusting this value in production,
 			TracesSampleRate: 1.0,
 			Release:          version.Ver,
+			Environment:      sentrypkg.Environment(),
 		}); err != nil {
 			log.Error().Err(err).Msg("Sentry initialization failed:")
 		} else {
@@ -141,6 +141,8 @@ func run() {
 
 	go health.DumpHealthEvery10Seconds(nodeName)
 
+	enrichSentryContext(watcher)
+
 	if clusterMode {
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
 	}
@@ -196,4 +198,17 @@ func createTracer() (err error) {
 	}
 
 	return
+}
+
+func enrichSentryContext(watcher *Watcher) {
+	clusterId, err := kubernetes.GetClusterID(watcher)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get cluster ID for Sentry tag")
+	}
+
+	tags := map[string]string{
+		"clusterID": clusterId,
+	}
+
+	sentrypkg.AddTags(tags)
 }
