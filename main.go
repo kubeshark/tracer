@@ -200,7 +200,7 @@ func createTracer() (err error) {
 	return
 }
 
-func enrichSentryContext(watcher *Watcher) {
+func enrichSentryContext(watcher *kubernetes.Watcher) {
 	clusterId, err := kubernetes.GetClusterID(watcher)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get cluster ID for Sentry tag")
