@@ -9,6 +9,7 @@ Copyright (C) Kubeshark
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/pids.h"
+#include "include/cgroups.h"
 #include "include/common.h"
 
 struct accept_data {

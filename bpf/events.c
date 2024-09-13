@@ -17,7 +17,7 @@ void BPF_KPROBE(tcp_connect) {
 
     long err;
     __u64 cgroup_id = bpf_get_current_cgroup_id();
-    if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
+    if (!should_target_cgroup(cgroup_id)) {
         return;
     }
     __u64 id = tracer_get_current_pid_tgid();
@@ -113,7 +113,7 @@ void BPF_KRETPROBE(do_accept) {
         return;
 
     __u64 cgroup_id = bpf_get_current_cgroup_id();
-    if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
+    if (!should_target_cgroup(cgroup_id)) {
         return;
     }
     struct file* f = (struct file*)PT_REGS_RC(ctx);

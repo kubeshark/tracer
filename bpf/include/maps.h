@@ -149,8 +149,9 @@ struct configuration {
     BPF_MAP(_name, BPF_MAP_TYPE_ARRAY, _key_type, _value_type, _max_entries)
 
 // Generic
-BPF_HASH(target_pids_map, __u32, __u32);
-BPF_HASH(watch_pids_map, __u32, __u32);
+// TODO: remove:
+//BPF_HASH(target_pids_map, __u32, __u32);
+//BPF_HASH(watch_pids_map, __u32, __u32);
 BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);

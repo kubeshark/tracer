@@ -33,7 +33,7 @@ build-race: ## Build the program with -race flag.
 	$(GOBUILD) -race -ldflags="-extldflags=-s -w" -o tracer .
 
 bpf: ## Compile the object files for eBPF
-	BPF_TARGET="$(BPF_TARGET)" BPF_CFLAGS="-O2 -g -D__TARGET_ARCH_$(BPF_ARCH_SUFFIX)" $(GOGENERATE) tracer.go
+	BPF_TARGET="$(BPF_TARGET)" BPF_CFLAGS="-O2 -g -D__TARGET_ARCH_$(BPF_ARCH_SUFFIX)" $(GOGENERATE) pkg/bpf/bpf.go
 
 lint: ## Lint the source code.
 	golangci-lint run

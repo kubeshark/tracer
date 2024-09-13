@@ -48,12 +48,10 @@ static __always_inline __u64 tracer_get_current_pid_tgid() {
 	return base_pid_tgid;
 }
 
+/*
 int should_target(__u32 pid) {
 	return _pid_in_map(&target_pids_map, pid);
 }
-
-int should_watch(__u32 pid) {
-	return _pid_in_map(&watch_pids_map, pid);
-}
+*/
 
 #endif /* __PIDS__ */

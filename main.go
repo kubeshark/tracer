@@ -6,10 +6,10 @@ import (
 	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
-	"strings"
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/pkg/discoverer"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -19,36 +19,19 @@ import (
 	"github.com/kubeshark/tracer/pkg/health"
 )
 
-const (
-	globCbufMax = 10_000
-)
-
 // capture
 var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
 
 // development
 var debug = flag.Bool("debug", false, "Enable debug mode")
-var globCbuf = flag.Int("cbuf", 0, fmt.Sprintf("Keep last N packets in circular buffer 0 means disabled, max value is %v", globCbufMax))
 
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
-var enableSyscallEvents = flag.Bool("enable-syscall", false, "Enable syscall events processing")
-
-type sslListArray []string
-
-func (i *sslListArray) String() string {
-	return strings.Join((*i)[:], ",")
-}
-func (i *sslListArray) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
-
-var sslLibsGlobal sslListArray
+var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
 var tracer *Tracer
 
 func main() {
-	flag.Var(&sslLibsGlobal, "ssl-libname", "Custom libssl library name")
+	flag.Var(&discoverer.SslLibsGlobal, "ssl-libname", "Custom libssl library name")
 	flag.Parse()
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
@@ -68,8 +51,8 @@ func run() {
 
 	tracer = &Tracer{
 		procfs:            *procfs,
-		watchingPods:      make(map[types.UID]*watchingPodsInfo),
 		targetedCgroupIDs: map[uint64]struct{}{},
+		runningPods:       make(map[types.UID]podInfo),
 	}
 
 	_, err := rest.InClusterConfig()
@@ -94,19 +77,13 @@ func run() {
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
 	}
 
-	streamsMap := NewTcpStreamMap()
-
 	err = createTracer()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Couldn't initialize the tracer:")
 	}
-	defer tracer.close()
-
-	go tracer.pollForLogging()
-
 	watcher.Start(ctx, clusterMode)
 
-	tracer.poll(streamsMap)
+	select {}
 }
 
 func createTracer() (err error) {
@@ -119,22 +96,6 @@ func createTracer() (err error) {
 		*procfs,
 	); err != nil {
 		return
-	}
-
-	// A quick way to instrument libssl.so without PID filtering - used for debuging and troubleshooting
-	//
-	if os.Getenv("KUBESHARK_GLOBAL_LIBSSL_PID") != "" {
-		if err = tracer.globalSSLLibTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_LIBSSL_PID")); err != nil {
-			return
-		}
-	}
-
-	// A quick way to instrument Go `crypto/tls` without PID filtering - used for debuging and troubleshooting
-	//
-	if os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID") != "" {
-		if err = tracer.globalGoTarget(*procfs, os.Getenv("KUBESHARK_GLOBAL_GOLANG_PID")); err != nil {
-			return
-		}
 	}
 
 	return

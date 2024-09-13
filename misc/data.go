@@ -26,14 +26,6 @@ func SetDataDir(v string) {
 	dataDir = v
 }
 
-func GetMasterPcapPath() string {
-	return fmt.Sprintf("%s/tls.pcap", GetDataDir())
-}
-
-func GetCbufPcapPath() string {
-	return fmt.Sprintf("%s/tls_last.pcap", GetDataDir())
-}
-
 func GetTLSSocketPath() string {
 	return fmt.Sprintf("%s/tls.unix", GetDataDir())
 }

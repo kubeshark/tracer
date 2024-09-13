@@ -9,6 +9,7 @@ Copyright (C) Kubeshark
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/pids.h"
+#include "include/cgroups.h"
 #include "include/common.h"
 
 static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info* info, __u64 id) {
@@ -45,12 +46,12 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t
     if (capture_disabled())
         return;
 
+    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    if (!should_target_cgroup(cgroup_id)) {
+        return;
+    }
+
 	__u64 id = tracer_get_current_pid_tgid();
-
-	if (!should_target(id >> 32)) {
-		return;
-	}
-
 	struct ssl_info info = lookup_ssl_info(ctx, map_fd, id);
 
 	info.count_ptr = count_ptr;
@@ -64,15 +65,15 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t
 }
 
 static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u32 flags) {
-	__u64 id = tracer_get_current_pid_tgid();
-
     if (capture_disabled())
         return;
 
-	if (!should_target(id >> 32)) {
-		return;
-	}
+    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    if (!should_target_cgroup(cgroup_id)) {
+        return;
+    }
 
+	__u64 id = tracer_get_current_pid_tgid();
 	struct ssl_info* infoPtr = bpf_map_lookup_elem(map_fd, &id);
 
 	if (infoPtr == NULL) {

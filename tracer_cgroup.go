@@ -9,11 +9,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 
-	"golang.org/x/sys/unix"
-
-	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/kubeshark/tracer/pkg/discoverer"
+	"github.com/kubeshark/tracer/pkg/kubernetes"
+	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -26,14 +25,11 @@ type pidInformation struct {
 	containerCgroupIds []uint64
 }
 
-type cgroupVersion uint8
+//XXX type cgroupVersion uint8
 
 type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }
-
-// TODO: make as object component:
-var cgroupsInfo, _ = lru.New[uint64, string](4096)
 
 func NewTracerCgroup(procfs string, containerIds map[string]types.UID) (*tracerCgroup, error) {
 
@@ -41,7 +37,7 @@ func NewTracerCgroup(procfs string, containerIds map[string]types.UID) (*tracerC
 		pidsInfo: make(map[uint32]pidInformation),
 	}
 
-	isCgroupV2, err := isCgroupV2()
+	isCgroupV2, err := utils.IsCgroupV2()
 	if err != nil {
 		return nil, err
 	}
@@ -119,12 +115,12 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 				if !strings.HasSuffix(s, cgroupPath) {
 					continue
 				}
-				containerCgroupId, err := getCgroupId(s)
+				containerCgroupId, err := discoverer.GetCgroupIdByPath(s)
 				if err != nil {
 					log.Warn().Err(err).Str("path", s).Msg("Couldn't get container cgroup ID.")
 					continue
 				}
-				cgroupsInfo.Add(containerCgroupId, getContainerIdFromCgroupPath(cgroupPath))
+				//TODO: removesyscallPoller.CgroupsInfo.Add(containerCgroupId, discoverer.GetContainerIdFromCgroupPath(cgroupPath))
 
 				for _, p := range cgroupPaths[cgroupPath] {
 					pInfo := t.pidsInfo[p]
@@ -152,82 +148,6 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 	}
 
 	return nil
-}
-
-type RuntimeId int
-
-const (
-	runtimeUnknown RuntimeId = iota
-	runtimeDocker
-	runtimeContainerd
-	runtimeCrio
-	runtimePodman
-	runtimeGarden
-)
-
-var (
-	containerIdFromCgroupRegex       = regexp.MustCompile(`^[A-Fa-f0-9]{64}$`)
-	gardenContainerIdFromCgroupRegex = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){4}$`)
-)
-
-// Borrowed from https://github.com/aquasecurity/tracee/blob/main/pkg/containers/containers.go
-func getContainerIdFromCgroupPath(cgroupPath string) (id string) {
-	cgroupParts := strings.Split(cgroupPath, "/")
-
-	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
-		pc := cgroupParts[i]
-		if len(pc) < 28 {
-			continue
-		}
-
-		runtime := runtimeUnknown
-		id = strings.TrimSuffix(pc, ".scope")
-
-		switch {
-		case strings.HasPrefix(id, "docker-"):
-			runtime = runtimeDocker
-			id = strings.TrimPrefix(id, "docker-")
-		case strings.HasPrefix(id, "crio-"):
-			runtime = runtimeCrio
-			id = strings.TrimPrefix(id, "crio-")
-		case strings.HasPrefix(id, "cri-containerd-"):
-			runtime = runtimeContainerd
-			id = strings.TrimPrefix(id, "cri-containerd-")
-		case strings.Contains(pc, ":cri-containerd:"):
-			runtime = runtimeContainerd
-			id = pc[strings.LastIndex(pc, ":cri-containerd:")+len(":cri-containerd:"):]
-		case strings.HasPrefix(id, "libpod-"):
-			runtime = runtimePodman
-			id = strings.TrimPrefix(id, "libpod-")
-		}
-
-		if runtime != runtimeUnknown {
-			return
-		}
-
-		if matched := containerIdFromCgroupRegex.MatchString(id); matched && i > 0 {
-			prevPart := cgroupParts[i-1]
-			if prevPart == "docker" {
-				runtime = runtimeDocker
-			}
-			if prevPart == "actions_job" {
-				runtime = runtimeDocker
-			}
-			if strings.HasPrefix(prevPart, "pod") {
-				runtime = runtimeContainerd
-			}
-
-			return
-		}
-
-		if matched := gardenContainerIdFromCgroupRegex.MatchString(id); matched {
-			runtime = runtimeGarden
-			return id
-		}
-	}
-
-	id = ""
-	return
 }
 
 func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerIds map[string]types.UID) error {
@@ -287,16 +207,16 @@ func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerId
 	return nil
 }
 
-func (t *tracerCgroup) getPodsInfo() map[types.UID]*podInfo {
-	podsInfo := make(map[types.UID]*podInfo)
+func (t *tracerCgroup) getPodsInfo() map[types.UID]*kubernetes.PodInfo {
+	podsInfo := make(map[types.UID]*kubernetes.PodInfo)
 	for pid, info := range t.pidsInfo {
 		if podsInfo[info.podId] == nil {
-			podsInfo[info.podId] = &podInfo{}
+			podsInfo[info.podId] = &kubernetes.PodInfo{}
 		}
 		pod := podsInfo[info.podId]
-		pod.pids = append(pod.pids, pid)
-		pod.cgroupIDs = append(pod.cgroupIDs, info.containerCgroupIds...)
-		pod.cgroupV2Path = info.cgroupPath
+		pod.Pids = append(pod.Pids, pid)
+		pod.CgroupIDs = append(pod.CgroupIDs, info.containerCgroupIds...)
+		pod.CgroupV2Path = info.cgroupPath
 	}
 	return podsInfo
 }
@@ -307,29 +227,6 @@ func normalyzeCgroupV2Path(path string) string {
 		normalizedPath = normalizedPath[1:]
 	}
 	return normalizedPath
-}
-
-func getCgroupId(filepath string) (uint64, error) {
-	fileInfo, err := os.Stat(filepath)
-	if err != nil {
-		return 0, err
-	}
-
-	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, fmt.Errorf("stat_t failed")
-	}
-
-	return stat.Ino, nil
-}
-
-func isCgroupV2() (bool, error) {
-	const cgroupV2MagicNumber = unix.CGROUP2_SUPER_MAGIC
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs("/sys/fs/cgroup/", &stat); err != nil {
-		return false, err
-	}
-	return stat.Type == cgroupV2MagicNumber, nil
 }
 
 // cgroup in the /proc/<pid>/cgroup may look something like
