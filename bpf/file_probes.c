@@ -3,7 +3,7 @@ SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
 
-#include "file_probes.h"
+#include "probes.h"
 
 #define S_IFMT 0170000
 #define S_IFDIR 0040000
@@ -60,10 +60,17 @@ typedef struct {
 // PATH_MAX is 4096 in Linux kernel
 #define MAX_FILEPATH (4096)
 
-struct search_string {
-    void* str;
-    unsigned int pos;
-};
+static long str_match_begin(const char* s1, __u32 sz1, const char* s2, __u32 sz2) {
+    if (sz1 < sz2)
+        return 0;
+
+    for (int i = 0; i < sz2; i++) {
+        if (s1[i] != s2[i]) return 0;
+    }
+
+    return 1;
+}
+
 struct file_path {
     __u32 device_id;
     __u16 size;
@@ -83,42 +90,33 @@ BPF_PERF_OUTPUT(perf_found_cgroupv2);
 
 BPF_LRU_HASH(do_mkdir_context, __u64, struct file_path);
 
-// TODO: optimization: search from end, if '/' is found, then exit with 'not found'
-static long find_openssl_loop(__u32 index, struct search_string* ctx)
-{
-    char buf[PATTERN_LIBSSL_LEN + 1];
-    int sz = bpf_probe_read_str(buf, PATTERN_LIBSSL_LEN + 1, ctx->str + index);
-    if (sz < PATTERN_LIBSSL_LEN + 1) {
-        return 1;
-    }
-    if (bpf_strncmp(buf, PATTERN_LIBSSL_LEN, PATTERN_LIBSSL) == 0) {
-        DEBUG_FILE_PROBE("find_openssl_loop: found: %s", buf);
-        ctx->pos = index;
-        return 1;
-    }
-    return 0;
-}
-
 static __always_inline void find_openssl(void* ctx, __u32 device_id, void* name, uint8_t remove) {
-    struct search_string c = {
-        .pos = 0,
-        .str = name,
-    };
-    bpf_loop(1 << 23, find_openssl_loop, &c, 0);
-    if (c.pos) {
-        DEBUG_FILE_PROBE("find_openssl: found: at pos %d", c.pos);
-        __u32 zero = 0;
-        struct file_path* p = bpf_map_lookup_elem(&file_probe_heap, &zero);
-        if (p == NULL) {
-            log_error(ctx, LOG_ERROR_FILE_PROBES_MAP_ERROR, 3, 0l, 0l);
+    __u32 zero = 0;
+    struct file_path* p = bpf_map_lookup_elem(&file_probe_heap, &zero);
+    if (p == NULL) {
+        log_error(ctx, LOG_ERROR_FILE_PROBES_MAP_ERROR, 3, 0l, 0l);
+        return;
+    }
+    long sz = bpf_probe_read_str(p->path, MAX_FILEPATH, name);
+    int ln = PATTERN_LIBSSL_LEN;
+    if (sz < PATTERN_LIBSSL_LEN) {
+        DEBUG_FILE_PROBE("find_openssl: not found");
+        return;
+    }
+
+    char buf[PATTERN_LIBSSL_LEN + 1];
+    for (int i = 0; i < 32; i++) {
+        int s = bpf_probe_read_str(buf, PATTERN_LIBSSL_LEN + 1, name + sz - PATTERN_LIBSSL_LEN - 1 - i);
+        if (s < PATTERN_LIBSSL_LEN) {
             return;
         }
-        p->device_id = device_id;
-        p->remove = remove;
-        p->size = bpf_probe_read_str(p->path, MAX_FILEPATH, name);
-        bpf_perf_event_output(ctx, &perf_found_openssl, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
-    } else {
-        DEBUG_FILE_PROBE("find_openssl: not found");
+        if (str_match_begin(buf, s, PATTERN_LIBSSL, PATTERN_LIBSSL_LEN)) {
+            p->device_id = device_id;
+            p->remove = remove;
+            p->size = sz;
+            bpf_perf_event_output(ctx, &perf_found_openssl, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
+            return;
+        }
     }
 }
 
@@ -133,8 +131,7 @@ static __always_inline void find_cgroup_fs(void* ctx, const char* name) {
 
     DEBUG_FILE_PROBE("FIND_CGROUP_FS BUF: %s", buf);
 
-    // TODO: push path into gocode. Only created file
-    if (bpf_strncmp(buf, CGROUP_FS_PATH_LEN, CGROUP_FS_PATH) == 0) {
+    if (str_match_begin(buf, sz, CGROUP_FS_PATH, CGROUP_FS_PATH_LEN)) {
         __u32 zero = 0;
         struct file_path* p = bpf_map_lookup_elem(&file_probe_heap, &zero);
         if (p == NULL) {
@@ -154,7 +151,7 @@ static __always_inline void find_cgroup_fs(void* ctx, const char* name) {
 static __always_inline void do_sys_open_helper_enter(void* ctx, int num, const char* filename, __u64 flags) {
     char buf[256];
     bpf_probe_read_user(buf, 256, filename);
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     __u64 pid = tracer_get_current_pid_tgid() >> 32;
 
     DEBUG_FILE_PROBE("ENTER n: %d cgid: %d pid: %d create: %d(%d) filename: %s", num, cgroup_id, pid, (flags & O_CREAT) ? 1 : 0, flags, buf);
@@ -210,7 +207,7 @@ int BPF_KPROBE(security_file_open)
     __u64 inode = BPF_CORE_READ(file, f_inode, i_ino);
     void* file_path = get_path_str(__builtin_preserve_access_index(&file->f_path));
     __u64 flags = BPF_CORE_READ(file, f_flags);
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
 
     unsigned int mode = BPF_CORE_READ(file, f_path.dentry, d_inode, i_mode);
     if (flags & O_CREAT) {
@@ -314,9 +311,14 @@ int BPF_KPROBE(vfs_rename)
 SEC("kprobe/do_mkdirat")
 int BPF_KPROBE(do_mkdirat)
 {
-    struct filename* fname = (struct filename*)PT_REGS_PARM2(ctx);
+    const char* fn = NULL;
+    if (KERNEL_VERSION < make_kernel_version(5, 15, 0)) {
+        fn = (const char*)PT_REGS_PARM2(ctx);
+    } else {
+        struct filename* fname = (struct filename*)PT_REGS_PARM2(ctx);
+        fn = BPF_CORE_READ(fname, name);
+    }
 
-    const char* fn = BPF_CORE_READ(fname, name);
     DEBUG_FILE_PROBE("DO_MKDIRAT: filename: %s", fn);
     find_cgroup_fs(ctx, fn);
     return 0;
@@ -329,7 +331,7 @@ int BPF_KPROBE(do_mkdirat_ret)
 
     struct file_path* p = bpf_map_lookup_elem(&do_mkdir_context, &pid);
     if (!p) {
-    DEBUG_FILE_PROBE("DO_MKDIRAT_RET: NOT_FOUND");
+        DEBUG_FILE_PROBE("DO_MKDIRAT_RET: NOT_FOUND");
         return 0;
     }
 
@@ -337,7 +339,7 @@ int BPF_KPROBE(do_mkdirat_ret)
     DEBUG_FILE_PROBE("DO_MKDIRAT_RET: FOUND, ret: %d", ret);
     if (ret == 0) {
         bpf_perf_event_output(ctx, &perf_found_cgroupv2, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
-    DEBUG_FILE_PROBE("DO_MKDIRAT_RET: SENT");
+        DEBUG_FILE_PROBE("DO_MKDIRAT_RET: SENT");
     }
     bpf_map_delete_elem(&do_mkdir_context, &pid);
 
@@ -354,7 +356,7 @@ int BPF_KPROBE(security_path_mkdir)
 
     void* dentry_path = get_dentry_path_str(dentry);
     void* path_str = get_path_str(path);
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     DEBUG_FILE_PROBE("SECURITY_PATH_MKDIR: dev: %d inode: %lu cgroup_id: %lu path: %s filename: %s", dev, ino, cgroup_id, path_str, dentry_path);
 
     return 0;

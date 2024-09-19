@@ -54,7 +54,7 @@ const (
 	goReadSymbol                = "crypto/tls.(*Conn).Read"
 )
 
-func findGoOffsets(fpath string) (goOffsets, error) {
+func FindGoOffsets(fpath string) (goOffsets, error) {
 
 	offsets := map[string]*goExtendedOffset{
 		goVersionSymbol: nil,
@@ -194,7 +194,7 @@ func populateNetConnOffset(dwarfData *dwarf.Data, entry *dwarf.Entry, netConnOff
 		}
 		// supposing net.conn has only net.netFD field where sysFd is located at offset 0x10(16)
 		offset.SocketSysFdOffset = 16 + field.ByteOffset
-		log.Info().Msg(fmt.Sprintf("Found custom socket name: %v type: %v offset: %v", structName, field.Type.String(), offset.SocketSysFdOffset))
+		log.Debug().Msg(fmt.Sprintf("Found custom socket name: %v type: %v offset: %v", structName, field.Type.String(), offset.SocketSysFdOffset))
 		return
 	}
 }

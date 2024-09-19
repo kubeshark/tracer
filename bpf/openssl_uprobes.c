@@ -11,6 +11,7 @@ Copyright (C) Kubeshark
 #include "include/pids.h"
 #include "include/cgroups.h"
 #include "include/common.h"
+#include "probes.h"
 
 static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info* info, __u64 id) {
 	int returnValue = PT_REGS_RC(ctx);
@@ -46,7 +47,7 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t
     if (capture_disabled())
         return;
 
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     if (!should_target_cgroup(cgroup_id)) {
         return;
     }
@@ -68,7 +69,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u
     if (capture_disabled())
         return;
 
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     if (!should_target_cgroup(cgroup_id)) {
         return;
     }
@@ -111,7 +112,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u
 		return;
 	}
 
-	output_ssl_chunk(ctx, &info, count_bytes, id, flags, bpf_get_current_cgroup_id());
+	output_ssl_chunk(ctx, &info, count_bytes, id, flags, cgroup_id);
 }
 
 SEC("uprobe/ssl_write")

@@ -157,6 +157,7 @@ type TracerProgramSpecs struct {
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
 	PacketPullEgress              *ebpf.ProgramSpec `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.ProgramSpec `ebpf:"packet_pull_ingress"`
+	SchedProcessFork              *ebpf.ProgramSpec `ebpf:"sched_process_fork"`
 	SecurityFileOpen              *ebpf.ProgramSpec `ebpf:"security_file_open"`
 	SecurityInodeRename           *ebpf.ProgramSpec `ebpf:"security_inode_rename"`
 	SecurityInodeUnlink           *ebpf.ProgramSpec `ebpf:"security_inode_unlink"`
@@ -221,6 +222,7 @@ type TracerMapSpecs struct {
 	OpensslWriteContext      *ebpf.MapSpec `ebpf:"openssl_write_context"`
 	PerfFoundCgroupv2        *ebpf.MapSpec `ebpf:"perf_found_cgroupv2"`
 	PerfFoundOpenssl         *ebpf.MapSpec `ebpf:"perf_found_openssl"`
+	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.MapSpec `ebpf:"pids_info"`
 	PktContext               *ebpf.MapSpec `ebpf:"pkt_context"`
 	PktHeap                  *ebpf.MapSpec `ebpf:"pkt_heap"`
@@ -271,6 +273,7 @@ type TracerMaps struct {
 	OpensslWriteContext      *ebpf.Map `ebpf:"openssl_write_context"`
 	PerfFoundCgroupv2        *ebpf.Map `ebpf:"perf_found_cgroupv2"`
 	PerfFoundOpenssl         *ebpf.Map `ebpf:"perf_found_openssl"`
+	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.Map `ebpf:"pids_info"`
 	PktContext               *ebpf.Map `ebpf:"pkt_context"`
 	PktHeap                  *ebpf.Map `ebpf:"pkt_heap"`
@@ -304,6 +307,7 @@ func (m *TracerMaps) Close() error {
 		m.OpensslWriteContext,
 		m.PerfFoundCgroupv2,
 		m.PerfFoundOpenssl,
+		m.PerfFoundPid,
 		m.PidsInfo,
 		m.PktContext,
 		m.PktHeap,
@@ -333,6 +337,7 @@ type TracerPrograms struct {
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
 	PacketPullEgress              *ebpf.Program `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.Program `ebpf:"packet_pull_ingress"`
+	SchedProcessFork              *ebpf.Program `ebpf:"sched_process_fork"`
 	SecurityFileOpen              *ebpf.Program `ebpf:"security_file_open"`
 	SecurityInodeRename           *ebpf.Program `ebpf:"security_inode_rename"`
 	SecurityInodeUnlink           *ebpf.Program `ebpf:"security_inode_unlink"`
@@ -388,6 +393,7 @@ func (p *TracerPrograms) Close() error {
 		p.GoCryptoTlsAbiInternalWriteEx,
 		p.PacketPullEgress,
 		p.PacketPullIngress,
+		p.SchedProcessFork,
 		p.SecurityFileOpen,
 		p.SecurityInodeRename,
 		p.SecurityInodeUnlink,

@@ -21,5 +21,6 @@ Copyright (C) Kubeshark
 #include "packet_sniffer.c"
 #include "events.c"
 #include "file_probes.c"
+#include "pids_probes.c"
 
 char _license[] SEC("license") = "GPL";

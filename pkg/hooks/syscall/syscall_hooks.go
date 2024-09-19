@@ -54,6 +54,20 @@ func (s *syscallHooks) addTracepoint(group, name string, program *ebpf.Program) 
 	return nil
 }
 
+func (s *syscallHooks) addRawTracepoint(name string, program *ebpf.Program) error {
+	l, err := link.AttachRawTracepoint(link.RawTracepointOptions{
+		Name:    name,
+		Program: program,
+	})
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.links = append(s.links, l)
+	return nil
+}
+
 func (s *syscallHooks) addKprobe(name string, program *ebpf.Program) error {
 	l, err := link.Kprobe(name, program, nil)
 
@@ -184,6 +198,10 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 	}
 
 	if err = s.addKprobe("security_path_mkdir", bpfObjects.SecurityPathMkdir); err != nil {
+		return err
+	}
+
+	if err = s.addRawTracepoint("sched_process_fork", bpfObjects.SchedProcessFork); err != nil {
 		return err
 	}
 

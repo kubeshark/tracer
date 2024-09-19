@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"unsafe"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	sslHooks "github.com/kubeshark/tracer/pkg/hooks/ssl"
+	"github.com/kubeshark/tracer/pkg/utils"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/rs/zerolog/log"
@@ -30,6 +32,8 @@ type InternalEventsDiscoverer interface {
 	Start() error
 	CgroupsInfo() *lru.Cache[CgroupID, ContainerID]
 	ContainersInfo() *lru.Cache[ContainerID, CgroupData]
+	TargetCgroup(cgroupId uint64)
+	UntargetCgroup(cgroupId uint64)
 }
 
 type InternalEventsDiscovererImpl struct {
@@ -43,9 +47,10 @@ type InternalEventsDiscovererImpl struct {
 
 	cgroupsInfo    *lru.Cache[CgroupID, ContainerID]
 	containersInfo *lru.Cache[ContainerID, CgroupData]
+	pids           *pids
 }
 
-func NewInternalEventsDiscoverer(bpfObjects *bpf.BpfObjects) InternalEventsDiscoverer {
+func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects) InternalEventsDiscoverer {
 	impl := InternalEventsDiscovererImpl{
 		bpfObjects:        bpfObjects,
 		isCgroupV2:        bpfObjects.IsCgroupV2,
@@ -60,18 +65,26 @@ func NewInternalEventsDiscoverer(bpfObjects *bpf.BpfObjects) InternalEventsDisco
 	if impl.containersInfo, err = lru.New[ContainerID, CgroupData](16384); err != nil {
 		return nil
 	}
+	impl.pids, err = newPids(procfs, bpfObjects, impl.containersInfo)
+	if err != nil {
+		return nil
+	}
+	if impl.pids == nil {
+		return nil
+	}
 	return &impl
 }
 
 //TODO: Stop method
 
 func (e *InternalEventsDiscovererImpl) Start() error {
-	//TODO: cgroup V1
-	if !e.isCgroupV2 {
-		log.Warn().Msg("internal events discoverer is not supported for cgroup V1")
-		return nil
-	}
 	var err error
+
+	isCgroupV2, err := utils.IsCgroupV2()
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
 	bufferSize := os.Getpagesize() * 100
 
 	e.readerFoundOpenssl, err = perf.NewReader(e.perfFoundOpenssl, bufferSize)
@@ -86,8 +99,12 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 
 	go e.handleFoundOpenssl()
 	go e.handleFoundCgroupV2()
+	go e.pids.handleFoundNewPIDs()
 
-	e.scanExistingCgroupsV2()
+	e.scanExistingCgroups(isCgroupV2)
+	if err = e.pids.scanExistingPIDs(e.isCgroupV2); err != nil {
+		return errors.Wrap(err, 0)
+	}
 
 	return nil
 
@@ -101,6 +118,14 @@ func (e *InternalEventsDiscovererImpl) ContainersInfo() *lru.Cache[ContainerID, 
 	return e.containersInfo
 }
 
+func (e *InternalEventsDiscovererImpl) TargetCgroup(cgroupId uint64) {
+	e.pids.targetCgroup(cgroupId)
+}
+
+func (e *InternalEventsDiscovererImpl) UntargetCgroup(cgroupId uint64) {
+	e.pids.untargetCgroup(cgroupId)
+}
+
 type foundFileEvent struct {
 	deviceId uint32
 	size     uint16
@@ -108,7 +133,7 @@ type foundFileEvent struct {
 	path     [4096]byte
 }
 
-func (e *InternalEventsDiscovererImpl) scanExistingCgroupsV2() {
+func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 	walk := func(s string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -118,6 +143,11 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroupsV2() {
 		}
 		contId := GetContainerIdFromCgroupPath(s)
 		if contId == "" {
+			log.Debug().Str("path", s).Msg("can not get container id")
+			return nil
+		}
+
+		if !isCgroupsV2 && !strings.HasPrefix(s, "/sys/fs/cgroup/cpuset") {
 			return nil
 		}
 
@@ -193,7 +223,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 				log.Debug().Err(err).Uint16("size", p.size).Str("path", installPath).Msg("Install uprobe missed")
 			} else {
 				e.sslHooks[installPath] = hook
-				log.Debug().Uint16("size", p.size).Str("path", installPath).Msg("New sslhook installed")
+				log.Debug().Uint16("size", p.size).Str("path", installPath).Msg("New ssl hook is installed")
 			}
 		} else {
 			//TODO: check cases when existing hook can be deleted:
@@ -238,7 +268,10 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroupV2() {
 		cgroupPath := string(p.path[:p.size-1])
 		contId := GetContainerIdFromCgroupPath(cgroupPath)
 		if contId != "" {
-			log.Debug().Str("Cgroup path", cgroupPath).Str("Container ID", contId).Msg("new cgroup entry")
+			if _, ok := e.containersInfo.Get(ContainerID(contId)); ok {
+				continue
+			}
+
 			cgroupId, err := GetCgroupIdByPath(cgroupPath)
 			if err != nil {
 				log.Warn().Str("Path", cgroupPath).Msg("Can not find out cgroup id by path")

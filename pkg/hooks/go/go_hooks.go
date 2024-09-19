@@ -21,18 +21,18 @@ func (s *GoHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, fpath string) (offs
 		return
 	}
 
-	offsets, err = findGoOffsets(fpath)
+	offsets, err = FindGoOffsets(fpath)
 
 	if err != nil {
 		err = errors.Wrap(err, 0)
 		return
 	}
 
-	err = s.installHooks(bpfObjects, ex, offsets)
+	err = s.InstallHooks(bpfObjects, ex, offsets)
 	return
 }
 
-func (s *GoHooks) installHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, offsets goOffsets) error {
+func (s *GoHooks) InstallHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, offsets goOffsets) error {
 	var err error
 
 	goCryptoTlsWrite := bpfObjects.BpfObjs.GoCryptoTlsAbiInternalWrite

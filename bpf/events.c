@@ -16,7 +16,7 @@ void BPF_KPROBE(tcp_connect) {
         return;
 
     long err;
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     if (!should_target_cgroup(cgroup_id)) {
         return;
     }
@@ -63,7 +63,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
 
     long err;
     __u64 id = tracer_get_current_pid_tgid();
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     struct accept_data* data = bpf_map_lookup_elem(&accept_context, &id);
     if (!data) {
         return;
@@ -112,7 +112,7 @@ void BPF_KRETPROBE(do_accept) {
     if (capture_disabled())
         return;
 
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     if (!should_target_cgroup(cgroup_id)) {
         return;
     }

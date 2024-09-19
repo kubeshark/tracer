@@ -58,7 +58,7 @@ func (t *Tracer) Init(
 	if err != nil {
 		return fmt.Errorf("creating bpf failed: %v", err)
 	}
-	t.eventsDiscoverer = discoverer.NewInternalEventsDiscoverer(t.bpfObjects)
+	t.eventsDiscoverer = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects)
 	if err := t.eventsDiscoverer.Start(); err != nil {
 		log.Error().Msg(fmt.Sprintf("start internal discovery failed: %v", err))
 		return err
@@ -117,6 +117,7 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 				log.Warn().Err(err).Msg("Cgrpup IDs delete failed")
 				return err
 			}
+			t.eventsDiscoverer.UntargetCgroup(cInfo.cgroupID)
 		}
 		log.Info().Str("pod", pod.Name).Msg("Detached pod:")
 	}
@@ -126,7 +127,7 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 		for _, containerId := range pod.ContainerIDs {
 			value, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
 			if !ok {
-				log.Warn().Str("Container ID", containerId).Msg("Can not get container info")
+				// pod can be on a different node
 				continue
 			}
 			cInfo := containerInfo{
@@ -137,16 +138,19 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 
 			if t.packetFilter != nil {
 				if err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath, []uint64{cInfo.cgroupID}); err != nil {
-					log.Error().Err(err).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
 					return err
 				}
 				log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
 			}
 
 			if err := t.bpfObjects.BpfObjs.CgroupIds.Update(cInfo.cgroupID, uint32(0), 0); err != nil {
-				log.Error().Err(err).Msg("Cgrpup IDs update failed")
+				log.Error().Err(err).Msg("Cgroup IDs update failed")
 				return err
 			}
+
+			t.eventsDiscoverer.TargetCgroup(cInfo.cgroupID)
+			log.Info().Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
 
 		}
 	}
