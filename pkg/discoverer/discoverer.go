@@ -143,7 +143,7 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		if !d.IsDir() {
 			return nil
 		}
-		contId := GetContainerIdFromCgroupPath(s)
+		contId, _ := GetContainerIdFromCgroupPath(s)
 		if contId == "" {
 			log.Debug().Str("path", s).Msg("can not get container id")
 			return nil
@@ -270,7 +270,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 		if !isCgroupsV2 && !strings.HasPrefix(cgroupPath, "/sys/fs/cgroup/cpuset") {
 			return
 		}
-		contId := GetContainerIdFromCgroupPath(cgroupPath)
+		contId, _ := GetContainerIdFromCgroupPath(cgroupPath)
 		if contId != "" {
 			if _, ok := e.containersInfo.Get(ContainerID(contId)); ok {
 				continue

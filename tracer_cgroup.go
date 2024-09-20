@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/kubeshark/tracer/pkg/discoverer"
-	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
@@ -203,20 +202,6 @@ func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerId
 	}
 
 	return nil
-}
-
-func (t *tracerCgroup) getPodsInfo() map[types.UID]*kubernetes.PodInfo {
-	podsInfo := make(map[types.UID]*kubernetes.PodInfo)
-	for pid, info := range t.pidsInfo {
-		if podsInfo[info.podId] == nil {
-			podsInfo[info.podId] = &kubernetes.PodInfo{}
-		}
-		pod := podsInfo[info.podId]
-		pod.Pids = append(pod.Pids, pid)
-		pod.CgroupIDs = append(pod.CgroupIDs, info.containerCgroupIds...)
-		pod.CgroupV2Path = info.cgroupPath
-	}
-	return podsInfo
 }
 
 func normalyzeCgroupV2Path(path string) string {

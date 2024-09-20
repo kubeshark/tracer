@@ -25,7 +25,7 @@ var (
 )
 
 // Borrowed from https://github.com/aquasecurity/tracee/blob/main/pkg/containers/containers.go
-func GetContainerIdFromCgroupPath(cgroupPath string) (id string) {
+func GetContainerIdFromCgroupPath(cgroupPath string) (id string, runtime RuntimeId) {
 	cgroupParts := strings.Split(cgroupPath, "/")
 
 	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
@@ -34,7 +34,7 @@ func GetContainerIdFromCgroupPath(cgroupPath string) (id string) {
 			continue
 		}
 
-		runtime := runtimeUnknown
+		runtime = runtimeUnknown
 		id = strings.TrimSuffix(pc, ".scope")
 
 		switch {
@@ -76,7 +76,7 @@ func GetContainerIdFromCgroupPath(cgroupPath string) (id string) {
 
 		if matched := gardenContainerIdFromCgroupRegex.MatchString(id); matched {
 			runtime = runtimeGarden
-			return id
+			return
 		}
 	}
 

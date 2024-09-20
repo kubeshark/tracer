@@ -300,11 +300,7 @@ func (p *pids) scanPidsV2() error {
 		parts := strings.Split(lines[0], ":")
 		cgroupPath := parts[len(parts)-1]
 
-		parts = strings.Split(cgroupPath, "/")
-		parts = strings.Split(parts[len(parts)-1], "-")
-		parts = strings.Split(parts[len(parts)-1], ".")
-
-		id := GetContainerIdFromCgroupPath(normalyzeCgroupV2Path(cgroupPath))
+		id, _ := GetContainerIdFromCgroupPath(normalyzeCgroupV2Path(cgroupPath))
 		if id == "" {
 			continue
 		}
@@ -368,7 +364,7 @@ func (p *pids) scanPidsV1() error {
 			continue
 		}
 
-		id := GetContainerIdFromCgroupPath(cgroupPath)
+		id, _ := GetContainerIdFromCgroupPath(cgroupPath)
 		if id == "" {
 			continue
 		}
