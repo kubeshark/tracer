@@ -226,13 +226,12 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 				e.sslHooks[installPath] = hook
 				log.Debug().Uint16("size", p.size).Str("path", installPath).Msg("New ssl hook is installed")
 			}
-		} else {
-			//TODO: check cases when existing hook can be deleted:
-			/*
-				log.Debug().Str("path", installPath).Msg("deleteing ssl hook")
-				delete(e.sslHooks, installPath)
-			*/
 		}
+		//TODO: check cases when existing hook can be deleted:
+		/*
+			log.Debug().Str("path", installPath).Msg("deleteing ssl hook")
+			delete(e.sslHooks, installPath)
+		*/
 	}
 }
 

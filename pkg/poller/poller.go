@@ -9,11 +9,10 @@ import (
 	logPoller "github.com/kubeshark/tracer/pkg/poller/log"
 	packetsPoller "github.com/kubeshark/tracer/pkg/poller/packets"
 	syscallPoller "github.com/kubeshark/tracer/pkg/poller/syscall"
-	"github.com/rs/zerolog/log"
 )
 
 type BpfPoller interface {
-	Start() error
+	Start()
 	Stop() error
 }
 
@@ -25,7 +24,6 @@ type BpfPollerImpl struct {
 }
 
 func NewBpfPoller(bpfObjs *bpf.BpfObjects, sorter *bpf.PacketSorter, cgroupsInfo *lru.Cache[discoverer.CgroupID, discoverer.ContainerID], tlsLogDisabled bool) (BpfPoller, error) {
-	log.Info().Msg("NewBpfPoller") //XXX
 	var err error
 	p := BpfPollerImpl{}
 
@@ -48,14 +46,11 @@ func NewBpfPoller(bpfObjs *bpf.BpfObjects, sorter *bpf.PacketSorter, cgroupsInfo
 	return &p, nil
 }
 
-func (p *BpfPollerImpl) Start() error {
-	log.Info().Msg("BpfPoller Start") //XXX
+func (p *BpfPollerImpl) Start() {
 	p.tlsPoller.Start()
 	p.syscallPoller.Start()
 	p.packetsPoller.Start()
 	p.logPoller.Start()
-
-	return nil
 }
 
 func (p *BpfPollerImpl) Stop() error {

@@ -7,34 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-errors/errors"
-	"github.com/rs/zerolog/log"
 )
-
-type sslListArray []string
-
-func (i *sslListArray) String() string {
-	return strings.Join((*i)[:], ",")
-}
-func (i *sslListArray) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
-
-func findSsllib(procfs string, pid uint32) (string, error) {
-	binary, err := os.Readlink(fmt.Sprintf("%s/%d/exe", procfs, pid))
-
-	if err != nil {
-		return "", errors.Wrap(err, 0)
-	}
-
-	log.Debug().Int("pid", int(pid)).Str("binary", binary).Msg("Binary that uses libssl:")
-
-	if strings.HasSuffix(binary, "/node") {
-		return findLibraryByPid(procfs, pid, binary)
-	} else {
-		return findLibraryByPid(procfs, pid, "libssl.so")
-	}
-}
 
 func findLibraryByPid(procfs string, pid uint32, libraryName string) (string, error) {
 	file, err := os.Open(fmt.Sprintf("%v/%v/maps", procfs, pid))

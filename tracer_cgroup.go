@@ -25,8 +25,6 @@ type pidInformation struct {
 	containerCgroupIds []uint64
 }
 
-//XXX type cgroupVersion uint8
-
 type tracerCgroup struct {
 	pidsInfo map[uint32]pidInformation
 }

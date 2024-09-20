@@ -20,11 +20,6 @@ type podLinks struct {
 	cgroupIDs []uint64
 }
 
-type attachedPods map[string]podLinks
-
-func (p *attachedPods) add(podUuid string, lIngress, lEgress link.Link) {
-}
-
 type PacketFilter struct {
 	ingressFilterProgram *ebpf.Program
 	egressFilterProgram  *ebpf.Program
@@ -154,12 +149,7 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 	}
 }
 
-func (p *PacketFilter) close() {
-	_ = p.tcClient.CleanTC()
-	for uuid := range p.attachedPods {
-		_ = p.DetachPod(uuid)
-	}
-}
+//TODO: detach pods
 
 func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) error {
 	log.Info().Str("pod", uuid).Str("path", cgroupV2Path).Msg("Attaching pod:")

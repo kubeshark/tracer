@@ -35,7 +35,6 @@ type Tracer struct {
 	eventsDiscoverer  discoverer.InternalEventsDiscoverer
 	packetFilter      *packetHooks.PacketFilter
 	procfs            string
-	pktSnifDisabled   bool
 	targetedCgroupIDs map[uint64]struct{}
 
 	runningPods map[types.UID]podInfo
@@ -108,7 +107,6 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 		}
 
 		pInfo, ok := t.runningPods[pod.UID]
-		log.Info().Str("pod name", pod.Name).Str("pod uuid", string(pod.UID)).Bool("OK", ok).Msg("CHECKING RUNNING POD") //XXX
 		if !ok {
 			continue
 		}
@@ -127,7 +125,6 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 
 	for _, pod := range addPods {
 		pd := t.runningPods[pod.UID]
-		log.Info().Str("pod name", pod.Name).Str("pod uuid", string(pod.UID)).Msg("ADDED RUNNING POD") //XXX
 		for _, containerId := range pod.ContainerIDs {
 			value, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
 			if !ok {
