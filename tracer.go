@@ -93,6 +93,7 @@ func (t *Tracer) Init(
 }
 
 func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uint32) error {
+	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Msg("Update targets")
 	if err := t.bpfObjects.BpfObjs.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
 		log.Error().Err(err).Msg("Update capture settings failed:")
 	}
@@ -107,6 +108,7 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 		}
 
 		pInfo, ok := t.runningPods[pod.UID]
+		log.Info().Str("pod name", pod.Name).Str("pod uuid", string(pod.UID)).Bool("OK", ok).Msg("CHECKING RUNNING POD") //XXX
 		if !ok {
 			continue
 		}
@@ -120,10 +122,12 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 			t.eventsDiscoverer.UntargetCgroup(cInfo.cgroupID)
 		}
 		log.Info().Str("pod", pod.Name).Msg("Detached pod:")
+		delete(t.runningPods, pod.UID)
 	}
 
 	for _, pod := range addPods {
 		pd := t.runningPods[pod.UID]
+		log.Info().Str("pod name", pod.Name).Str("pod uuid", string(pod.UID)).Msg("ADDED RUNNING POD") //XXX
 		for _, containerId := range pod.ContainerIDs {
 			value, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
 			if !ok {
@@ -150,9 +154,9 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 			}
 
 			t.eventsDiscoverer.TargetCgroup(cInfo.cgroupID)
-			log.Info().Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
-
+			log.Info().Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
 		}
+		t.runningPods[pod.UID] = pd
 	}
 
 	return nil

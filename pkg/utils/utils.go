@@ -4,6 +4,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sys/unix"
+	"os"
 	"syscall"
 )
 
@@ -23,4 +24,15 @@ func IsCgroupV2() (bool, error) {
 		return false, err
 	}
 	return stat.Type == cgroupV2MagicNumber, nil
+}
+
+func GetInode(path string) (uint64, error) {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+
+	stat_t := fileInfo.Sys().(*syscall.Stat_t)
+
+	return stat_t.Ino, nil
 }

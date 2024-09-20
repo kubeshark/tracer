@@ -21,16 +21,9 @@ int _pid_in_map(void* pmap, __u32 pid) {
 
 const volatile __u64 TRACER_NS_INO = 0;
 #define TRACER_NAMESPACES_MAX 4
-static __always_inline __u64 tracer_get_current_pid_tgid() {
+
+static __always_inline __u64 tracer_get_task_pid_tgid(__u64 base_pid_tgid, struct task_struct* task) {
 	unsigned int inum;
-
-	__u64 base_pid_tgid = bpf_get_current_pid_tgid();
-
-	if (TRACER_NS_INO == 0) {
-		return base_pid_tgid;
-	}
-
-	struct task_struct* task = (struct task_struct*)bpf_get_current_task();
 
 	int level = BPF_CORE_READ(task, group_leader, nsproxy, pid_ns_for_children, level);
 
@@ -48,10 +41,17 @@ static __always_inline __u64 tracer_get_current_pid_tgid() {
 	return base_pid_tgid;
 }
 
-/*
-int should_target(__u32 pid) {
-	return _pid_in_map(&target_pids_map, pid);
+static __always_inline __u64 tracer_get_current_pid_tgid() {
+	unsigned int inum;
+
+	__u64 base_pid_tgid = bpf_get_current_pid_tgid();
+
+	if (TRACER_NS_INO == 0) {
+		return base_pid_tgid;
+	}
+
+	struct task_struct* task = (struct task_struct*)bpf_get_current_task();
+	return tracer_get_task_pid_tgid(base_pid_tgid, task);
 }
-*/
 
 #endif /* __PIDS__ */

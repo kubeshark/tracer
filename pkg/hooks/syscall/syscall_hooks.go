@@ -205,6 +205,14 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
+	if err = s.addKretprobe("kernel_clone", bpfObjects.KernelClone); err != nil {
+		return err
+	}
+
+	if err = s.addKretprobe("sys_execve", bpfObjects.SysExecveExit); err != nil {
+		return err
+	}
+
 	return nil
 }
 

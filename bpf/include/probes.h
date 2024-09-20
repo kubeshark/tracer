@@ -5,13 +5,13 @@ Copyright (C) Kubeshark
 
 #pragma once
 
-#include "include/headers.h"
-#include "include/util.h"
-#include "include/maps.h"
-#include "include/log.h"
-#include "include/logger_messages.h"
-#include "include/pids.h"
-#include "include/common.h"
+#include "headers.h"
+#include "util.h"
+#include "maps.h"
+#include "log.h"
+#include "logger_messages.h"
+#include "pids.h"
+#include "common.h"
 
 #define statfunc static __always_inline
 

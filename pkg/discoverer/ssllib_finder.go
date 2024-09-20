@@ -20,8 +20,6 @@ func (i *sslListArray) Set(value string) error {
 	return nil
 }
 
-var SslLibsGlobal sslListArray
-
 func findSsllib(procfs string, pid uint32) (string, error) {
 	binary, err := os.Readlink(fmt.Sprintf("%s/%d/exe", procfs, pid))
 
@@ -52,7 +50,7 @@ func findLibraryByPid(procfs string, pid uint32, libraryName string) (string, er
 	for scanner.Scan() {
 		parts := strings.Fields(scanner.Text())
 
-		if len(parts) <= 5 {
+		if len(parts) < 6 {
 			continue
 		}
 
@@ -61,12 +59,6 @@ func findLibraryByPid(procfs string, pid uint32, libraryName string) (string, er
 		if libraryName != "" {
 			found := strings.Contains(fpath, libraryName)
 
-			for _, name := range SslLibsGlobal {
-				if found {
-					break
-				}
-				found = strings.Contains(fpath, name)
-			}
 			if !found {
 				continue
 			}

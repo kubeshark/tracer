@@ -31,12 +31,12 @@ struct sys_enter_recvfrom_sendto_ctx {
 	__u64 __unused_syscall_header;
 	__u32 __unused_syscall_nr;
 
-    __u64 fd;                              // at offset 16, size 4 (signed)
-    void *buf;                           // at offset 24, size 8 (unsigned)
-    __u64 count;                        // at offset 32, size 8 (unsigned)
-    __u32 flags;                           // at offset 40, size 4 (signed)
-    void *addr;                      // at offset 48, size 8 (unsigned)
-    void *addrlen;                       // at offset 56, size 8 (unsigned)
+	__u64 fd;      // at offset 16, size 4 (signed)
+	void* buf;     // at offset 24, size 8 (unsigned)
+	__u64 count;   // at offset 32, size 8 (unsigned)
+	__u32 flags;   // at offset 40, size 4 (signed)
+	void* addr;    // at offset 48, size 8 (unsigned)
+	void* addrlen; // at offset 56, size 8 (unsigned)
 };
 
 static __always_inline void fd_tracepoints_handle_openssl(void* ctx, __u32 fd, __u64 id, struct ssl_info* infoPtr, void* map_fd, __u64 origin_code) {
@@ -51,8 +51,6 @@ static __always_inline void fd_tracepoints_handle_openssl(void* ctx, __u32 fd, _
 	info.fd = fd;
 
 	err = bpf_map_update_elem(map_fd, &id, &info, BPF_ANY);
-	bpf_printk("updated map_fd: %p %u", map_fd, info.fd);//XXX
-	//bpf_printk("updated map_fd2: %u %u %u %u", (unsigned)PT_REGS_PARM1_SYSCALL(ctx), (unsigned)PT_REGS_PARM2_SYSCALL(ctx), (unsigned)PT_REGS_PARM3_SYSCALL(ctx), (unsigned)PT_REGS_PARM4_SYSCALL(ctx));//XXX
 
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_PUTTING_FILE_DESCRIPTOR, id, err, origin_code);
@@ -75,7 +73,6 @@ static __always_inline void handle_read(void* ctx, __u64 fd) {
 	struct ssl_info* infoPtr = bpf_map_lookup_elem(&openssl_read_context, &id);
 
 	if (infoPtr != NULL) {
-		bpf_printk("sys_enter_read: %d", id>>32);//XXX
 		fd_tracepoints_handle_openssl(ctx, fd, id, infoPtr, &openssl_read_context, ORIGIN_SYS_ENTER_READ_CODE);
 	}
 

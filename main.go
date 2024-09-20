@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
-	"github.com/kubeshark/tracer/pkg/discoverer"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -31,7 +30,6 @@ var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 var tracer *Tracer
 
 func main() {
-	flag.Var(&discoverer.SslLibsGlobal, "ssl-libname", "Custom libssl library name")
 	flag.Parse()
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
@@ -60,7 +58,9 @@ func run() {
 	errOut := make(chan error, 100)
 	go func() {
 		for err := range errOut {
-			log.Error().Err(err).Msg("watch failed:")
+			if err != nil {
+				log.Warn().Err(err).Msg("watch failed:")
+			}
 		}
 	}()
 	watcher := kubernetes.NewFromInCluster(errOut, tracer.updateTargets)

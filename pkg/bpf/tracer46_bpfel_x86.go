@@ -42,6 +42,12 @@ type Tracer46FilePath struct {
 	_        [1]byte
 }
 
+type Tracer46FoundPid struct {
+	Cgroup uint64
+	Pid    uint32
+	_      [4]byte
+}
+
 type Tracer46GoidOffsets struct {
 	G_addrOffset uint64
 	GoidOffset   uint64
@@ -155,6 +161,7 @@ type Tracer46ProgramSpecs struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi_internal_write_ex"`
+	KernelClone                   *ebpf.ProgramSpec `ebpf:"kernel_clone"`
 	PacketPullEgress              *ebpf.ProgramSpec `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.ProgramSpec `ebpf:"packet_pull_ingress"`
 	SchedProcessFork              *ebpf.ProgramSpec `ebpf:"sched_process_fork"`
@@ -179,6 +186,7 @@ type Tracer46ProgramSpecs struct {
 	SysEnterRecvfrom              *ebpf.ProgramSpec `ebpf:"sys_enter_recvfrom"`
 	SysEnterSendto                *ebpf.ProgramSpec `ebpf:"sys_enter_sendto"`
 	SysEnterWrite                 *ebpf.ProgramSpec `ebpf:"sys_enter_write"`
+	SysExecveExit                 *ebpf.ProgramSpec `ebpf:"sys_execve_exit"`
 	SysExitAccept4                *ebpf.ProgramSpec `ebpf:"sys_exit_accept4"`
 	SysExitConnect                *ebpf.ProgramSpec `ebpf:"sys_exit_connect"`
 	SysExitOpen                   *ebpf.ProgramSpec `ebpf:"sys_exit_open"`
@@ -209,6 +217,7 @@ type Tracer46MapSpecs struct {
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.MapSpec `ebpf:"do_mkdir_context"`
 	FileProbeHeap            *ebpf.MapSpec `ebpf:"file_probe_heap"`
+	ForkInfo                 *ebpf.MapSpec `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.MapSpec `ebpf:"go_kernel_read_context"`
 	GoKernelWriteContext     *ebpf.MapSpec `ebpf:"go_kernel_write_context"`
 	GoReadContext            *ebpf.MapSpec `ebpf:"go_read_context"`
@@ -220,7 +229,7 @@ type Tracer46MapSpecs struct {
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.MapSpec `ebpf:"openssl_write_context"`
-	PerfFoundCgroupv2        *ebpf.MapSpec `ebpf:"perf_found_cgroupv2"`
+	PerfFoundCgroup          *ebpf.MapSpec `ebpf:"perf_found_cgroup"`
 	PerfFoundOpenssl         *ebpf.MapSpec `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.MapSpec `ebpf:"pids_info"`
@@ -260,6 +269,7 @@ type Tracer46Maps struct {
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.Map `ebpf:"do_mkdir_context"`
 	FileProbeHeap            *ebpf.Map `ebpf:"file_probe_heap"`
+	ForkInfo                 *ebpf.Map `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.Map `ebpf:"go_kernel_read_context"`
 	GoKernelWriteContext     *ebpf.Map `ebpf:"go_kernel_write_context"`
 	GoReadContext            *ebpf.Map `ebpf:"go_read_context"`
@@ -271,7 +281,7 @@ type Tracer46Maps struct {
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.Map `ebpf:"openssl_write_context"`
-	PerfFoundCgroupv2        *ebpf.Map `ebpf:"perf_found_cgroupv2"`
+	PerfFoundCgroup          *ebpf.Map `ebpf:"perf_found_cgroup"`
 	PerfFoundOpenssl         *ebpf.Map `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.Map `ebpf:"pids_info"`
@@ -294,6 +304,7 @@ func (m *Tracer46Maps) Close() error {
 		m.ConnectionContext,
 		m.DoMkdirContext,
 		m.FileProbeHeap,
+		m.ForkInfo,
 		m.GoKernelReadContext,
 		m.GoKernelWriteContext,
 		m.GoReadContext,
@@ -305,7 +316,7 @@ func (m *Tracer46Maps) Close() error {
 		m.LogBuffer,
 		m.OpensslReadContext,
 		m.OpensslWriteContext,
-		m.PerfFoundCgroupv2,
+		m.PerfFoundCgroup,
 		m.PerfFoundOpenssl,
 		m.PerfFoundPid,
 		m.PidsInfo,
@@ -335,6 +346,7 @@ type Tracer46Programs struct {
 	GoCryptoTlsAbiInternalReadEx  *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_read_ex"`
 	GoCryptoTlsAbiInternalWrite   *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write"`
 	GoCryptoTlsAbiInternalWriteEx *ebpf.Program `ebpf:"go_crypto_tls_abi_internal_write_ex"`
+	KernelClone                   *ebpf.Program `ebpf:"kernel_clone"`
 	PacketPullEgress              *ebpf.Program `ebpf:"packet_pull_egress"`
 	PacketPullIngress             *ebpf.Program `ebpf:"packet_pull_ingress"`
 	SchedProcessFork              *ebpf.Program `ebpf:"sched_process_fork"`
@@ -359,6 +371,7 @@ type Tracer46Programs struct {
 	SysEnterRecvfrom              *ebpf.Program `ebpf:"sys_enter_recvfrom"`
 	SysEnterSendto                *ebpf.Program `ebpf:"sys_enter_sendto"`
 	SysEnterWrite                 *ebpf.Program `ebpf:"sys_enter_write"`
+	SysExecveExit                 *ebpf.Program `ebpf:"sys_execve_exit"`
 	SysExitAccept4                *ebpf.Program `ebpf:"sys_exit_accept4"`
 	SysExitConnect                *ebpf.Program `ebpf:"sys_exit_connect"`
 	SysExitOpen                   *ebpf.Program `ebpf:"sys_exit_open"`
@@ -391,6 +404,7 @@ func (p *Tracer46Programs) Close() error {
 		p.GoCryptoTlsAbiInternalReadEx,
 		p.GoCryptoTlsAbiInternalWrite,
 		p.GoCryptoTlsAbiInternalWriteEx,
+		p.KernelClone,
 		p.PacketPullEgress,
 		p.PacketPullIngress,
 		p.SchedProcessFork,
@@ -415,6 +429,7 @@ func (p *Tracer46Programs) Close() error {
 		p.SysEnterRecvfrom,
 		p.SysEnterSendto,
 		p.SysEnterWrite,
+		p.SysExecveExit,
 		p.SysExitAccept4,
 		p.SysExitConnect,
 		p.SysExitOpen,

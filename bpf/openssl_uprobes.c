@@ -11,7 +11,7 @@ Copyright (C) Kubeshark
 #include "include/pids.h"
 #include "include/cgroups.h"
 #include "include/common.h"
-#include "probes.h"
+#include "include/probes.h"
 
 static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info* info, __u64 id) {
 	int returnValue = PT_REGS_RC(ctx);

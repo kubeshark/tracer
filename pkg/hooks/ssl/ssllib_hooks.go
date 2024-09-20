@@ -3,7 +3,9 @@ package ssl
 import (
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/utils"
 )
 
 type SslHooks struct {
@@ -17,12 +19,19 @@ type SslHooks struct {
 	sslReadExRetProbe  link.Link
 }
 
-func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath string) error {
-	sslLibrary, err := link.OpenExecutable(sslLibraryPath)
+// TODO: incapsulate, add devuce id to the key, delete on file is deleted
+var hookInodes, _ = lru.New[uint64, uint32](16384)
 
+func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath string) error {
+	ino, err := utils.GetInode(sslLibraryPath)
 	if err != nil {
-		return errors.Wrap(err, 0)
+		return err
 	}
+	if ok, _ := hookInodes.ContainsOrAdd(ino, 0); ok {
+		return nil
+	}
+
+	sslLibrary, err := link.OpenExecutable(sslLibraryPath)
 
 	if err != nil {
 		return errors.Wrap(err, 0)

@@ -8,7 +8,7 @@ Copyright (C) Kubeshark
 "kprobe/security_*" tracepoints are not used here as soon as they can not be implemented in some platforms (for example arm64 M1)
 */
 
-#include "events.h"
+#include "include/events.h"
 
 SEC("kprobe/tcp_connect")
 void BPF_KPROBE(tcp_connect) {

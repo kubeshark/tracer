@@ -37,13 +37,13 @@ type InternalEventsDiscoverer interface {
 }
 
 type InternalEventsDiscovererImpl struct {
-	bpfObjects          *bpf.BpfObjects
-	isCgroupV2          bool
-	sslHooks            map[string]sslHooks.SslHooks
-	perfFoundOpenssl    *ebpf.Map
-	perfFoundCgroupV2   *ebpf.Map
-	readerFoundOpenssl  *perf.Reader
-	readerFoundCgroupV2 *perf.Reader
+	bpfObjects         *bpf.BpfObjects
+	isCgroupV2         bool
+	sslHooks           map[string]sslHooks.SslHooks
+	perfFoundOpenssl   *ebpf.Map
+	perfFoundCgroup    *ebpf.Map
+	readerFoundOpenssl *perf.Reader
+	readerFoundCgroup  *perf.Reader
 
 	cgroupsInfo    *lru.Cache[CgroupID, ContainerID]
 	containersInfo *lru.Cache[ContainerID, CgroupData]
@@ -52,11 +52,11 @@ type InternalEventsDiscovererImpl struct {
 
 func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects) InternalEventsDiscoverer {
 	impl := InternalEventsDiscovererImpl{
-		bpfObjects:        bpfObjects,
-		isCgroupV2:        bpfObjects.IsCgroupV2,
-		perfFoundOpenssl:  bpfObjects.BpfObjs.PerfFoundOpenssl,
-		perfFoundCgroupV2: bpfObjects.BpfObjs.PerfFoundCgroupv2,
-		sslHooks:          make(map[string]sslHooks.SslHooks),
+		bpfObjects:       bpfObjects,
+		isCgroupV2:       bpfObjects.IsCgroupV2,
+		perfFoundOpenssl: bpfObjects.BpfObjs.PerfFoundOpenssl,
+		perfFoundCgroup:  bpfObjects.BpfObjs.PerfFoundCgroup,
+		sslHooks:         make(map[string]sslHooks.SslHooks),
 	}
 	var err error
 	if impl.cgroupsInfo, err = lru.New[CgroupID, ContainerID](16384); err != nil {
@@ -92,16 +92,18 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 		return errors.Wrap(err, 0)
 	}
 
-	e.readerFoundCgroupV2, err = perf.NewReader(e.perfFoundCgroupV2, bufferSize)
+	e.readerFoundCgroup, err = perf.NewReader(e.perfFoundCgroup, bufferSize)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
 
 	go e.handleFoundOpenssl()
-	go e.handleFoundCgroupV2()
+	go e.handleFoundCgroup(isCgroupV2)
+
 	go e.pids.handleFoundNewPIDs()
 
 	e.scanExistingCgroups(isCgroupV2)
+
 	if err = e.pids.scanExistingPIDs(e.isCgroupV2); err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -164,7 +166,6 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		return nil
 	}
 	_ = filepath.WalkDir("/sys/fs/cgroup", walk)
-
 }
 
 func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
@@ -235,9 +236,9 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 	}
 }
 
-func (e *InternalEventsDiscovererImpl) handleFoundCgroupV2() {
+func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 	for {
-		record, err := e.readerFoundCgroupV2.Read()
+		record, err := e.readerFoundCgroup.Read()
 
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
@@ -266,6 +267,10 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroupV2() {
 		}
 
 		cgroupPath := string(p.path[:p.size-1])
+
+		if !isCgroupsV2 && !strings.HasPrefix(cgroupPath, "/sys/fs/cgroup/cpuset") {
+			return
+		}
 		contId := GetContainerIdFromCgroupPath(cgroupPath)
 		if contId != "" {
 			if _, ok := e.containersInfo.Get(ContainerID(contId)); ok {
@@ -279,7 +284,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroupV2() {
 			}
 			e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
 			e.containersInfo.Add(ContainerID(contId), CgroupData{CgroupPath: cgroupPath, CgroupID: CgroupID(cgroupId)})
-			log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Msg("New cgroup is detected")
+			log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Str("Cgroup Path", cgroupPath).Msg("New cgroup is detected")
 		}
 	}
 }

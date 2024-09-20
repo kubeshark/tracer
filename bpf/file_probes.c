@@ -3,7 +3,7 @@ SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
 
-#include "probes.h"
+#include "include/probes.h"
 
 #define S_IFMT 0170000
 #define S_IFDIR 0040000
@@ -51,8 +51,11 @@ typedef struct {
 
 #define O_CREAT 0100
 
-#define CGROUP_FS_PATH "/sys/fs/cgroup"
-#define CGROUP_FS_PATH_LEN __builtin_strlen(CGROUP_FS_PATH)
+#define CGROUPV1_FS_PATH "/sys/fs/cgroup/cpuset"
+#define CGROUPV1_FS_PATH_LEN __builtin_strlen(CGROUPV1_FS_PATH)
+
+#define CGROUPV2_FS_PATH "/sys/fs/cgroup"
+#define CGROUPV2_FS_PATH_LEN __builtin_strlen(CGROUPV2_FS_PATH)
 
 #define PATTERN_LIBSSL "libssl.so"
 #define PATTERN_LIBSSL_LEN __builtin_strlen(PATTERN_LIBSSL)
@@ -86,7 +89,7 @@ struct {
     __type(value, struct file_path);
 } file_probe_heap SEC(".maps");
 
-BPF_PERF_OUTPUT(perf_found_cgroupv2);
+BPF_PERF_OUTPUT(perf_found_cgroup);
 
 BPF_LRU_HASH(do_mkdir_context, __u64, struct file_path);
 
@@ -122,16 +125,31 @@ static __always_inline void find_openssl(void* ctx, __u32 device_id, void* name,
 
 static __always_inline void find_cgroup_fs(void* ctx, const char* name) {
 
-    char buf[CGROUP_FS_PATH_LEN + 1];
+    char buf[CGROUPV1_FS_PATH_LEN + 1]; // CGROUPV1_FS_PATH_LEN > CGROUPV2_FS_PATH_LEN
+    int sz = 0;
 
-    int sz = bpf_probe_read_str(buf, CGROUP_FS_PATH_LEN + 1, name);
-    if (sz < CGROUP_FS_PATH_LEN + 1) {
-        return;
+    if (CGROUP_V1) {
+        sz = bpf_probe_read_str(buf, CGROUPV1_FS_PATH_LEN + 1, name);
+        if (sz < CGROUPV1_FS_PATH_LEN + 1) {
+            return;
+        }
+    } else {
+        sz = bpf_probe_read_str(buf, CGROUPV2_FS_PATH_LEN + 1, name);
+        if (sz < CGROUPV2_FS_PATH_LEN + 1) {
+            return;
+        }
     }
 
     DEBUG_FILE_PROBE("FIND_CGROUP_FS BUF: %s", buf);
 
-    if (str_match_begin(buf, sz, CGROUP_FS_PATH, CGROUP_FS_PATH_LEN)) {
+    long matched = 0;
+    if (CGROUP_V1) {
+        matched = str_match_begin(buf, sz, CGROUPV1_FS_PATH, CGROUPV1_FS_PATH_LEN);
+    } else {
+        matched = str_match_begin(buf, sz, CGROUPV2_FS_PATH, CGROUPV2_FS_PATH_LEN);
+    }
+
+    if (matched) {
         __u32 zero = 0;
         struct file_path* p = bpf_map_lookup_elem(&file_probe_heap, &zero);
         if (p == NULL) {
@@ -338,7 +356,7 @@ int BPF_KPROBE(do_mkdirat_ret)
     int ret = (int)PT_REGS_RC(ctx);
     DEBUG_FILE_PROBE("DO_MKDIRAT_RET: FOUND, ret: %d", ret);
     if (ret == 0) {
-        bpf_perf_event_output(ctx, &perf_found_cgroupv2, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
+        bpf_perf_event_output(ctx, &perf_found_cgroup, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
         DEBUG_FILE_PROBE("DO_MKDIRAT_RET: SENT");
     }
     bpf_map_delete_elem(&do_mkdir_context, &pid);

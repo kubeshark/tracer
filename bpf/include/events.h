@@ -3,14 +3,14 @@ SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
 
-#include "include/headers.h"
-#include "include/util.h"
-#include "include/maps.h"
-#include "include/log.h"
-#include "include/logger_messages.h"
-#include "include/pids.h"
-#include "include/cgroups.h"
-#include "include/common.h"
+#include "headers.h"
+#include "util.h"
+#include "maps.h"
+#include "log.h"
+#include "logger_messages.h"
+#include "pids.h"
+#include "cgroups.h"
+#include "common.h"
 
 struct accept_data {
     unsigned long sock;

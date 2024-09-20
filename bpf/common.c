@@ -9,7 +9,7 @@ Copyright (C) Kubeshark
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/common.h"
-#include "probes.h"
+#include "include/probes.h"
 
 
 static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info) {
