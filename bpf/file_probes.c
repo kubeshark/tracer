@@ -301,7 +301,7 @@ int BPF_KPROBE(vfs_create)
     return 0;
 }
 
-struct renamedata {
+struct renamedata_vfs {
     struct mnt_idmap* old_mnt_idmap;
     struct inode* old_dir;
     struct dentry* old_dentry;
@@ -315,7 +315,7 @@ struct renamedata {
 SEC("kprobe/vfs_rename")
 int BPF_KPROBE(vfs_rename)
 {
-    struct renamedata* data = (struct renamedata*)PT_REGS_PARM1(ctx);
+    struct renamedata_vfs* data = (struct renamedata_vfs*)PT_REGS_PARM1(ctx);
     struct dentry* dentry = BPF_CORE_READ(data, new_dentry);
 
     __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
