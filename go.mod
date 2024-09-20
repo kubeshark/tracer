@@ -6,6 +6,7 @@ toolchain go1.22.7
 
 require (
 	github.com/Masterminds/semver v1.5.0
+	github.com/archdx/zerolog-sentry v1.8.4
 	github.com/cilium/ebpf v0.12.3
 	github.com/dlclark/regexp2 v1.11.0
 	github.com/florianl/go-tc v0.4.3
@@ -20,6 +21,7 @@ require (
 	github.com/kubeshark/api v1.1.20
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
+	github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/rs/zerolog v1.32.0
 	github.com/struCoder/pidusage v0.2.1
@@ -32,6 +34,7 @@ require (
 )
 
 require (
+	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
