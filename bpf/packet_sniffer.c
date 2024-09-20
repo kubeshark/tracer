@@ -1,5 +1,3 @@
-#ifndef EBPF_FALLBACK
-
 /*
     -------------------------------------------------------------------------------
                             Simplified packet flow diagram
@@ -245,7 +243,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx* ctx) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 4, 0l, 0l);
         return;
     }
-    p->timestamp = bpf_ktime_get_tai_ns();
+    p->timestamp = compat_get_uprobe_timestamp();
     p->cgroup_id = cgroup_id;
     p->direction = direction;
     p->id = *pkt_id_ptr;
@@ -377,5 +375,3 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
 
     return 6;
 }
-
-#endif // EBPF_FALLBACK

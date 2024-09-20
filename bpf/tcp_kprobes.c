@@ -81,10 +81,6 @@ static __always_inline void tcp_kprobe(struct pt_regs* ctx, void* map_fd_openssl
 
 	__u64 id = tracer_get_current_pid_tgid();
 
-	if (!should_watch(id >> 32)) {
-		return;
-	}
-
 	struct address_info address_info = {};
 	if (0 != tcp_kprobes_get_address_pair_from_ctx(ctx, id, &address_info)) {
 		return;

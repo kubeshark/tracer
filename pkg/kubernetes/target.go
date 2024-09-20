@@ -41,7 +41,7 @@ func SetSelectedTargetPods(pods []api.TargetPod) {
 	selectedTargetPods = pods
 }
 
-type callbackPodsChanged func(addedallTargetedPods []api.TargetPod, removedallTargetedPods []api.TargetPod, addedselectedTargetedPods []api.TargetPod, removedselectedTargetedPods []api.TargetPod, settings uint32) error
+type callbackPodsChanged func(addPods []api.TargetPod, removePods []api.TargetPod, settings uint32) error
 
 func getPodArrayDiff(oldPods []api.TargetPod, newPods []api.TargetPod) (added []api.TargetPod, removed []api.TargetPod) {
 	added = getMissingPods(newPods, oldPods)
@@ -83,13 +83,12 @@ func updateCurrentlyTargetedPods(
 		log.Error().Err(err).Msg("Failed to get selected targeted pods")
 	}
 
-	addedWatchedPods, removedWatchedPods := getPodArrayDiff(GetAllTargetPods(), newAllTargetPods)
 	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetSelectedTargetPods(), newSelectedTargetPods)
 
 	SetAllTargetPods(newAllTargetPods)
 	SetSelectedTargetPods(newSelectedTargetPods)
 
-	err = callback(addedWatchedPods, removedWatchedPods, addedTargetedPods, removedTargetedPods, settings)
+	err = callback(addedTargetedPods, removedTargetedPods, settings)
 
 	return
 }

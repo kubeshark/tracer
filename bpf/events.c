@@ -8,9 +8,7 @@ Copyright (C) Kubeshark
 "kprobe/security_*" tracepoints are not used here as soon as they can not be implemented in some platforms (for example arm64 M1)
 */
 
-#ifndef EBPF_FALLBACK
-
-#include "events.h"
+#include "include/events.h"
 
 SEC("kprobe/tcp_connect")
 void BPF_KPROBE(tcp_connect) {
@@ -18,8 +16,8 @@ void BPF_KPROBE(tcp_connect) {
         return;
 
     long err;
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
-    if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+    if (!should_target_cgroup(cgroup_id)) {
         return;
     }
     __u64 id = tracer_get_current_pid_tgid();
@@ -65,7 +63,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
 
     long err;
     __u64 id = tracer_get_current_pid_tgid();
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     struct accept_data* data = bpf_map_lookup_elem(&accept_context, &id);
     if (!data) {
         return;
@@ -114,8 +112,8 @@ void BPF_KRETPROBE(do_accept) {
     if (capture_disabled())
         return;
 
-    __u64 cgroup_id = bpf_get_current_cgroup_id();
-    if (!bpf_map_lookup_elem(&cgroup_ids, &cgroup_id)) {
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+    if (!should_target_cgroup(cgroup_id)) {
         return;
     }
     struct file* f = (struct file*)PT_REGS_RC(ctx);
@@ -170,5 +168,3 @@ static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk
 
     return 0;
 }
-
-#endif

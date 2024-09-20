@@ -3,105 +3,42 @@ package main
 import (
 	"fmt"
 
-	"bytes"
-	"os"
-	"strconv"
-	"syscall"
-
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
-	"github.com/jinzhu/copier"
+	"github.com/kubeshark/api"
 	"github.com/kubeshark/tracer/misc"
-	"github.com/kubeshark/tracer/socket"
-	"github.com/moby/moby/pkg/parsers/kernel"
+	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/discoverer"
+	packetHooks "github.com/kubeshark/tracer/pkg/hooks/packet"
+	syscallHooks "github.com/kubeshark/tracer/pkg/hooks/syscall"
+	"github.com/kubeshark/tracer/pkg/poller"
+	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
 )
 
 const GlobalWorkerPid = 0
 
-// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
+type containerInfo struct {
+	cgroupPath string
+	cgroupID   uint64
+}
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets tracer bpf/tracer.c
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DEBPF_FALLBACK" -type tls_chunk -type goid_offsets tracerNoSniff bpf/tracer.c
-
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target $BPF_TARGET -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets tracer46 bpf/tracer.c
+type podInfo struct {
+	containers []containerInfo
+}
 
 type Tracer struct {
-	bpfObjects          tracerObjects
-	syscallHooks        syscallHooks
-	tcpKprobeHooks      tcpKprobeHooks
-	sslHooksStructs     []sslHooks
-	goHooksStructs      []goHooks
-	poller              *tlsPoller
-	pktsPoller          *pktsPoller
-	bpfLogger           *bpfLogger
-	packetFilter        *packetFilter
-	procfs              string
-	isCgroupV2          bool
-	pktSnifDisabled     bool
-	watchingPods        map[types.UID]*watchingPodsInfo
-	targetedCgroupIDs   map[uint64]struct{}
-	syscallEventsTracer *syscallEventsTracer
-}
+	bpfObjects        *bpf.BpfObjects
+	syscallHooks      syscallHooks.SyscalHooks
+	eventsDiscoverer  discoverer.InternalEventsDiscoverer
+	packetFilter      *packetHooks.PacketFilter
+	procfs            string
+	pktSnifDisabled   bool
+	targetedCgroupIDs map[uint64]struct{}
 
-type watchingPodsInfo struct {
-	tlsPids   []*pidWatcher
-	cgroupIDs []uint64
-}
-
-// struct pid_info from maps.h
-type pidInfo struct {
-	sysFdOffset int64
-	isInterface uint64
-}
-
-// struct fd_offset from maps.h
-type pidOffset struct {
-	pid    uint64
-	offset uint64
-}
-
-type BpfObjectsImpl struct {
-	bpfObjs interface{}
-	specs   *ebpf.CollectionSpec
-}
-
-func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, reader *bytes.Reader) error {
-	var err error
-	opts := ebpf.CollectionOptions{
-		Programs: ebpf.ProgramOptions{
-			LogSize: ebpf.DefaultVerifierLogSize * 32,
-		},
-	}
-
-	objs.specs, err = ebpf.LoadCollectionSpecFromReader(reader)
-	if err != nil {
-		return err
-	}
-
-	consts := make(map[string]interface{})
-	for k, v := range bpfConstants {
-		consts[k] = v
-	}
-	err = objs.specs.RewriteConstants(consts)
-	if err != nil {
-		return err
-	}
-
-	err = objs.specs.LoadAndAssign(objs.bpfObjs, &opts)
-	if err != nil {
-		var ve *ebpf.VerifierError
-		if errors.As(err, &ve) {
-			errStr := fmt.Sprintf("%+v", ve)
-			if len(errStr) > 1024 {
-				errStr = "(truncated) " + errStr[len(errStr)-1024:]
-			}
-			log.Warn().Msg(fmt.Sprintf("Got verifier error: %v", errStr))
-		}
-	}
-	return err
+	runningPods map[types.UID]podInfo
 }
 
 func (t *Tracer) Init(
@@ -117,230 +54,115 @@ func (t *Tracer) Init(
 		return err
 	}
 
-	var kernelVersion *kernel.VersionInfo
-	kernelVersion, err = kernel.GetKernelVersion()
+	t.bpfObjects, err = bpf.NewBpfObjects()
+	if err != nil {
+		return fmt.Errorf("creating bpf failed: %v", err)
+	}
+	t.eventsDiscoverer = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects)
+	if err := t.eventsDiscoverer.Start(); err != nil {
+		log.Error().Msg(fmt.Sprintf("start internal discovery failed: %v", err))
+		return err
+	}
+
+	t.syscallHooks = syscallHooks.NewSyscallHooks(t.bpfObjects)
+	if err = t.syscallHooks.Install(); err != nil {
+		return err
+	}
+
+	sortedPackets := make(chan *bpf.SortedPacket, misc.PacketChannelBufferSize)
+
+	isCgroupsV2, err := utils.IsCgroupV2()
 	if err != nil {
 		return err
 	}
-
-	t.isCgroupV2, err = isCgroupV2()
-	if err != nil {
-		log.Error().Err(err).Msg("read cgroups information failed:")
-	}
-
-	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v", kernelVersion, t.isCgroupV2))
-
-	t.bpfObjects = tracerObjects{}
-	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
-	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
-		if err := loadTracer46Objects(&t.bpfObjects, nil); err != nil {
-			return errors.Wrap(err, 0)
-		}
-	} else {
-		var hostProcIno uint64
-		fileInfo, err := os.Stat("/hostproc/1/ns/pid")
-		if err != nil {
-			// services like "apparmor" on EKS can reject access to system pid information
-			log.Warn().Err(err).Msg("Get host netns failed")
-		} else {
-			hostProcIno = fileInfo.Sys().(*syscall.Stat_t).Ino
-			log.Info().Uint64("ns", hostProcIno).Msg("Setting host ns")
-		}
-
-		objs := &BpfObjectsImpl{
-			bpfObjs: &tracerObjects{},
-		}
-
-		bpfConsts := map[string]uint64{
-			"TRACER_NS_INO": hostProcIno,
-		}
-
-		var ve *ebpf.VerifierError
-		err = objs.loadBpfObjects(bpfConsts, bytes.NewReader(_TracerBytes))
-		if err == nil {
-			t.bpfObjects = *objs.bpfObjs.(*tracerObjects)
-		} else if err != nil && errors.As(err, &ve) {
-			t.pktSnifDisabled = true
-			CompatibleMode = true
-			log.Warn().Msg("eBPF packets capture and syscall events are disabled")
-
-			objsNoSniff := &BpfObjectsImpl{
-				bpfObjs: &tracerNoSniffObjects{},
-			}
-			err = objsNoSniff.loadBpfObjects(bpfConsts, bytes.NewReader(_TracerNoSniffBytes))
-
-			if err == nil {
-				o := objsNoSniff.bpfObjs.(*tracerNoSniffObjects)
-				if err = copier.Copy(&t.bpfObjects.tracerPrograms, &o.tracerNoSniffPrograms); err != nil {
-					return err
-				}
-				if err = copier.Copy(&t.bpfObjects.tracerMaps, &o.tracerNoSniffMaps); err != nil {
-					return err
-				}
-			}
-		}
-
-		if err != nil {
-			log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
-			return err
-		}
-	}
-
-	t.syscallHooks = syscallHooks{}
-	if err := t.syscallHooks.installSyscallHooks(&t.bpfObjects); err != nil {
-		return err
-	}
-
-	t.tcpKprobeHooks = tcpKprobeHooks{}
-	if err := t.tcpKprobeHooks.installTcpKprobeHooks(&t.bpfObjects); err != nil {
-		return err
-	}
-
-	t.sslHooksStructs = make([]sslHooks, 0)
-
-	t.bpfLogger, err = newBpfLogger(&t.bpfObjects, logBufferSize, *disableTlsLog)
+	allPollers, err := poller.NewBpfPoller(t.bpfObjects, bpf.NewPacketSorter(sortedPackets, isCgroupsV2), t.eventsDiscoverer.CgroupsInfo(), *disableTlsLog)
 	if err != nil {
 		return err
 	}
+	allPollers.Start()
 
-	sortedPackets := make(chan *SortedPacket, misc.PacketChannelBufferSize)
-	sorter := NewPacketSorter(sortedPackets, t.isCgroupV2)
-
-	t.poller, err = newTlsPoller(
-		t,
-		procfs,
-		sorter,
-	)
-
-	if err != nil {
-		return err
-	}
-
-	err = t.poller.init(&t.bpfObjects, chunksBufferSize)
-	if err != nil {
-		return err
-	}
-
-	if !*disableEbpfCapture && t.isCgroupV2 && !t.pktSnifDisabled {
-		t.packetFilter, err = newPacketFilter(t.bpfObjects.FilterIngressPackets, t.bpfObjects.FilterEgressPackets, t.bpfObjects.PacketPullIngress, t.bpfObjects.PacketPullEgress, t.bpfObjects.TraceCgroupConnect4, t.bpfObjects.CgroupIds)
-		if err != nil {
-			return err
-		}
-
-		t.pktsPoller, err = newPktsPoller(t, procfs, sorter)
-		if err != nil {
-			return err
-		}
-
-		err = t.pktsPoller.init(&t.bpfObjects, chunksBufferSize)
+	if !*disableEbpfCapture {
+		//TODO: for cgroup V2 only
+		t.packetFilter, err = packetHooks.NewPacketFilter(t.bpfObjects.BpfObjs.FilterIngressPackets, t.bpfObjects.BpfObjs.FilterEgressPackets, t.bpfObjects.BpfObjs.PacketPullIngress, t.bpfObjects.BpfObjs.PacketPullEgress, t.bpfObjects.BpfObjs.TraceCgroupConnect4, t.bpfObjects.BpfObjs.CgroupIds)
 		if err != nil {
 			return err
 		}
 	}
 
-	if !CompatibleMode {
-		t.syscallEventsTracer, err = newSyscallEventsTracer(t.bpfObjects.SyscallEvents, os.Getpagesize(), socket.NewSocketEvent(misc.GetSyscallEventSocketPath()))
-		if err != nil {
-			log.Error().Err(err).Msg("Syscall events tracer create failed")
-		} else {
-			if err = t.syscallEventsTracer.start(); err != nil {
-				log.Error().Err(err).Msg("Syscall events tracer start failed")
-			}
-		}
-	}
 	return nil
 }
 
-func (t *Tracer) poll(streamsMap *TcpStreamMap) {
-	if t.pktsPoller != nil {
-		go t.pktsPoller.poll()
+func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uint32) error {
+	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Msg("Update targets")
+	if err := t.bpfObjects.BpfObjs.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
+		log.Error().Err(err).Msg("Update capture settings failed:")
 	}
-	t.poller.poll(streamsMap)
+
+	for _, pod := range removePods {
+		if t.packetFilter != nil {
+			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
+				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
+			} else {
+				log.Error().Err(err).Str("pod", pod.Name).Msg("Detach pod failed from cgroup:")
+			}
+		}
+
+		pInfo, ok := t.runningPods[pod.UID]
+		log.Info().Str("pod name", pod.Name).Str("pod uuid", string(pod.UID)).Bool("OK", ok).Msg("CHECKING RUNNING POD") //XXX
+		if !ok {
+			continue
+		}
+		for _, cInfo := range pInfo.containers {
+			delete(t.targetedCgroupIDs, cInfo.cgroupID)
+
+			if err := t.bpfObjects.BpfObjs.CgroupIds.Delete(cInfo.cgroupID); err != nil {
+				log.Warn().Err(err).Msg("Cgrpup IDs delete failed")
+				return err
+			}
+			t.eventsDiscoverer.UntargetCgroup(cInfo.cgroupID)
+		}
+		log.Info().Str("pod", pod.Name).Msg("Detached pod:")
+		delete(t.runningPods, pod.UID)
+	}
+
+	for _, pod := range addPods {
+		pd := t.runningPods[pod.UID]
+		log.Info().Str("pod name", pod.Name).Str("pod uuid", string(pod.UID)).Msg("ADDED RUNNING POD") //XXX
+		for _, containerId := range pod.ContainerIDs {
+			value, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
+			if !ok {
+				// pod can be on a different node
+				continue
+			}
+			cInfo := containerInfo{
+				cgroupPath: value.CgroupPath,
+				cgroupID:   uint64(value.CgroupID),
+			}
+			pd.containers = append(pd.containers, cInfo)
+
+			if t.packetFilter != nil {
+				if err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath, []uint64{cInfo.cgroupID}); err != nil {
+					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+					return err
+				}
+				log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
+			}
+
+			if err := t.bpfObjects.BpfObjs.CgroupIds.Update(cInfo.cgroupID, uint32(0), 0); err != nil {
+				log.Error().Err(err).Msg("Cgroup IDs update failed")
+				return err
+			}
+
+			t.eventsDiscoverer.TargetCgroup(cInfo.cgroupID)
+			log.Info().Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
+		}
+		t.runningPods[pod.UID] = pd
+	}
+
+	return nil
 }
 
-func (t *Tracer) pollForLogging() {
-	t.bpfLogger.poll()
-}
-
-var globalProbeSSL *probesLibSsl
-
-func (t *Tracer) globalSSLLibTarget(procfs string, pid string) error {
-	_pid, err := strconv.Atoi(pid)
-	if err != nil {
-		return err
-	}
-
-	globalProbeSSL = &probesLibSsl{pid: uint32(_pid)}
-	installed, err := globalProbeSSL.InstallProbes(procfs, &tracer.bpfObjects)
-	if err != nil {
-		return err
-	}
-	if !installed {
-		return fmt.Errorf("install global ssllib failed")
-	}
-	return globalProbeSSL.Target(&tracer.bpfObjects)
-}
-
-var globalProbeGoTls *probesGoTls
-
-func (t *Tracer) globalGoTarget(procfs string, pid string) error {
-	_pid, err := strconv.Atoi(pid)
-	if err != nil {
-		return err
-	}
-
-	globalProbeGoTls = &probesGoTls{pid: uint32(_pid)}
-	installed, err := globalProbeGoTls.InstallProbes(procfs, &tracer.bpfObjects)
-	if err != nil {
-		return err
-	}
-	if !installed {
-		return fmt.Errorf("install global GoTls failed")
-	}
-	return globalProbeSSL.Target(&tracer.bpfObjects)
-}
-
-func (t *Tracer) close() []error {
-	if t.syscallEventsTracer != nil {
-		t.syscallEventsTracer.stop()
-	}
-
-	if t.packetFilter != nil {
-		t.packetFilter.close()
-	}
-
-	if t.pktsPoller != nil {
-		t.pktsPoller.close()
-	}
-
-	returnValue := make([]error, 0)
-
-	if err := t.bpfObjects.Close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	returnValue = append(returnValue, t.syscallHooks.close()...)
-
-	returnValue = append(returnValue, t.tcpKprobeHooks.close()...)
-
-	for _, sslHooks := range t.sslHooksStructs {
-		returnValue = append(returnValue, sslHooks.close()...)
-	}
-
-	for _, goHooks := range t.goHooksStructs {
-		returnValue = append(returnValue, goHooks.close()...)
-	}
-
-	if err := t.bpfLogger.close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	if err := t.poller.close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	return returnValue
-}
+//TODO: tracer close
 
 func setupRLimit() error {
 	err := rlimit.RemoveMemlock()
@@ -350,13 +172,4 @@ func setupRLimit() error {
 	}
 
 	return nil
-}
-
-func logError(err error) {
-	var e *errors.Error
-	if errors.As(err, &e) {
-		log.Error().Str("stack", e.ErrorStack()).Send()
-	} else {
-		log.Error().Err(err).Send()
-	}
 }

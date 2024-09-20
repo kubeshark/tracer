@@ -53,6 +53,7 @@ Capstone Engine: https://www.capstone-engine.org/
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/pids.h"
+#include "include/cgroups.h"
 #include "include/common.h"
 #include "include/go_abi_0.h"
 #include "include/go_abi_internal.h"
@@ -178,11 +179,13 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, void* go_c
     if (capture_disabled())
         return;
 
-    __u64 pid_tgid = tracer_get_current_pid_tgid();
-    __u64 pid = pid_tgid >> 32;
-    if (!should_target(pid)) {
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+    if (!should_target_cgroup(cgroup_id)) {
         return;
     }
+
+    __u64 pid_tgid = tracer_get_current_pid_tgid();
+    __u64 pid = pid_tgid >> 32;
 
     struct ssl_info info = new_ssl_info();
     long err;
@@ -257,11 +260,13 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* g
     if (capture_disabled())
         return;
 
-    __u64 pid_tgid = tracer_get_current_pid_tgid();
-    __u64 pid = pid_tgid >> 32;
-    if (!should_target(pid)) {
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+    if (!should_target_cgroup(cgroup_id)) {
         return;
     }
+
+    __u64 pid_tgid = tracer_get_current_pid_tgid();
+    __u64 pid = pid_tgid >> 32;
 
     __u64 goroutine_id;
     if (abi == ABI0) {
@@ -341,7 +346,7 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* g
     info.address_info.saddr = address_info->saddr;
     info.address_info.sport = address_info->sport;
 
-    output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, bpf_get_current_cgroup_id());
+    output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, cgroup_id);
 
     return;
 }
