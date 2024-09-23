@@ -9,7 +9,9 @@ Copyright (C) Kubeshark
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/pids.h"
+#include "include/cgroups.h"
 #include "include/common.h"
+#include "include/probes.h"
 
 static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info* info, __u64 id) {
 	int returnValue = PT_REGS_RC(ctx);
@@ -42,15 +44,15 @@ static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info*
 static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t buffer, int num, void* map_fd, uintptr_t count_ptr) {
 	long err;
 
-    if (capture_disabled())
-        return;
+	if (capture_disabled())
+		return;
 
-	__u64 id = tracer_get_current_pid_tgid();
-
-	if (!should_target(id >> 32)) {
+	__u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+	if (!should_target_cgroup(cgroup_id)) {
 		return;
 	}
 
+	__u64 id = tracer_get_current_pid_tgid();
 	struct ssl_info info = lookup_ssl_info(ctx, map_fd, id);
 
 	info.count_ptr = count_ptr;
@@ -64,15 +66,15 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t
 }
 
 static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u32 flags) {
-	__u64 id = tracer_get_current_pid_tgid();
+	if (capture_disabled())
+		return;
 
-    if (capture_disabled())
-        return;
-
-	if (!should_target(id >> 32)) {
+	__u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+	if (!should_target_cgroup(cgroup_id)) {
 		return;
 	}
 
+	__u64 id = tracer_get_current_pid_tgid();
 	struct ssl_info* infoPtr = bpf_map_lookup_elem(map_fd, &id);
 
 	if (infoPtr == NULL) {
@@ -110,7 +112,7 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u
 		return;
 	}
 
-	output_ssl_chunk(ctx, &info, count_bytes, id, flags, bpf_get_current_cgroup_id());
+	output_ssl_chunk(ctx, &info, count_bytes, id, flags, cgroup_id);
 }
 
 SEC("uprobe/ssl_write")

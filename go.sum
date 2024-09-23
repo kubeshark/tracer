@@ -111,8 +111,6 @@ github.com/hashicorp/golang-lru v0.5.4 h1:YDjusn29QI/Das2iO9M0BHnIbxPeyuCHsjMW+l
 github.com/hashicorp/golang-lru v0.5.4/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
 github.com/hashicorp/golang-lru/v2 v2.0.2 h1:Dwmkdr5Nc/oBiXgJS3CDHNhJtIHkuZ3DZF5twqnfBdU=
 github.com/hashicorp/golang-lru/v2 v2.0.2/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
-github.com/jinzhu/copier v0.4.0 h1:w3ciUoD19shMCRargcpm0cm91ytaBhDvuRpz1ODO/U8=
-github.com/jinzhu/copier v0.4.0/go.mod h1:DfbEm0FYsaqBcKcFuvmOZb218JkPGtvSHsKg8S8hyyg=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/josharian/native v0.0.0-20200817173448-b6b71def0850/go.mod h1:7X/raswPFr05uY3HiLlYeyQntB6OO7E/d2Cu7qoaN2w=
@@ -148,8 +146,6 @@ github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
 github.com/kr/text v0.1.0/go.mod h1:4Jbv+DJW3UT/LiOwJeYQe1efqtUx/iVham/4vfdArNI=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
-github.com/kubeshark/api v1.1.16 h1:E9MlBpc4zpCE2847+/myEBmug+q6zn4y1nMSUMCKYwI=
-github.com/kubeshark/api v1.1.16/go.mod h1:13xpBdys1s9gozDtv29njdT3Rx3xl2ZICgdsFXwqk40=
 github.com/kubeshark/api v1.1.20 h1:ZE8dBHalyc8OriBOLQ7Olpzjox6Tka/Z0xohIJmGiB4=
 github.com/kubeshark/api v1.1.20/go.mod h1:13xpBdys1s9gozDtv29njdT3Rx3xl2ZICgdsFXwqk40=
 github.com/kubeshark/gopacket v1.1.30 h1:Dz6eo7b6+NdVCrgiyKxlGEVTm0L6PwgbVvSomsuwIyU=
@@ -157,8 +153,6 @@ github.com/kubeshark/gopacket v1.1.30/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj
 github.com/kubeshark/tracerproto v1.0.0/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c h1:Km6Wm+AwCRO/6aK60PqGpW6bVuXNw+bbZRjX837N/rU=
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
-github.com/kubeshark/utils v0.0.0-20240912114101-271ed42ebd29 h1:O/t6Nd12MyX6flppOojsAh0gS1pjb0VdsdyxmIEFbjQ=
-github.com/kubeshark/utils v0.0.0-20240912114101-271ed42ebd29/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
 github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11 h1:g+f7OCI1onHRqEqE5dMlhLfwfdxFI9wmeOvlUaxNzPQ=
 github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
 github.com/leodido/go-urn v1.2.1/go.mod h1:zt4jvISO2HfUBqxjfIshjdMTYS56ZS/qv49ictyFfxY=

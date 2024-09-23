@@ -9,6 +9,7 @@ Copyright (C) Kubeshark
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/common.h"
+#include "include/probes.h"
 
 
 static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info) {
@@ -95,11 +96,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
     }
 
     chunk->flags = flags;
-#ifndef EBPF_FALLBACK
-    chunk->timestamp = bpf_ktime_get_tai_ns();
-#else
-    chunk->timestamp = 0;
-#endif
+    chunk->timestamp = compat_get_uprobe_timestamp();
     chunk->cgroup_id = cgroup_id;
     chunk->pid = id >> 32;
     chunk->tgid = id;
