@@ -286,7 +286,7 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 	}
 
 	engineMajor, engineMinor := engine.Version()
-	log.Info().Msg(fmt.Sprintf(
+	log.Debug().Msg(fmt.Sprintf(
 		"Disassembling %s with Capstone %d.%d (arch: %d, mode: %d)",
 		fpath,
 		engineMajor,
