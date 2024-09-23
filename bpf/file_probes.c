@@ -13,6 +13,19 @@ Copyright (C) Kubeshark
 //#define DEBUG_FILE_PROBE(x...) bpf_printk(x)
 #define DEBUG_FILE_PROBE(x...)
 
+#if defined(bpf_target_x86)
+struct renamedata {
+    struct mnt_idmap* old_mnt_idmap;
+    struct inode* old_dir;
+    struct dentry* old_dentry;
+    struct mnt_idmap* new_mnt_idmap;
+    struct inode* new_dir;
+    struct dentry* new_dentry;
+    struct inode** delegated_inode;
+    unsigned int flags;
+};
+#endif
+
 typedef struct {
     __u64 __unused_syscall_header;
     __u32 __unused_syscall_nr;
@@ -301,21 +314,11 @@ int BPF_KPROBE(vfs_create)
     return 0;
 }
 
-struct renamedata_vfs {
-    struct mnt_idmap* old_mnt_idmap;
-    struct inode* old_dir;
-    struct dentry* old_dentry;
-    struct mnt_idmap* new_mnt_idmap;
-    struct inode* new_dir;
-    struct dentry* new_dentry;
-    struct inode** delegated_inode;
-    unsigned int flags;
-};
 
 SEC("kprobe/vfs_rename")
 int BPF_KPROBE(vfs_rename)
 {
-    struct renamedata_vfs* data = (struct renamedata_vfs*)PT_REGS_PARM1(ctx);
+    struct renamedata* data = (struct renamedata*)PT_REGS_PARM1(ctx);
     struct dentry* dentry = BPF_CORE_READ(data, new_dentry);
 
     __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
