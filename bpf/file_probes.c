@@ -179,6 +179,7 @@ static __always_inline void find_cgroup_fs(void* ctx, const char* name) {
     }
 }
 
+/*
 static __always_inline void do_sys_open_helper_enter(void* ctx, int num, const char* filename, __u64 flags) {
     char buf[256];
     bpf_probe_read_user(buf, 256, filename);
@@ -228,6 +229,7 @@ int sys_exit_openat2(exit_sys_ctx* ctx) {
     do_sys_open_helper_exit(ctx);
     return 0;
 }
+*/
 
 SEC("kprobe/security_file_open")
 int BPF_KPROBE(security_file_open)
