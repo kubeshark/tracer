@@ -167,9 +167,11 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
-	if err = s.addKprobe("security_path_mkdir", bpfObjects.SecurityPathMkdir); err != nil {
-		return err
-	}
+	/*
+		if err = s.addKprobe("security_path_mkdir", bpfObjects.SecurityPathMkdir); err != nil {
+			return err
+		}
+	*/
 
 	if err = s.addRawTracepoint("sched_process_fork", bpfObjects.SchedProcessFork); err != nil {
 		return err

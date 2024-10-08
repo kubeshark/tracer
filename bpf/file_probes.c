@@ -369,6 +369,7 @@ int BPF_KPROBE(do_mkdirat_ret)
     return 0;
 }
 
+/*
 SEC("kprobe/security_path_mkdir")
 int BPF_KPROBE(security_path_mkdir)
 {
@@ -384,6 +385,7 @@ int BPF_KPROBE(security_path_mkdir)
 
     return 0;
 }
+*/
 
 SEC("kprobe/vfs_rmdir")
 int BPF_KPROBE(vfs_rmdir)
