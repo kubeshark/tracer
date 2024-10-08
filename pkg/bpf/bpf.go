@@ -75,7 +75,7 @@ func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
 	return 0
 }
 
-func NewBpfObjects() (*BpfObjects, error) {
+func NewBpfObjects(disableEbpfCapture bool) (*BpfObjects, error) {
 	var err error
 
 	objs := BpfObjects{}
@@ -118,12 +118,18 @@ func NewBpfObjects() (*BpfObjects, error) {
 			bpfObjs: &TracerObjects{},
 		}
 
+		disableCapture := uint64(0)
+		if disableEbpfCapture {
+			disableCapture = 1
+		}
+
 		bpfConsts := map[string]uint64{
 			"KERNEL_VERSION": kernelVersionInt,
 			"TRACER_NS_INO":  hostProcIno,
 			//"HELPER_EXISTS_KPROBE_bpf_strncmp":          programHelperExists(ebpf.Kprobe, asm.FnStrncmp),
 			"CGROUP_V1": cgroupV1,
 			"HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns": programHelperExists(ebpf.TracePoint, asm.FnKtimeGetTaiNs),
+			"DISABLE_EBPF_CAPTURE":                      disableCapture,
 		}
 
 		err = objects.loadBpfObjects(bpfConsts, bytes.NewReader(_TracerBytes))

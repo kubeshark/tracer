@@ -53,7 +53,7 @@ func (t *Tracer) Init(
 		return err
 	}
 
-	t.bpfObjects, err = bpf.NewBpfObjects()
+	t.bpfObjects, err = bpf.NewBpfObjects(*disableEbpfCapture)
 	if err != nil {
 		return fmt.Errorf("creating bpf failed: %v", err)
 	}
