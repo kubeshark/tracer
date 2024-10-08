@@ -179,56 +179,6 @@ static __always_inline void find_cgroup_fs(void* ctx, const char* name) {
     }
 }
 
-static __always_inline void do_sys_open_helper_enter(void* ctx, int num, const char* filename, __u64 flags) {
-    char buf[256];
-    bpf_probe_read_user(buf, 256, filename);
-    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
-    __u64 pid = tracer_get_current_pid_tgid() >> 32;
-
-    DEBUG_FILE_PROBE("ENTER n: %d cgid: %d pid: %d create: %d(%d) filename: %s", num, cgroup_id, pid, (flags & O_CREAT) ? 1 : 0, flags, buf);
-    return;
-}
-
-static __always_inline void do_sys_open_helper_exit(exit_sys_ctx* ctx) {
-    return;
-}
-
-SEC("tracepoint/syscalls/sys_enter_open")
-int sys_enter_open(enter_sys_open_ctx* ctx) {
-    do_sys_open_helper_enter(ctx, 1, ctx->filename, ctx->flags);
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_exit_open")
-int sys_exit_open(exit_sys_ctx* ctx) {
-    do_sys_open_helper_exit(ctx);
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_enter_openat")
-int sys_enter_openat(enter_sys_openat_ctx* ctx) {
-    do_sys_open_helper_enter(ctx, 2, ctx->filename, ctx->flags);
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_exit_openat")
-int sys_exit_openat(exit_sys_ctx* ctx) {
-    do_sys_open_helper_exit(ctx);
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_enter_openat2")
-int sys_enter_openat2(enter_sys_openat2_ctx* ctx) {
-    do_sys_open_helper_enter(ctx, 3, ctx->filename, 0);
-    return 0;
-}
-
-SEC("tracepoint/syscalls/sys_exit_openat2")
-int sys_exit_openat2(exit_sys_ctx* ctx) {
-    do_sys_open_helper_exit(ctx);
-    return 0;
-}
-
 SEC("kprobe/security_file_open")
 int BPF_KPROBE(security_file_open)
 {

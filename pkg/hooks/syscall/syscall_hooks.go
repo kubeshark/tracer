@@ -5,42 +5,11 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/rs/zerolog/log"
 )
 
 type syscallHooks struct {
 	links []link.Link
-
-	/*
-		sysEnterRead     link.Link
-		sysEnterWrite    link.Link
-		sysEnterRecvfrom link.Link
-		sysEnterSendto   link.Link
-		sysExitRead      link.Link
-		sysExitWrite     link.Link
-		sysEnterAccept4  link.Link
-		sysExitAccept4   link.Link
-		sysEnterAccept   link.Link
-		sysExitAccept    link.Link
-		sysEnterConnect  link.Link
-		sysExitConnect   link.Link
-		sysEnterOpen     link.Link
-		sysExitOpen      link.Link
-		sysEnterOpenAt   link.Link
-		sysExitOpenAt    link.Link
-		sysEnterOpenAt2  link.Link
-		sysExitOpenAt2   link.Link
-
-		sysSecurityFileOpen    link.Link
-		sysSecurityInodeUnlink link.Link
-		sysSecurityInodeRename link.Link
-
-		sysVfsCreate         link.Link
-		sysVfsRename         link.Link
-		sysDoMkdirAt         link.Link
-		sysDoMkdirAtRet      link.Link
-		sysVfsRmDir          link.Link
-		sysSecurityPathMkdir link.Link
-	*/
 }
 
 func (s *syscallHooks) addTracepoint(group, name string, program *ebpf.Program) error {
@@ -141,30 +110,6 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
-	if err = s.addTracepoint("syscalls", "sys_enter_open", bpfObjects.SysEnterOpen); err != nil {
-		return err
-	}
-
-	if err = s.addTracepoint("syscalls", "sys_exit_open", bpfObjects.SysExitOpen); err != nil {
-		return err
-	}
-
-	if err = s.addTracepoint("syscalls", "sys_enter_openat", bpfObjects.SysEnterOpenat); err != nil {
-		return err
-	}
-
-	if err = s.addTracepoint("syscalls", "sys_exit_openat", bpfObjects.SysExitOpenat); err != nil {
-		return err
-	}
-
-	if err = s.addTracepoint("syscalls", "sys_enter_openat2", bpfObjects.SysEnterOpenat2); err != nil {
-		return err
-	}
-
-	if err = s.addTracepoint("syscalls", "sys_exit_openat2", bpfObjects.SysExitOpenat2); err != nil {
-		return err
-	}
-
 	if err = s.addKprobe("security_file_open", bpfObjects.SecurityFileOpen); err != nil {
 		return err
 	}
@@ -198,7 +143,7 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 	}
 
 	if err = s.addKprobe("security_path_mkdir", bpfObjects.SecurityPathMkdir); err != nil {
-		return err
+		log.Warn().Err(err).Msg("security_path_mkdir can not be attached. Probably system is running on incomatible kernel")
 	}
 
 	if err = s.addRawTracepoint("sched_process_fork", bpfObjects.SchedProcessFork); err != nil {

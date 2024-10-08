@@ -48,6 +48,9 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 #include "include/logger_messages.h"
 #include "include/common.h"
 
+
+const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
+
 /*
     defining ENABLE_TRACE_PACKETS enables tracing into kernel cyclic buffer
     which can be fetched on a host system with `cat /sys/kernel/debug/tracing/trace_pipe`
@@ -77,7 +80,8 @@ static __always_inline int parse_packet(struct __sk_buff* skb, int is_tc, __u32*
 
 SEC("cgroup_skb/ingress")
 int filter_ingress_packets(struct __sk_buff* skb) {
-
+    if (DISABLE_EBPF_CAPTURE)
+        return 1;
     if (capture_disabled())
         return 1;
 
@@ -96,6 +100,8 @@ int filter_ingress_packets(struct __sk_buff* skb) {
 
 SEC("cgroup_skb/egress")
 int filter_egress_packets(struct __sk_buff* skb) {
+    if (DISABLE_EBPF_CAPTURE)
+        return 1;
 
     if (capture_disabled())
         return 1;
@@ -122,6 +128,8 @@ int filter_egress_packets(struct __sk_buff* skb) {
 SEC("tc/ingress")
 int packet_pull_ingress(struct __sk_buff* skb)
 {
+    if (DISABLE_EBPF_CAPTURE)
+        return 1;
     if (capture_disabled())
         return 1;
 
@@ -151,6 +159,8 @@ int packet_pull_ingress(struct __sk_buff* skb)
 SEC("tc/egress")
 int packet_pull_egress(struct __sk_buff* skb)
 {
+    if (DISABLE_EBPF_CAPTURE)
+        return 1;
     if (capture_disabled())
         return 1;
 
