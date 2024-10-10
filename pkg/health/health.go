@@ -49,12 +49,9 @@ func DumpHealthEvery10Seconds(nodeName string) {
 func dumpHealth(nodeName string) error {
 	log.Debug().Str("nodename", nodeName).Msg("Dumping health data")
 
-	memAlloc, memSys := getMemoryUsage()
-	memUsage := float64(memAlloc) / float64(memSys) * 100
-
 	tracerHealth.CPUUsage = getCPUUsage()
-	tracerHealth.MemoryAlloc = memAlloc
-	tracerHealth.MemoryUsage = memUsage
+	memUsage := getMemoryUsage()
+	tracerHealth.MemoryUsage = float64(memUsage)
 	tracerHealth.Timestamp = time.Now().Format(time.RFC3339)
 
 	tracerHealthData, err := json.Marshal(tracerHealth)
@@ -137,10 +134,18 @@ func getCPUUsage() float64 {
 	return sysInfo.CPU
 }
 
-func getMemoryUsage() (uint64, uint64) {
+func getMemoryUsage() uint64 {
 	var stat runtime.MemStats
 	runtime.ReadMemStats(&stat)
-	return stat.Alloc, stat.Sys
+
+	memoryUsage := stat.HeapInuse + // In-use heap memory
+		stat.StackInuse + // In-use stack memory
+		stat.MSpanInuse + // Memory used for mspan structures
+		stat.MCacheInuse + // Memory used for mcache structures
+		stat.GCSys + // Memory used for garbage collection metadata
+		stat.OtherSys
+
+	return memoryUsage
 }
 
 func getCurrentPod(clientSet *kubernetes.Clientset) (*v1.Pod, error) {
