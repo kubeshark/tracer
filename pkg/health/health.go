@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	tracerContainerName = "tracer"
+	tracerContainerName   = "tracer"
 	memoryUsageCorrection = 1.2
 )
 
@@ -51,8 +51,7 @@ func dumpHealth(nodeName string) error {
 	log.Debug().Str("nodename", nodeName).Msg("Dumping health data")
 
 	tracerHealth.CPUUsage = getCPUUsage()
-	memUsage := getMemoryUsage()
-	tracerHealth.MemoryUsage = float64(memUsage)
+	tracerHealth.MemoryUsage = getMemoryUsage()
 	tracerHealth.Timestamp = time.Now().Format(time.RFC3339)
 
 	tracerHealthData, err := json.Marshal(tracerHealth)
@@ -135,7 +134,7 @@ func getCPUUsage() float64 {
 	return sysInfo.CPU
 }
 
-func getMemoryUsage() uint64 {
+func getMemoryUsage() float64 {
 	var stat runtime.MemStats
 	runtime.ReadMemStats(&stat)
 
@@ -146,7 +145,7 @@ func getMemoryUsage() uint64 {
 		stat.GCSys + // Memory used for garbage collection metadata
 		stat.OtherSys
 
-	return memoryUsage*memoryUsageCorrection
+	return float64(memoryUsage) * memoryUsageCorrection
 }
 
 func getCurrentPod(clientSet *kubernetes.Clientset) (*v1.Pod, error) {
