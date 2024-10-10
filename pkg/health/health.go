@@ -22,6 +22,7 @@ import (
 
 const (
 	tracerContainerName = "tracer"
+	memoryUsageCorrection = 1.2
 )
 
 var tracerHealth *api.HealthWorkerComponent
@@ -145,7 +146,7 @@ func getMemoryUsage() uint64 {
 		stat.GCSys + // Memory used for garbage collection metadata
 		stat.OtherSys
 
-	return memoryUsage
+	return memoryUsage*memoryUsageCorrection
 }
 
 func getCurrentPod(clientSet *kubernetes.Clientset) (*v1.Pod, error) {
