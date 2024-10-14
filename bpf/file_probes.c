@@ -88,10 +88,10 @@ static long str_match_begin(const char* s1, __u32 sz1, const char* s2, __u32 sz2
 }
 
 struct file_path {
+    char path[MAX_FILEPATH];
     __u32 device_id;
     __u16 size;
     __u8 remove;
-    char path[MAX_FILEPATH];
 };
 
 BPF_PERF_OUTPUT(perf_found_openssl);
@@ -119,24 +119,23 @@ static __always_inline void find_openssl(void* ctx, __u32 device_id, void* name,
         DEBUG_FILE_PROBE("find_openssl: not found");
         return;
     }
-
-    char buf[PATTERN_LIBSSL_LEN + 1];
-    for (int i = 0; i < 32; i++) {
-        int s = bpf_probe_read_str(buf, PATTERN_LIBSSL_LEN + 1, name + sz - PATTERN_LIBSSL_LEN - 1 - i);
-        if (s < PATTERN_LIBSSL_LEN) {
-            return;
-        }
-        if (str_match_begin(buf, s, PATTERN_LIBSSL, PATTERN_LIBSSL_LEN)) {
-            p->device_id = device_id;
-            p->remove = remove;
-            p->size = sz;
-            bpf_perf_event_output(ctx, &perf_found_openssl, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
-            return;
+    for (int i = 0; i < 32; i++)
+    {
+        int offset = sz - 1 - PATTERN_LIBSSL_LEN - i;
+        if (offset >= 0 && offset < MAX_FILEPATH)
+        {
+            if (str_match_begin(&p->path[offset], PATTERN_LIBSSL_LEN, PATTERN_LIBSSL, PATTERN_LIBSSL_LEN))
+            {
+                p->device_id = device_id;
+                p->remove = remove;
+                p->size = sz;
+                bpf_perf_event_output(ctx, &perf_found_openssl, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
+            }
         }
     }
 }
 
-static __always_inline void find_cgroup_fs(void* ctx, const char* name) {
+static __always_inline void find_cgroup_fs(void *ctx, const char *name) {
 
     char buf[CGROUPV1_FS_PATH_LEN + 1]; // CGROUPV1_FS_PATH_LEN > CGROUPV2_FS_PATH_LEN
     int sz = 0;
@@ -201,7 +200,8 @@ int BPF_KPROBE(security_file_open)
     __u64 id = tracer_get_current_pid_tgid();
     __u32 pid = id >> 32;
     DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: PID: %d CGROUP: %lu", pid, cgroup_id);
-    DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: flags: %x dev: 0x%x inode: %lu filename: %s", flags, dev, inode, file_path);
+    DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: flags: %x dev: 0x%x", flags, dev);
+    DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: inode: %lu filename: %s", inode, file_path);
     find_openssl(ctx, dev, file_path, 0);
 
     return 0;
@@ -226,9 +226,9 @@ int BPF_KPROBE(security_inode_rename)
     __u64 id = tracer_get_current_pid_tgid();
     __u32 pid = id >> 32;
 
-    DEBUG_FILE_PROBE("RENAME OLD: dev: 0x%x inode: %lu pid: %d filename: %s", old_dev, old_ino, pid, old_path);
-    DEBUG_FILE_PROBE("RENAME NEW: dev: ox%x inode: %lu pid: %d filename: %s", new_dev, new_ino, pid, new_path);
-    DEBUG_FILE_PROBE("RENAME NEW: filename: %s", filename);
+    DEBUG_FILE_PROBE("RENAME OLD: dev: 0x%x inode: %lu filename: %s", old_dev, old_ino, old_path);
+    DEBUG_FILE_PROBE("RENAME NEW: dev: ox%x inode: %lu filename: %s", new_dev, new_ino, new_path);
+    DEBUG_FILE_PROBE("RENAME NEW: filename: %s pid: %d", filename, pid);
     find_openssl(ctx, new_dev, new_path, 0);
 
     return 0;
@@ -264,21 +264,6 @@ int BPF_KPROBE(vfs_create)
     return 0;
 }
 
-
-SEC("kprobe/vfs_rename")
-int BPF_KPROBE(vfs_rename)
-{
-    struct renamedata* data = (struct renamedata*)PT_REGS_PARM1(ctx);
-    struct dentry* dentry = BPF_CORE_READ(data, new_dentry);
-
-    __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
-    __u64 dev = BPF_CORE_READ(dentry, d_inode, i_sb, s_dev);
-    void* dentry_path = get_dentry_path_str(dentry);
-    DEBUG_FILE_PROBE("VFS_RENAME: dev: %d inode: %lu filename: %s", dev, ino, dentry_path);
-
-    return 0;
-}
-
 SEC("kprobe/do_mkdirat")
 int BPF_KPROBE(do_mkdirat)
 {
@@ -308,7 +293,8 @@ int BPF_KPROBE(do_mkdirat_ret)
 
     int ret = (int)PT_REGS_RC(ctx);
     DEBUG_FILE_PROBE("DO_MKDIRAT_RET: FOUND, ret: %d", ret);
-    if (ret == 0) {
+    if (ret == 0)
+    {
         bpf_perf_event_output(ctx, &perf_found_cgroup, BPF_F_CURRENT_CPU, p, sizeof(struct file_path));
         DEBUG_FILE_PROBE("DO_MKDIRAT_RET: SENT");
     }

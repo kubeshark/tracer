@@ -8,6 +8,7 @@ Copyright (C) Kubeshark
 struct found_pid {
     __u64 cgroup;
     __u32 pid;
+    __u32 __pad1;
 };
 
 BPF_PERF_OUTPUT(perf_found_pid);
@@ -35,16 +36,10 @@ int sched_process_fork(struct bpf_raw_tracepoint_args* ctx) {
     struct found_pid p = {
         .cgroup = cgroup_id,
         .pid = child_tid,
+        .__pad1 = 0,
     };
 
     bpf_map_update_elem(&fork_info, &child_tid, &p, BPF_ANY);
-
-    return 0;
-}
-
-SEC("kretprobe/kernel_clone")
-int BPF_KRETPROBE(kernel_clone) {
-    __u32 ret = (int)PT_REGS_RC(ctx);
 
     return 0;
 }

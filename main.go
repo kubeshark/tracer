@@ -21,6 +21,8 @@ import (
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
+	"github.com/moby/sys/mount"
+	"github.com/moby/sys/mountinfo"
 	stdlog "log"
 	runtimeDebug "runtime/debug"
 )
@@ -98,6 +100,11 @@ func main() {
 func run() {
 	log.Info().Msg("Starting tracer...")
 
+	if err := checkMountedTracerInfo(); err != nil {
+		log.Error().Msg("bpffs or debugfs are not available")
+		return
+	}
+
 	tracer = &Tracer{
 		procfs:            *procfs,
 		targetedCgroupIDs: map[uint64]struct{}{},
@@ -172,4 +179,36 @@ func enrichSentryContext(watcher *kubernetes.Watcher) {
 	}
 
 	sentrypkg.AddTags(tags)
+}
+
+const bpfMountPath = "/sys/fs/bpf"
+const debugMountPath = "/sys/kernel/debug"
+
+func checkMountedTracerInfo() error {
+	var mounted bool
+	var err error
+	if mounted, err = mountinfo.Mounted(bpfMountPath); err != nil {
+		log.Error().Err(err).Msg("Unable to get mountinfo")
+		return err
+	}
+	if !mounted {
+		if err = mount.Mount("bpf", bpfMountPath, "bpf", ""); err != nil {
+			log.Error().Err(err).Msg("Unable to mount bpf filesystem")
+			return err
+		}
+		log.Print("bpf filesystem has been mounted")
+	}
+
+	if mounted, err = mountinfo.Mounted(debugMountPath); err != nil {
+		log.Error().Err(err).Msg("Unable to get mountinfo for debugfs")
+		return err
+	}
+	if !mounted {
+		if err = mount.Mount("debugfs", debugMountPath, "debugfs", ""); err != nil {
+			log.Error().Err(err).Msg("Unable to mount debugfs filesystem")
+			return err
+		}
+	}
+
+	return nil
 }

@@ -129,10 +129,10 @@ func (e *InternalEventsDiscovererImpl) UntargetCgroup(cgroupId uint64) {
 }
 
 type foundFileEvent struct {
+	path     [4096]byte
 	deviceId uint32
 	size     uint16
 	remove   uint8
-	path     [4096]byte
 }
 
 func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
@@ -212,19 +212,24 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 			log.Warn().Uint32("Device ID", p.deviceId).Msg("mount point can not be found:")
 			continue
 		}
-		installPath := filepath.Join("/hostroot", mountPoint, string(p.path[:p.size-1]))
-		if p.remove == 0 {
-			if _, ok := e.sslHooks[installPath]; ok {
-				log.Debug().Str("path", installPath).Msg("ssl hook already exists")
-				continue
-			}
-			hook := sslHooks.SslHooks{}
-			err = hook.InstallUprobes(e.bpfObjects, installPath)
-			if err != nil {
-				log.Debug().Err(err).Uint16("size", p.size).Str("path", installPath).Msg("Install uprobe missed")
-			} else {
-				e.sslHooks[installPath] = hook
-				log.Debug().Uint16("size", p.size).Str("path", installPath).Msg("New ssl hook is installed")
+		var installPaths []string
+		installPaths = append(installPaths, string(p.path[:p.size-1]))
+		installPaths = append(installPaths, filepath.Join("/hostroot", mountPoint, string(p.path[:p.size-1])))
+
+		for _, installPath := range installPaths {
+			if p.remove == 0 {
+				if _, ok := e.sslHooks[installPath]; ok {
+					log.Debug().Str("path", installPath).Msg("ssl hook already exists")
+					continue
+				}
+				hook := sslHooks.SslHooks{}
+				err = hook.InstallUprobes(e.bpfObjects, installPath)
+				if err != nil {
+					log.Debug().Err(err).Uint16("size", p.size).Str("path", installPath).Msg("Install uprobe missed")
+				} else {
+					e.sslHooks[installPath] = hook
+					log.Debug().Uint16("size", p.size).Str("path", installPath).Msg("New ssl hook is installed")
+				}
 			}
 		}
 		//TODO: check cases when existing hook can be deleted:

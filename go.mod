@@ -23,6 +23,8 @@ require (
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11
 	github.com/moby/moby v25.0.4+incompatible
+	github.com/moby/sys/mount v0.3.4
+	github.com/moby/sys/mountinfo v0.7.2
 	github.com/rs/zerolog v1.32.0
 	github.com/struCoder/pidusage v0.2.1
 	github.com/vishvananda/netlink v1.2.1-beta.2
