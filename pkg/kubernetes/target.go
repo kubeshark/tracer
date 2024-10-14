@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
-	"github.com/kubeshark/api"
 	"github.com/rs/zerolog/log"
+	v1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -21,29 +21,29 @@ const (
 )
 
 var (
-	allTargetPods      []api.TargetPod // allTargetedPods
-	selectedTargetPods []api.TargetPod // selectedTargetedPods
+	allTargetPods      []*v1.Pod // allTargetedPods
+	selectedTargetPods []*v1.Pod // selectedTargetedPods
 )
 
-func GetSelectedTargetPods() []api.TargetPod {
+func GetSelectedTargetPods() []*v1.Pod {
 	return selectedTargetPods
 }
 
-func GetAllTargetPods() []api.TargetPod {
+func GetAllTargetPods() []*v1.Pod {
 	return allTargetPods
 }
 
-func SetAllTargetPods(pods []api.TargetPod) {
+func SetAllTargetPods(pods []*v1.Pod) {
 	allTargetPods = pods
 }
 
-func SetSelectedTargetPods(pods []api.TargetPod) {
+func SetSelectedTargetPods(pods []*v1.Pod) {
 	selectedTargetPods = pods
 }
 
-type callbackPodsChanged func(addPods []api.TargetPod, removePods []api.TargetPod, settings uint32) error
+type callbackPodsChanged func(addPods []*v1.Pod, removePods []*v1.Pod, settings uint32) error
 
-func getPodArrayDiff(oldPods []api.TargetPod, newPods []api.TargetPod) (added []api.TargetPod, removed []api.TargetPod) {
+func getPodArrayDiff(oldPods []*v1.Pod, newPods []*v1.Pod) (added []*v1.Pod, removed []*v1.Pod) {
 	added = getMissingPods(newPods, oldPods)
 	removed = getMissingPods(oldPods, newPods)
 
@@ -51,8 +51,8 @@ func getPodArrayDiff(oldPods []api.TargetPod, newPods []api.TargetPod) (added []
 }
 
 // returns pods present in pods1 array and missing in pods2 array
-func getMissingPods(pods1 []api.TargetPod, pods2 []api.TargetPod) []api.TargetPod {
-	missingPods := make([]api.TargetPod, 0)
+func getMissingPods(pods1 []*v1.Pod, pods2 []*v1.Pod) []*v1.Pod {
+	missingPods := make([]*v1.Pod, 0)
 	for _, pod1 := range pods1 {
 		var found = false
 		for _, pod2 := range pods2 {
@@ -93,15 +93,15 @@ func updateCurrentlyTargetedPods(
 	return
 }
 
-func getAllTargetPodsFromHub() (targetPods []api.TargetPod, err error) {
+func getAllTargetPodsFromHub() (targetPods []*v1.Pod, err error) {
 	return getTargetPodsFromHub(allTargetPodsEndpoint)
 }
 
-func getSelectedTargetedPodsFromHub() (targetPods []api.TargetPod, err error) {
+func getSelectedTargetedPodsFromHub() (targetPods []*v1.Pod, err error) {
 	return getTargetPodsFromHub(selectedTargetPodsEndpoint)
 }
 
-func getTargetPodsFromHub(endpoint string) (targetPods []api.TargetPod, err error) {
+func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, err error) {
 
 	url := hubAddr + endpoint
 
@@ -139,7 +139,7 @@ func getTargetPodsFromHub(endpoint string) (targetPods []api.TargetPod, err erro
 	}
 
 	type targetPodsResponse struct {
-		TargetPods []api.TargetPod `json:"targets"`
+		TargetPods []*v1.Pod `json:"targets"`
 	}
 
 	var data targetPodsResponse

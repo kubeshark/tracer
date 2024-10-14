@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
-	"github.com/kubeshark/api"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/discoverer"
@@ -15,6 +15,7 @@ import (
 	"github.com/kubeshark/tracer/pkg/poller"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -91,7 +92,7 @@ func (t *Tracer) Init(
 	return nil
 }
 
-func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uint32) error {
+func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) error {
 	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Msg("Update targets")
 	if err := t.bpfObjects.BpfObjs.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
 		log.Error().Err(err).Msg("Update capture settings failed:")
@@ -125,7 +126,7 @@ func (t *Tracer) updateTargets(addPods, removePods []api.TargetPod, settings uin
 
 	for _, pod := range addPods {
 		pd := t.runningPods[pod.UID]
-		for _, containerId := range pod.ContainerIDs {
+		for _, containerId := range getContainerIDs(pod) {
 			value, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
 			if !ok {
 				// pod can be on a different node
@@ -169,4 +170,23 @@ func setupRLimit() error {
 	}
 
 	return nil
+}
+
+func getContainerIDs(pod *v1.Pod) []string {
+	extractContainerId := func(cId string) string {
+		s := strings.Split(cId, "/")
+		return s[len(s)-1]
+	}
+
+	var containerIDs []string
+	{
+		for _, containerStatus := range pod.Status.InitContainerStatuses {
+			containerIDs = append(containerIDs, extractContainerId(containerStatus.ContainerID))
+		}
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			containerIDs = append(containerIDs, extractContainerId(containerStatus.ContainerID))
+		}
+	}
+
+	return containerIDs
 }
