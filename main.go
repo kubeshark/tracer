@@ -15,14 +15,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
+	stdlog "log"
+	runtimeDebug "runtime/debug"
+
 	zlogsentry "github.com/archdx/zerolog-sentry"
 	"github.com/getsentry/sentry-go"
-	"github.com/kubeshark/tracer/pkg/health"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
-	stdlog "log"
-	runtimeDebug "runtime/debug"
 )
 
 var port = flag.Int("port", 80, "Port number of the HTTP server")
@@ -121,8 +121,6 @@ func run() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
-
-	go health.DumpHealthEvery10Seconds(nodeName)
 
 	enrichSentryContext(watcher)
 
