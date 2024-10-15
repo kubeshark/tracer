@@ -126,10 +126,6 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
-	if err = s.addKprobe("vfs_rename", bpfObjects.VfsRename); err != nil {
-		return err
-	}
-
 	if err = s.addKprobe("do_mkdirat", bpfObjects.DoMkdirat); err != nil {
 		return err
 	}
@@ -147,10 +143,6 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 	}
 
 	if err = s.addRawTracepoint("sched_process_fork", bpfObjects.SchedProcessFork); err != nil {
-		return err
-	}
-
-	if err = s.addKretprobe("kernel_clone", bpfObjects.KernelClone); err != nil {
 		return err
 	}
 

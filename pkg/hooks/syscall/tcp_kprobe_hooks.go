@@ -4,6 +4,7 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/rs/zerolog/log"
 )
 
 type tcpKprobeHooks struct {
@@ -39,7 +40,7 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *bpf.TracerObjects) er
 
 	s.accept4, err = link.Kretprobe("do_accept", bpfObjects.DoAccept, nil)
 	if err != nil {
-		return errors.Wrap(err, 0)
+		log.Warn().Err(err).Msg("do_accept can not be attached. Probably system is running on incomatible kernel")
 	}
 
 	return nil
