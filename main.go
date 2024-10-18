@@ -6,6 +6,8 @@ import (
 	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
@@ -148,9 +150,23 @@ func run() {
 		ginApp := server.Build()
 		server.Start(ginApp, *port)
 	} else {
+		stopChan := make(chan os.Signal, 1)
+		signal.Notify(stopChan,
+			syscall.SIGHUP,
+			syscall.SIGINT,
+			syscall.SIGTERM,
+			syscall.SIGQUIT)
+		go signalHandler(stopChan)
 		select {}
 	}
+}
 
+func stop() {
+	if tracer != nil {
+		if err := tracer.Deinit(); err != nil {
+			log.Error().Err(err).Msg("Tracer stop failed")
+		}
+	}
 }
 
 func createTracer() (err error) {
@@ -211,4 +227,22 @@ func checkMountedTracerInfo() error {
 	}
 
 	return nil
+}
+
+func signalHandler(stopChan chan os.Signal) {
+	for {
+		s := <-stopChan
+		switch s {
+		case syscall.SIGHUP:
+			fallthrough
+		case syscall.SIGINT:
+			fallthrough
+		case syscall.SIGTERM:
+			fallthrough
+		case syscall.SIGQUIT:
+			stop()
+			os.Exit(0)
+		default:
+		}
+	}
 }

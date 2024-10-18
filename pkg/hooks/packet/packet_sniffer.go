@@ -32,10 +32,6 @@ type PacketFilter struct {
 }
 
 func NewPacketFilter(ingressFilterProgram, egressFilterProgram, pullIngress, pullEgress, traceCgroupConnect *ebpf.Program, cgroupHash *ebpf.Map) (*PacketFilter, error) {
-	tcClient := &TcClientImpl{
-		TcPackage: &TcPackageImpl{},
-	}
-
 	pf := &PacketFilter{
 		ingressFilterProgram: ingressFilterProgram,
 		egressFilterProgram:  egressFilterProgram,
@@ -44,29 +40,30 @@ func NewPacketFilter(ingressFilterProgram, egressFilterProgram, pullIngress, pul
 		traceCgroupConnect:   traceCgroupConnect,
 		cgroupHashMap:        cgroupHash,
 		attachedPods:         make(map[string]*podLinks),
-		tcClient:             tcClient,
+		tcClient:             &TcClientImpl{},
 	}
 	pf.Update("", nil)
 	return pf, nil
 }
 
+func (p *PacketFilter) Close() error {
+	return p.tcClient.CleanTC()
+}
+
 func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodInfo) {
-	var ifaces []int
 	links, err := netlink.LinkList()
 	if err != nil {
 		log.Error().Err(err).Msg("Get link list failed:")
 		return
 	}
-	for _, link := range links {
-		ifaces = append(ifaces, link.Attrs().Index)
-	}
 
-	for _, l := range ifaces {
-		if err := p.tcClient.SetupTC(l, p.ingressPullProgram.FD(), p.egressPullProgram.FD()); err != nil {
-			log.Error().Int("link", l).Err(err).Msg("Setup TC failed:")
+	for _, l := range links {
+		if err := p.tcClient.SetupTC(l, p.ingressPullProgram, p.egressPullProgram); err != nil {
+			log.Error().Str("link", l.Attrs().Name).Err(err).Msg("Setup TC failed:")
 			continue
 		}
-		log.Info().Int("link", l).Msg("Attached TC programs:")
+
+		log.Info().Str("link name", l.Attrs().Name).Int("link", l.Attrs().Index).Msg("Attached TC programs:")
 	}
 
 	if pods == nil {
@@ -115,9 +112,11 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 				errors <- fmt.Errorf("Get link list in netns %v failed: %v", h, err)
 				return
 			}
+			var lnk netlink.Link
 			for _, link := range links {
 				if link.Attrs().Name == "lo" {
 					lo = link.Attrs().Index
+					lnk = link
 					break
 				}
 			}
@@ -126,12 +125,13 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 				return
 			}
 
-			if err := p.tcClient.SetupTC(lo, p.ingressPullProgram.FD(), p.egressPullProgram.FD()); err != nil {
+			if err := p.tcClient.SetupTC(lnk, p.ingressPullProgram, p.egressPullProgram); err != nil {
 				log.Error().Int("link", lo).Err(err).Msg("Setup TC failed:")
 				errors <- fmt.Errorf("Unable to setup tc netns: %v iface: %v error: %v", h, lo, err)
 				return
 			}
-			log.Info().Int("netns", int(h)).Int("link", lo).Msg("Attached netns TC programs:")
+
+			log.Info().Int("netns", int(h)).Int("link", lo).Msg("Attached netns TC lo programs:")
 
 			if err := netns.Set(oldnetns); err != nil {
 				errors <- fmt.Errorf("Unable to set back netns of current thread %v", err)
@@ -156,20 +156,20 @@ func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) e
 
 	lIngress, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInetIngress, Program: t.ingressFilterProgram})
 	if err != nil {
-		return err
+		return fmt.Errorf("attach cgroup ingress: %v", err)
 	}
 
 	lEgress, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInetEgress, Program: t.egressFilterProgram})
 	if err != nil {
 		lIngress.Close()
-		return err
+		return fmt.Errorf("attach cgroup egress: %v", err)
 	}
 
 	traceConnect, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInet4Connect, Program: t.traceCgroupConnect})
 	if err != nil {
 		lIngress.Close()
 		lEgress.Close()
-		return err
+		return fmt.Errorf("attach cgroup connect: %v", err)
 	}
 
 	if t.attachedPods[uuid] == nil {
