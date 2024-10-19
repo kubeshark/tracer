@@ -53,7 +53,6 @@ func dumpHealth(nodeName string) error {
 	memUsage := float64(memAlloc) / float64(memSys) * 100
 
 	tracerHealth.CPUUsage = getCPUUsage()
-	tracerHealth.MemoryAlloc = memAlloc
 	tracerHealth.MemoryUsage = memUsage
 	tracerHealth.Timestamp = time.Now().Format(time.RFC3339)
 
