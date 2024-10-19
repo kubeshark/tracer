@@ -18,7 +18,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/golang-lru/v2 v2.0.2
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
-	github.com/kubeshark/api v1.1.20
+	github.com/kubeshark/api v1.1.27-0.20241018215112-0413d9a27ef9
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11
