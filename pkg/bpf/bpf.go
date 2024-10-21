@@ -49,7 +49,7 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, reade
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
 			errStr := fmt.Sprintf("%+v", ve)
-			if len(errStr) > 1024 {
+			if len(errStr) > 2048 {
 				errStr = "(truncated) " + errStr[len(errStr)-1024:]
 			}
 			log.Warn().Msg(fmt.Sprintf("Got verifier error: %v", errStr))
