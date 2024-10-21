@@ -6,6 +6,8 @@ import (
 	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
@@ -15,6 +17,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
+	stdlog "log"
+	runtimeDebug "runtime/debug"
+
 	zlogsentry "github.com/archdx/zerolog-sentry"
 	"github.com/getsentry/sentry-go"
 	"github.com/kubeshark/tracer/pkg/health"
@@ -23,8 +28,6 @@ import (
 	sentrypkg "github.com/kubeshark/utils/sentry"
 	"github.com/moby/sys/mount"
 	"github.com/moby/sys/mountinfo"
-	stdlog "log"
-	runtimeDebug "runtime/debug"
 )
 
 var port = flag.Int("port", 80, "Port number of the HTTP server")
@@ -148,9 +151,23 @@ func run() {
 		ginApp := server.Build()
 		server.Start(ginApp, *port)
 	} else {
+		stopChan := make(chan os.Signal, 1)
+		signal.Notify(stopChan,
+			syscall.SIGHUP,
+			syscall.SIGINT,
+			syscall.SIGTERM,
+			syscall.SIGQUIT)
+		go signalHandler(stopChan)
 		select {}
 	}
+}
 
+func stop() {
+	if tracer != nil {
+		if err := tracer.Deinit(); err != nil {
+			log.Error().Err(err).Msg("Tracer stop failed")
+		}
+	}
 }
 
 func createTracer() (err error) {
@@ -211,4 +228,22 @@ func checkMountedTracerInfo() error {
 	}
 
 	return nil
+}
+
+func signalHandler(stopChan chan os.Signal) {
+	for {
+		s := <-stopChan
+		switch s {
+		case syscall.SIGHUP:
+			fallthrough
+		case syscall.SIGINT:
+			fallthrough
+		case syscall.SIGTERM:
+			fallthrough
+		case syscall.SIGQUIT:
+			stop()
+			os.Exit(0)
+		default:
+		}
+	}
 }

@@ -141,7 +141,7 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 
 			if t.packetFilter != nil {
 				if err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath, []uint64{cInfo.cgroupID}); err != nil {
-					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
 					return err
 				}
 				log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
@@ -160,7 +160,13 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 	return nil
 }
 
-//TODO: tracer close
+func (t *Tracer) Deinit() error {
+	if t.packetFilter != nil {
+		return t.packetFilter.Close()
+	}
+
+	return nil
+}
 
 func setupRLimit() error {
 	err := rlimit.RemoveMemlock()
