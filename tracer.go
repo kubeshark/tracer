@@ -83,7 +83,7 @@ func (t *Tracer) Init(
 
 	if !*disableEbpfCapture {
 		//TODO: for cgroup V2 only
-		t.packetFilter, err = packetHooks.NewPacketFilter(t.bpfObjects.BpfObjs.FilterIngressPackets, t.bpfObjects.BpfObjs.FilterEgressPackets, t.bpfObjects.BpfObjs.PacketPullIngress, t.bpfObjects.BpfObjs.PacketPullEgress, t.bpfObjects.BpfObjs.TraceCgroupConnect4, t.bpfObjects.BpfObjs.CgroupIds)
+		t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs.FilterIngressPackets, t.bpfObjects.BpfObjs.FilterEgressPackets, t.bpfObjects.BpfObjs.PacketPullIngress, t.bpfObjects.BpfObjs.PacketPullEgress, t.bpfObjects.BpfObjs.TraceCgroupConnect4, t.bpfObjects.BpfObjs.CgroupIds)
 		if err != nil {
 			return err
 		}
@@ -155,6 +155,10 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 			log.Info().Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
 		}
 		t.runningPods[pod.UID] = pd
+	}
+
+	if t.packetFilter != nil {
+		t.packetFilter.UpdateTCPrograms(t.procfs)
 	}
 
 	return nil

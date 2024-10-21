@@ -8,11 +8,13 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
-	"github.com/kubeshark/tracer/pkg/kubernetes"
+	"os"
+	"path/filepath"
+	"strconv"
+
 	"github.com/rs/zerolog/log"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 type podLinks struct {
@@ -31,7 +33,7 @@ type PacketFilter struct {
 	tcClient             TcClient
 }
 
-func NewPacketFilter(ingressFilterProgram, egressFilterProgram, pullIngress, pullEgress, traceCgroupConnect *ebpf.Program, cgroupHash *ebpf.Map) (*PacketFilter, error) {
+func NewPacketFilter(procfs string, ingressFilterProgram, egressFilterProgram, pullIngress, pullEgress, traceCgroupConnect *ebpf.Program, cgroupHash *ebpf.Map) (*PacketFilter, error) {
 	pf := &PacketFilter{
 		ingressFilterProgram: ingressFilterProgram,
 		egressFilterProgram:  egressFilterProgram,
@@ -42,7 +44,7 @@ func NewPacketFilter(ingressFilterProgram, egressFilterProgram, pullIngress, pul
 		attachedPods:         make(map[string]*podLinks),
 		tcClient:             &TcClientImpl{},
 	}
-	pf.Update("", nil)
+	pf.UpdateTCPrograms(procfs)
 	return pf, nil
 }
 
@@ -50,7 +52,7 @@ func (p *PacketFilter) Close() error {
 	return p.tcClient.CleanTC()
 }
 
-func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodInfo) {
+func (p *PacketFilter) UpdateTCPrograms(procfs string) {
 	links, err := netlink.LinkList()
 	if err != nil {
 		log.Error().Err(err).Msg("Get link list failed:")
@@ -66,21 +68,22 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 		log.Info().Str("link name", l.Attrs().Name).Int("link", l.Attrs().Index).Msg("Attached TC programs:")
 	}
 
-	if pods == nil {
+	pids, err := getPIDsWithNetNamespace(procfs)
+	if err != nil {
+		log.Error().Err(err).Msg("Get pids list failed:")
 		return
 	}
 
 	nsHandles := make(map[netns.NsHandle]struct{})
-	for _, podInfo := range pods {
-		for _, pid := range podInfo.Pids {
-			fname := fmt.Sprintf("%v/%v/ns/net", procfs, pid)
-			if nsh, err := netns.GetFromPath(fname); err != nil {
-				log.Warn().Uint32("pid", pid).Str("file", fname).Err(err).Msg("Get netns failed:")
-			} else {
-				nsHandles[nsh] = struct{}{}
-			}
+	for _, pid := range pids {
+		fname := fmt.Sprintf("%v/%v/ns/net", procfs, pid)
+		if nsh, err := netns.GetFromPath(fname); err != nil {
+			log.Warn().Uint32("pid", pid).Str("file", fname).Err(err).Msg("Get netns failed:")
+		} else {
+			nsHandles[nsh] = struct{}{}
 		}
 	}
+	var totalPrograms int
 	for h := range nsHandles {
 		done := make(chan bool)
 		errors := make(chan error)
@@ -131,7 +134,8 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 				return
 			}
 
-			log.Info().Int("netns", int(h)).Int("link", lo).Msg("Attached netns TC lo programs:")
+			log.Debug().Int("netns", int(h)).Int("link", lo).Msg("Attached netns TC lo programs:")
+			totalPrograms++
 
 			if err := netns.Set(oldnetns); err != nil {
 				errors <- fmt.Errorf("Unable to set back netns of current thread %v", err)
@@ -147,6 +151,7 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 		case <-done:
 		}
 	}
+	log.Info().Int("attached", totalPrograms).Msg("Attached netns TC programs:")
 }
 
 func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) error {
@@ -209,4 +214,31 @@ func (t *PacketFilter) DetachPod(uuid string) error {
 	}
 	delete(t.attachedPods, uuid)
 	return nil
+}
+
+func getPIDsWithNetNamespace(procfs string) ([]uint32, error) {
+	var pids []uint32
+
+	err := filepath.Walk(procfs, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if info.IsDir() {
+			pid, err := strconv.Atoi(info.Name())
+			if err == nil {
+				netNsPath := filepath.Join(path, "ns/net")
+				if _, err := os.Stat(netNsPath); err == nil {
+					pids = append(pids, uint32(pid))
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return pids, nil
 }
