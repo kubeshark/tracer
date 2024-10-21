@@ -17,6 +17,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
+	stdlog "log"
+	runtimeDebug "runtime/debug"
+
 	zlogsentry "github.com/archdx/zerolog-sentry"
 	"github.com/getsentry/sentry-go"
 	"github.com/kubeshark/tracer/pkg/health"
@@ -25,8 +28,6 @@ import (
 	sentrypkg "github.com/kubeshark/utils/sentry"
 	"github.com/moby/sys/mount"
 	"github.com/moby/sys/mountinfo"
-	stdlog "log"
-	runtimeDebug "runtime/debug"
 )
 
 var port = flag.Int("port", 80, "Port number of the HTTP server")

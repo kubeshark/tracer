@@ -149,8 +149,6 @@ func (p *PacketFilter) Update(procfs string, pods map[types.UID]*kubernetes.PodI
 	}
 }
 
-//TODO: detach pods
-
 func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) error {
 	log.Info().Str("pod", uuid).Str("path", cgroupV2Path).Msg("Attaching pod:")
 

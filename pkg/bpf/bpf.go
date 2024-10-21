@@ -29,11 +29,6 @@ type BpfObjectsImpl struct {
 
 func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, reader *bytes.Reader) error {
 	var err error
-	opts := ebpf.CollectionOptions{
-		Programs: ebpf.ProgramOptions{
-			LogSize: ebpf.DefaultVerifierLogSize * 32,
-		},
-	}
 
 	objs.specs, err = ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
@@ -49,7 +44,7 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, reade
 		return err
 	}
 
-	err = objs.specs.LoadAndAssign(objs.bpfObjs, &opts)
+	err = objs.specs.LoadAndAssign(objs.bpfObjs, nil)
 	if err != nil {
 		var ve *ebpf.VerifierError
 		if errors.As(err, &ve) {
