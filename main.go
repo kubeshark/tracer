@@ -22,10 +22,10 @@ import (
 
 	zlogsentry "github.com/archdx/zerolog-sentry"
 	"github.com/getsentry/sentry-go"
-	"github.com/kubeshark/tracer/pkg/health"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
+
 	"github.com/moby/sys/mount"
 	"github.com/moby/sys/mountinfo"
 )
@@ -131,8 +131,6 @@ func run() {
 	if err != nil {
 		log.Fatal().Err(err).Send()
 	}
-
-	go health.DumpHealthEvery10Seconds(nodeName)
 
 	enrichSentryContext(watcher)
 
