@@ -31,7 +31,7 @@ type CgroupData struct {
 type InternalEventsDiscoverer interface {
 	Start() error
 	CgroupsInfo() *lru.Cache[CgroupID, ContainerID]
-	ContainersInfo() *lru.Cache[ContainerID, CgroupData]
+	ContainersInfo() *lru.Cache[ContainerID, []CgroupData]
 	TargetCgroup(cgroupId uint64)
 	UntargetCgroup(cgroupId uint64)
 }
@@ -46,7 +46,7 @@ type InternalEventsDiscovererImpl struct {
 	readerFoundCgroup  *perf.Reader
 
 	cgroupsInfo    *lru.Cache[CgroupID, ContainerID]
-	containersInfo *lru.Cache[ContainerID, CgroupData]
+	containersInfo *lru.Cache[ContainerID, []CgroupData]
 	pids           *pids
 }
 
@@ -62,7 +62,7 @@ func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects) Inte
 	if impl.cgroupsInfo, err = lru.New[CgroupID, ContainerID](16384); err != nil {
 		return nil
 	}
-	if impl.containersInfo, err = lru.New[ContainerID, CgroupData](16384); err != nil {
+	if impl.containersInfo, err = lru.New[ContainerID, []CgroupData](16384); err != nil {
 		return nil
 	}
 	impl.pids, err = newPids(procfs, bpfObjects, impl.containersInfo)
@@ -116,7 +116,7 @@ func (e *InternalEventsDiscovererImpl) CgroupsInfo() *lru.Cache[CgroupID, Contai
 	return e.cgroupsInfo
 }
 
-func (e *InternalEventsDiscovererImpl) ContainersInfo() *lru.Cache[ContainerID, CgroupData] {
+func (e *InternalEventsDiscovererImpl) ContainersInfo() *lru.Cache[ContainerID, []CgroupData] {
 	return e.containersInfo
 }
 
@@ -160,7 +160,15 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		}
 
 		e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
-		e.containersInfo.Add(ContainerID(contId), CgroupData{CgroupPath: s, CgroupID: CgroupID(cgroupId)})
+
+		item := CgroupData{CgroupPath: s, CgroupID: CgroupID(cgroupId)}
+		if !e.containersInfo.Contains(ContainerID(contId)) {
+			e.containersInfo.Add(ContainerID(contId), []CgroupData{item})
+		} else {
+			v, _ := e.containersInfo.Get(ContainerID(contId))
+			v = append(v, item)
+			e.containersInfo.Add(ContainerID(contId), v)
+		}
 		log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Msg("Initial cgroup is detected")
 
 		return nil
@@ -277,17 +285,21 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 		}
 		contId, _ := GetContainerIdFromCgroupPath(cgroupPath)
 		if contId != "" {
-			if _, ok := e.containersInfo.Get(ContainerID(contId)); ok {
-				continue
-			}
-
 			cgroupId, err := GetCgroupIdByPath(cgroupPath)
 			if err != nil {
 				log.Warn().Str("Path", cgroupPath).Msg("Can not find out cgroup id by path")
 				continue
 			}
 			e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
-			e.containersInfo.Add(ContainerID(contId), CgroupData{CgroupPath: cgroupPath, CgroupID: CgroupID(cgroupId)})
+			item := CgroupData{CgroupPath: cgroupPath, CgroupID: CgroupID(cgroupId)}
+			if !e.containersInfo.Contains(ContainerID(contId)) {
+				e.containersInfo.Add(ContainerID(contId), []CgroupData{item})
+			} else {
+				v, _ := e.containersInfo.Get(ContainerID(contId))
+				v = append(v, item)
+				e.containersInfo.Add(ContainerID(contId), v)
+			}
+
 			log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Str("Cgroup Path", cgroupPath).Msg("New cgroup is detected")
 		}
 	}

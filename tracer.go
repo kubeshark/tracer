@@ -83,7 +83,7 @@ func (t *Tracer) Init(
 
 	if !*disableEbpfCapture {
 		//TODO: for cgroup V2 only
-		t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs.FilterIngressPackets, t.bpfObjects.BpfObjs.FilterEgressPackets, t.bpfObjects.BpfObjs.PacketPullIngress, t.bpfObjects.BpfObjs.PacketPullEgress, t.bpfObjects.BpfObjs.TraceCgroupConnect4, t.bpfObjects.BpfObjs.CgroupIds)
+		t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs.FilterIngressPackets, t.bpfObjects.BpfObjs.FilterEgressPackets, t.bpfObjects.BpfObjs.TraceCgroupConnect4, t.bpfObjects.BpfObjs.CgroupIds)
 		if err != nil {
 			return err
 		}
@@ -128,37 +128,35 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 	for _, pod := range addPods {
 		pd := t.runningPods[pod.UID]
 		for _, containerId := range getContainerIDs(pod) {
-			value, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
+			values, ok := t.eventsDiscoverer.ContainersInfo().Get(discoverer.ContainerID(containerId))
 			if !ok {
 				// pod can be on a different node
 				continue
 			}
-			cInfo := containerInfo{
-				cgroupPath: value.CgroupPath,
-				cgroupID:   uint64(value.CgroupID),
-			}
-			pd.containers = append(pd.containers, cInfo)
+			for _, value := range values {
+				cInfo := containerInfo{
+					cgroupPath: value.CgroupPath,
+					cgroupID:   uint64(value.CgroupID),
+				}
+				pd.containers = append(pd.containers, cInfo)
 
-			if t.packetFilter != nil {
-				if err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath, []uint64{cInfo.cgroupID}); err != nil {
-					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
-					return err
+				if t.packetFilter != nil {
+					if err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath, []uint64{cInfo.cgroupID}); err != nil {
+						log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+						return err
+					}
+					log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
+				} else {
+					if err := t.bpfObjects.BpfObjs.CgroupIds.Update(cInfo.cgroupID, uint32(0), ebpf.UpdateNoExist); err != nil {
+						log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs update failed")
+						return err
+					}
 				}
-				log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
-			} else {
-				if err := t.bpfObjects.BpfObjs.CgroupIds.Update(cInfo.cgroupID, uint32(0), ebpf.UpdateNoExist); err != nil {
-					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs update failed")
-					return err
-				}
+				t.eventsDiscoverer.TargetCgroup(cInfo.cgroupID)
+				log.Info().Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
 			}
-			t.eventsDiscoverer.TargetCgroup(cInfo.cgroupID)
-			log.Info().Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
 		}
 		t.runningPods[pod.UID] = pd
-	}
-
-	if t.packetFilter != nil {
-		t.packetFilter.UpdateTCPrograms(t.procfs)
 	}
 
 	return nil

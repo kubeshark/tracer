@@ -35,7 +35,7 @@ type pidInfo struct {
 type pids struct {
 	procfs          string
 	bpfObjs         *bpf.BpfObjects
-	containersInfo  *lru.Cache[ContainerID, CgroupData]
+	containersInfo  *lru.Cache[ContainerID, []CgroupData]
 	readerFoundPid  *perf.Reader
 	discoveredPIDs  *lru.Cache[uint32, *pidInfo]
 	targetedPIDs    *lru.Cache[uint32, *pidInfo]
@@ -43,7 +43,7 @@ type pids struct {
 	scanGolangQueue chan foundPidEvent
 }
 
-func newPids(procfs string, bpfObjs *bpf.BpfObjects, containersInfo *lru.Cache[ContainerID, CgroupData]) (*pids, error) {
+func newPids(procfs string, bpfObjs *bpf.BpfObjects, containersInfo *lru.Cache[ContainerID, []CgroupData]) (*pids, error) {
 
 	discoveredPids, err := lru.New[uint32, *pidInfo](16384)
 	if err != nil {
@@ -105,7 +105,7 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 
 			err = hook.InstallHooks(p.bpfObjs, ex, offsets)
 			if err != nil {
-				log.Warn().Err(err).Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg("install go hook failed")
+				log.Debug().Err(err).Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg("install go hook failed")
 				return
 			}
 			pi.goHook = &hook
@@ -240,7 +240,7 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 
 	err = hook.InstallHooks(p.bpfObjs, ex, offsets)
 	if err != nil {
-		log.Warn().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("install go hook failed")
+		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("install go hook failed")
 		return nil, ""
 	}
 
@@ -304,17 +304,19 @@ func (p *pids) scanPidsV2() error {
 		if id == "" {
 			continue
 		}
-		ci, ok := p.containersInfo.Get(ContainerID(id))
+		cis, ok := p.containersInfo.Get(ContainerID(id))
 		if !ok {
 			continue
 		}
 
-		pEvent := foundPidEvent{
-			cgroup: uint64(ci.CgroupID),
-			pid:    uint32(n),
-		}
+		for _, ci := range cis {
+			pEvent := foundPidEvent{
+				cgroup: uint64(ci.CgroupID),
+				pid:    uint32(n),
+			}
 
-		p.newPidFound(&pEvent)
+			p.newPidFound(&pEvent)
+		}
 	}
 
 	return nil
@@ -369,17 +371,19 @@ func (p *pids) scanPidsV1() error {
 			continue
 		}
 
-		ci, ok := p.containersInfo.Get(ContainerID(id))
+		cis, ok := p.containersInfo.Get(ContainerID(id))
 		if !ok {
 			continue
 		}
 
-		pEvent := foundPidEvent{
-			cgroup: uint64(ci.CgroupID),
-			pid:    uint32(n),
-		}
+		for _, ci := range cis {
+			pEvent := foundPidEvent{
+				cgroup: uint64(ci.CgroupID),
+				pid:    uint32(n),
+			}
 
-		p.newPidFound(&pEvent)
+			p.newPidFound(&pEvent)
+		}
 	}
 
 	return nil

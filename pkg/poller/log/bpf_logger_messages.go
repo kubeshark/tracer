@@ -27,4 +27,5 @@ var bpfLogMessages = []string{
 	/*0022*/ "[%d] Unable to get go user-kernel context [fd: %d]]",
 	/*0023*/ "[%d] Unable to get go tcp connection fd info]",
 	/*0024*/ "[%d] Packet sniffer error]",
+	/*0025*/ "[%d] File probes error]",
 }
