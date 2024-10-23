@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -221,6 +222,24 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 		return nil, ""
 	}
 
+	executableName := filepath.Base(path)
+
+	if executableName == "envoy" {
+		hookssl := sslHooks.SslHooks{}
+		log.Warn().Msgf("Install uprobes into %v", path)
+		err = hookssl.InstallEnvoyUprobes(p.bpfObjs, path)
+		if err != nil {
+			log.Warn().Err(err).Str("path", path).Msg("Install ssl hook failed")
+			//return nil, ""
+		}
+
+		log.Warn().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
+	}
+
+	log.Warn().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
+
+	log.Warn().Msgf("Found the following lib %v go hook", path)
+
 	ex, err := link.OpenExecutable(path)
 	if err != nil {
 		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("Open executable failed")
@@ -244,6 +263,11 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 		return nil, ""
 	}
 
+	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("openssl found")
+	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
+		return nil, path
+	}
+
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("go hook installed")
 	return &hook, path
 }
@@ -253,6 +277,8 @@ func (p *pids) installOpensslHook(e foundPidEvent) (*sslHooks.SslHooks, string) 
 	if err != nil {
 		return nil, ""
 	}
+
+	log.Warn().Msgf("Found the following lib %v", path)
 
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("openssl found")
 	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
@@ -267,6 +293,7 @@ func (p *pids) installOpensslHook(e foundPidEvent) (*sslHooks.SslHooks, string) 
 	}
 
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
+
 	return &hook, path
 }
 
