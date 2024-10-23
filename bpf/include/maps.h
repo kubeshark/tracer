@@ -18,6 +18,7 @@ Copyright (C) Kubeshark
 #define MAX_ENTRIES_HASH        (1 << 12)  // 4096
 #define MAX_ENTRIES_PERF_OUTPUT	(1 << 10)  // 1024
 #define MAX_ENTRIES_LRU_HASH	(1 << 14)  // 16384
+#define MAX_ENTRIES_LRU_HASH_BIG	(1 << 20)  // 1M
 
 // The same struct can be found in chunk.go
 //  
@@ -96,8 +97,10 @@ struct pkt {
     __u64 timestamp;
     __u64 cgroup_id;
     __u64 id;
+    __u32 len;
+    __u32 tot_len;
+    __u32 counter;
     __u16 num;
-    __u16 len;
     __u16 last;
     __u8 direction;
     unsigned char buf[PKT_PART_LEN];
@@ -109,18 +112,32 @@ struct {
     __type(key, int);
     __type(value, struct pkt);
 } pkt_heap SEC(".maps");
+
+struct pkt_id_t {
+    __u64 id;
+    struct bpf_spin_lock lock;
+};
 struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
-    __type(value, __u64);
+    __type(value, struct pkt_id_t);
 } pkt_id SEC(".maps");
 
-struct pkt_data {
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(max_entries, 4096);
+    __type(key, __u64);
+    __type(value, struct pkt);
+} packet_context SEC(".maps");
+
+struct socket_cookie_data {
     __u64 cgroup_id;
-    __u32 pad1;
-    __u16 rewrite_src_port;
-    __u16 pad2;
+    __u32 src_ip;
+    __u32 dst_ip;
+    __u16 src_port;
+    __u16 dst_port;
+    __u8 side; // 0 - received, 1 - sent
 };
 
 #define CONFIGURATION_FLAG_CAPTURE_STOPPED (1 << 0)
@@ -144,6 +161,8 @@ struct configuration {
 
 #define BPF_LRU_HASH(_name, _key_type, _value_type) \
     BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH)
+#define BPF_LRU_HASH_BIG(_name, _key_type, _value_type) \
+    BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH_BIG)
 
 #define BPF_ARRAY(_name, _key_type, _value_type, _max_entries) \
     BPF_MAP(_name, BPF_MAP_TYPE_ARRAY, _key_type, _value_type, _max_entries)
@@ -169,6 +188,6 @@ BPF_LRU_HASH(go_kernel_write_context, __u64, __u32);
 BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
-BPF_LRU_HASH(pkt_context, __u64, struct pkt_data);
+BPF_LRU_HASH_BIG(socket_cookies, __u64, struct socket_cookie_data);
 
 #endif /* __MAPS__ */
