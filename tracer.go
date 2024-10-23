@@ -100,6 +100,10 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 
 	for _, pod := range removePods {
 		if t.packetFilter != nil {
+			if _, ok := t.packetFilter.GetAttachedPod(string(pod.UID)); !ok {
+				// pod can be on a different node
+				continue
+			}
 			if err := t.packetFilter.DetachPod(string(pod.UID)); err == nil {
 				log.Info().Str("pod", pod.Name).Msg("Detached pod from cgroup:")
 			} else {

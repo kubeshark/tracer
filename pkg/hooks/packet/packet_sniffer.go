@@ -82,7 +82,7 @@ func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) e
 
 func (t *PacketFilter) DetachPod(uuid string) error {
 	log.Info().Str("pod", uuid).Msg("Detaching pod:")
-	p, ok := t.attachedPods[uuid]
+	p, ok := t.GetAttachedPod(uuid)
 	if !ok {
 		return fmt.Errorf("pod not attached")
 	}
@@ -100,4 +100,9 @@ func (t *PacketFilter) DetachPod(uuid string) error {
 	}
 	delete(t.attachedPods, uuid)
 	return nil
+}
+
+func (t *PacketFilter) GetAttachedPod(uuid string) (p *podLinks, ok bool) {
+	p, ok = t.attachedPods[uuid]
+	return
 }

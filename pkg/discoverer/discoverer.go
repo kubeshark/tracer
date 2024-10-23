@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"unsafe"
 
@@ -45,9 +46,10 @@ type InternalEventsDiscovererImpl struct {
 	readerFoundOpenssl *perf.Reader
 	readerFoundCgroup  *perf.Reader
 
-	cgroupsInfo    *lru.Cache[CgroupID, ContainerID]
-	containersInfo *lru.Cache[ContainerID, []CgroupData]
-	pids           *pids
+	cgroupsInfo       *lru.Cache[CgroupID, ContainerID]
+	containersInfo    *lru.Cache[ContainerID, []CgroupData]
+	containersInfoMtx sync.Mutex
+	pids              *pids
 }
 
 func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects) InternalEventsDiscoverer {
@@ -162,6 +164,7 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
 
 		item := CgroupData{CgroupPath: s, CgroupID: CgroupID(cgroupId)}
+		e.containersInfoMtx.Lock()
 		if !e.containersInfo.Contains(ContainerID(contId)) {
 			e.containersInfo.Add(ContainerID(contId), []CgroupData{item})
 		} else {
@@ -169,6 +172,7 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 			v = append(v, item)
 			e.containersInfo.Add(ContainerID(contId), v)
 		}
+		e.containersInfoMtx.Unlock()
 		log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Msg("Initial cgroup is detected")
 
 		return nil
@@ -292,6 +296,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 			}
 			e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
 			item := CgroupData{CgroupPath: cgroupPath, CgroupID: CgroupID(cgroupId)}
+			e.containersInfoMtx.Lock()
 			if !e.containersInfo.Contains(ContainerID(contId)) {
 				e.containersInfo.Add(ContainerID(contId), []CgroupData{item})
 			} else {
@@ -299,6 +304,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 				v = append(v, item)
 				e.containersInfo.Add(ContainerID(contId), v)
 			}
+			e.containersInfoMtx.Unlock()
 
 			log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Str("Cgroup Path", cgroupPath).Msg("New cgroup is detected")
 		}

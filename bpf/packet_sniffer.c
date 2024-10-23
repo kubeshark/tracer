@@ -2,12 +2,12 @@
     -------------------------------------------------------------------------------
                             Simplified packet flow diagram
 
-           eth0 ingress│                                 ▲ eth0 egress
+                       │                                 ▲ 
                        │                                 │
                        │                                 │
                        │                                 │
                        │                                 │
-        tc/ingress hook│                                 │tc/egress hook
+                       │                                 │
                        │                                 │
                        │                                 │
                        │                                 │
@@ -22,19 +22,10 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 
     --------------------------------------------------------------------------------
 
-    Two types of hooks are in use:
-    1. tc/ to hook on each kubernetes network interface
-    2. cgroup_skb/ to hook on each targeted cgroup
+    cgroup_skb/ to hook on each targeted cgroup
+    socket cookies mechanism to track packets
 
     Each hook type attached into ingress and egrees parts.
-
-    cgroup_skb programs :
-    - cgroup_skb/ingress program exports incoming packet with 'received' flag onto perf buffer
-    - cgroup_skb/egress program saves ip/port information into the map, the packet expected to be exported into perf buffer once it get into tc/egress
-
-    tc programs :
-    - use bpf_skb_pull_data bpf helper to load whole payload into sk_buf. Without that call kernel loads only first 1500 bytes
-    - export packets with overrided (from cgroup_skb/) ports into perf buffers
 
     References:
     https://docs.cilium.io/en/stable/bpf/#bpf-guide
@@ -88,7 +79,8 @@ const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
 static __always_inline void save_packet(struct __sk_buff *skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
 static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc, __u32 *src_ip4, __u16 *src_port, __u32 *dst_ip4, __u16 *dst_port, __u8 *ipp);
 
-// TODO: remove cookies
+// TODO: remove cookies from the socket_cookies map on socket close,
+// untill this LRU performs cleaning
 
 int reported_cookie_error = 0;
 static __always_inline __u64 get_socket_cookie(struct __sk_buff *skb)
