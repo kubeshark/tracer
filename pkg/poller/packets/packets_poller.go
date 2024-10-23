@@ -155,6 +155,8 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 }
 
 func (p *PacketsPoller) checkBuffers() {
+	// only bug in eBPF code can cause pktsMap overflow
+
 	for {
 		p.mtx.Lock()
 		plen := len(p.pktsMap)
