@@ -47,7 +47,7 @@ type PacketsPoller struct {
 	mtx          sync.Mutex
 	chunksReader *perf.Reader
 	sorter       *bpf.PacketSorter
-	pktsMap      map[int]*pktBuffer // CPU to packet
+	pktsMap      map[uint64]*pktBuffer // packet id to packet
 }
 
 func NewPacketsPoller(
@@ -58,7 +58,7 @@ func NewPacketsPoller(
 	poller := &PacketsPoller{
 		ethhdr:  ethernet.NewEthernetLayer(layers.EthernetTypeIPv4),
 		sorter:  sorter,
-		pktsMap: make(map[int]*pktBuffer),
+		pktsMap: make(map[uint64]*pktBuffer),
 	}
 
 	poller.chunksReader, err = perf.NewReader(bpfObjs.BpfObjs.PktsBuffer, os.Getpagesize()*10000)
@@ -93,24 +93,16 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	if len(data) != expectedChunkSize {
 		return fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
 	}
+
 	ptr := (*tracerPacketsData)(unsafe.Pointer(&data[0]))
 
-	pkts, ok := p.pktsMap[chunk.cpu]
+	pkts, ok := p.pktsMap[ptr.ID]
 	if !ok {
-		p.pktsMap[chunk.cpu] = &pktBuffer{}
-		pkts = p.pktsMap[chunk.cpu]
+		p.pktsMap[ptr.ID] = &pktBuffer{}
+		pkts = p.pktsMap[ptr.ID]
 	}
 	if ptr.Num != pkts.num {
-		if ptr.ID == pkts.id {
-			return fmt.Errorf("lost packet message(1) id: (%v %v) num: (%v %v) len: %v last: %v dir: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction)
-		}
-		// ID is changed, so new packet is started:
-		pkts.len = 0
-		pkts.num = 0
-		pkts.id = ptr.ID
-		if ptr.Num != pkts.num {
-			return fmt.Errorf("lost packet message(2) id: (%v %v) num: (%v %v) len: %v last: %v dir: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction)
-		}
+		return fmt.Errorf("lost packet message id: (%v %v) num: (%v %v) len: %v last: %v dir: %v tot_len: %v cpu: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction, ptr.TotLen, chunk.cpu)
 	}
 
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
@@ -122,12 +114,11 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 			return err
 		}
 
-		pkts.len = 0
-		pkts.num = 0
-		pkts.id++
+		delete(p.pktsMap, ptr.ID)
 	} else {
 		pkts.num++
 	}
+	//TODO: check p.pktsMap size and rgarbage collect
 
 	return nil
 }
@@ -156,6 +147,8 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			buf: record.RawSample,
 		}
 
-		p.handlePktChunk(chunk)
+		if err = p.handlePktChunk(chunk); err != nil {
+			log.Error().Err(err).Msg("handle chunk failed")
+		}
 	}
 }

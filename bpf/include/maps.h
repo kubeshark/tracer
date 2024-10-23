@@ -112,12 +112,24 @@ struct {
     __type(key, int);
     __type(value, struct pkt);
 } pkt_heap SEC(".maps");
+
+struct pkt_id_t {
+    __u64 id;
+    struct bpf_spin_lock lock;
+};
 struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
-    __type(value, __u64);
+    __type(value, struct pkt_id_t);
 } pkt_id SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(max_entries, 4096);
+    __type(key, __u64);
+    __type(value, struct pkt);
+} packet_context SEC(".maps");
 
 struct socket_cookie_data {
     __u64 cgroup_id;
