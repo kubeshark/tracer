@@ -13,6 +13,24 @@ Copyright (C) Kubeshark
 #include "include/common.h"
 #include "include/probes.h"
 
+#define MAX_PIDS 20
+
+__u32 allowed_pids[MAX_PIDS] = {
+    1636604, 1675556, 1676200, 1676204, 1676260, 
+    1676377, 1676383, 1676387, 1676414, 1676415, 
+    1676452, 1676454, 1676549, 1676626, 1676637, 
+    1676781, 1676953 // Add more PIDs here if necessary
+};
+
+static __inline bool is_pid_allowed(__u32 pid) {
+    for (int i = 0; i < MAX_PIDS; i++) {
+        if (allowed_pids[i] == pid) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info* info, __u64 id) {
 	int returnValue = PT_REGS_RC(ctx);
 
@@ -117,21 +135,42 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u
 
 SEC("uprobe/ssl_write")
 void BPF_KPROBE(ssl_write, void* ssl, uintptr_t buffer, int num) {
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
+
+    bpf_printk("called ssl_write by PID: %d", pid);
+	
+
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_write_context, 0);
 }
 
 SEC("uretprobe/ssl_write")
 void BPF_KPROBE(ssl_ret_write) {
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
+
+    bpf_printk("called ssl_write_ret by PID: %d", pid);
+	
 	ssl_uretprobe(ctx, &openssl_write_context, 0);
 }
 
 SEC("uprobe/ssl_read")
 void BPF_KPROBE(ssl_read, void* ssl, uintptr_t buffer, int num) {
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
+
+    bpf_printk("called ssl_read by PID: %d", pid);
+
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_read_context, 0);
 }
 
 SEC("uretprobe/ssl_read")
 void BPF_KPROBE(ssl_ret_read) {
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
+
+    bpf_printk("called ssl_read_ret by PID: %d", pid);
+	
 	ssl_uretprobe(ctx, &openssl_read_context, FLAGS_IS_READ_BIT);
 }
 
