@@ -10,14 +10,18 @@ import (
 )
 
 type SslHooks struct {
-	sslWriteProbe      link.Link
-	sslWriteRetProbe   link.Link
-	sslReadProbe       link.Link
-	sslReadRetProbe    link.Link
-	sslWriteExProbe    link.Link
-	sslWriteExRetProbe link.Link
-	sslReadExProbe     link.Link
-	sslReadExRetProbe  link.Link
+	sslWriteProbe       link.Link
+	sslWriteRetProbe    link.Link
+	sslReadProbe        link.Link
+	sslReadRetProbe     link.Link
+	sslWriteExProbe     link.Link
+	sslWriteExRetProbe  link.Link
+	sslReadExProbe      link.Link
+	sslReadExRetProbe   link.Link
+	sslBioReadProbe     link.Link
+	sslBioReadRetProbe  link.Link
+	sslBioWriteProbe    link.Link
+	sslBioWriteRetProbe link.Link
 }
 
 // TODO: incapsulate, add devuce id to the key, delete on file is deleted
@@ -70,6 +74,10 @@ func (s *SslHooks) InstallEnvoyUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPat
 func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.Executable) error {
 	var err error
 
+	if s.sslWriteProbe != nil {
+		log.Warn().Msgf("ssl read probe link is %v", s.sslWriteProbe)
+	}
+
 	s.sslWriteProbe, err = sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
 
 	if err != nil {
@@ -85,6 +93,10 @@ func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.
 	}
 
 	log.Warn().Msg("sslWriteRetProbe installed.")
+
+	if s.sslReadProbe != nil {
+		log.Warn().Msgf("ssl read probe link is %v", s.sslReadProbe)
+	}
 
 	s.sslReadProbe, err = sslLibrary.Uprobe("SSL_read", bpfObjects.BpfObjs.SslRead, nil)
 
@@ -140,6 +152,10 @@ func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.
 func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.Executable) error {
 	var err error
 
+	if s.sslWriteProbe != nil {
+		log.Warn().Msgf("ssl read probe link is %v", s.sslWriteProbe)
+	}
+
 	s.sslWriteProbe, err = sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
 
 	if err != nil {
@@ -152,6 +168,10 @@ func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *
 
 	if err != nil {
 		return errors.Wrap(err, 0)
+	}
+
+	if s.sslReadProbe != nil {
+		log.Warn().Msgf("ssl read probe link is %v", s.sslReadProbe)
 	}
 
 	log.Warn().Msg("sslWriteRetProbe installed.")
@@ -172,12 +192,37 @@ func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *
 
 	log.Warn().Msg("sslReadRetProbe installed.")
 
+	// Install BIO_write probes
+	s.sslBioReadProbe, err = sslLibrary.Uprobe("BIO_read", bpfObjects.BpfObjs.BioRead, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	log.Warn().Msg("bioReadProbe installed.")
+
+	s.sslBioReadRetProbe, err = sslLibrary.Uretprobe("BIO_read", bpfObjects.BpfObjs.BioRetRead, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	log.Warn().Msg("bioReadRetProbe installed.")
+
+	s.sslBioWriteProbe, err = sslLibrary.Uprobe("BIO_write", bpfObjects.BpfObjs.BioWrite, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	log.Warn().Msg("bioReadProbe installed.")
+
+	s.sslBioWriteRetProbe, err = sslLibrary.Uretprobe("BIO_write", bpfObjects.BpfObjs.BioRetWrite, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	log.Warn().Msg("bioReadRetProbe installed.")
+
 	return nil
 }
 
 func (s *SslHooks) Close() []error {
 	returnValue := make([]error, 0)
-
+	log.Warn().Msg("Close called removing all the hooks")
 	if err := s.sslWriteProbe.Close(); err != nil {
 		returnValue = append(returnValue, err)
 	}

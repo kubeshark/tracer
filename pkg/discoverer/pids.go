@@ -16,6 +16,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	goHooks "github.com/kubeshark/tracer/pkg/hooks/go"
+	"github.com/kubeshark/tracer/pkg/hooks/ssl"
 	sslHooks "github.com/kubeshark/tracer/pkg/hooks/ssl"
 	"github.com/rs/zerolog/log"
 )
@@ -42,6 +43,7 @@ type pids struct {
 	targetedPIDs    *lru.Cache[uint32, *pidInfo]
 	targetedCgroups *lru.Cache[uint64, struct{}]
 	scanGolangQueue chan foundPidEvent
+	hookssl         *ssl.SslHooks
 }
 
 func newPids(procfs string, bpfObjs *bpf.BpfObjects, containersInfo *lru.Cache[ContainerID, []CgroupData]) (*pids, error) {
@@ -205,13 +207,13 @@ func (p *pids) installHooks(e foundPidEvent) {
 	}()
 
 	goHook, goPath := p.installGoHook(e)
-	sslHook, sslPath := p.installOpensslHook(e)
+	//sslHook, sslPath := p.installOpensslHook(e)
 	pi := pidInfo{
 		cgroupId: e.cgroup,
 		goHook:   goHook,
-		sslHook:  sslHook,
+		sslHook:  p.hookssl,
 		goPath:   goPath,
-		sslPath:  sslPath,
+		sslPath:  goPath,
 	}
 	p.discoveredPIDs.Add(e.pid, &pi)
 }
@@ -225,13 +227,15 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 	executableName := filepath.Base(path)
 
 	if executableName == "envoy" {
-		hookssl := sslHooks.SslHooks{}
 		log.Warn().Msgf("Install uprobes into %v", path)
-		err = hookssl.InstallEnvoyUprobes(p.bpfObjs, path)
+		hook := &sslHooks.SslHooks{}
+		err = hook.InstallEnvoyUprobes(p.bpfObjs, path)
 		if err != nil {
 			log.Warn().Err(err).Str("path", path).Msg("Install ssl hook failed")
 			//return nil, ""
 		}
+
+		p.hookssl = hook
 
 		log.Warn().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
 	}
@@ -273,7 +277,7 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 }
 
 func (p *pids) installOpensslHook(e foundPidEvent) (*sslHooks.SslHooks, string) {
-	path, err := findLibraryByPid(p.procfs, e.pid, "libssl.so")
+	path, err := findLibraryByPid(p.procfs, e.pid, "")
 	if err != nil {
 		return nil, ""
 	}

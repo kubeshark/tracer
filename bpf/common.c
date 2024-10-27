@@ -30,6 +30,26 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
     return 1;
 }
 
+static int print_tls_chunk(struct tls_chunk *chunk) {
+    bpf_printk("Timestamp: %llu", chunk->timestamp);
+    bpf_printk("CGroup ID: %u", chunk->cgroup_id);
+    bpf_printk("PID: %u", chunk->pid);
+    bpf_printk("TGID: %u", chunk->tgid);
+    bpf_printk("Length: %u", chunk->len);
+    bpf_printk("Start: %u", chunk->start);
+    bpf_printk("Recorded: %u", chunk->recorded);
+    bpf_printk("FD: %u", chunk->fd);
+    bpf_printk("Flags: %u", chunk->flags);
+    bpf_printk("Direction: %u", chunk->direction);
+
+
+    for (int i = 0; i < (CHUNK_SIZE < 16 ? CHUNK_SIZE : 16); i++) {
+        bpf_printk("Data[%d]: %u", i, chunk->data[i]);
+    }
+
+    return 0;
+}
+
 static __always_inline void send_chunk_part(struct pt_regs* ctx, uintptr_t buffer, __u64 id,
     struct tls_chunk* chunk, int start, int end) {
     size_t recorded = MIN(end - start, sizeof(chunk->data));
@@ -55,6 +75,8 @@ static __always_inline void send_chunk_part(struct pt_regs* ctx, uintptr_t buffe
         log_error(ctx, LOG_ERROR_READING_FROM_SSL_BUFFER, id, err, 0l);
         return;
     }
+
+    print_tls_chunk(chunk);
 
     bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU, chunk, sizeof(struct tls_chunk));
 }
@@ -109,6 +131,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
         return;
     }
 
+    bpf_printk("calling send_chunk");
     send_chunk(ctx, info->buffer, id, chunk);
 }
 
