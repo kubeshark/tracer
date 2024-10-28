@@ -55,9 +55,9 @@ func (s *SslHooks) InstallEnvoyUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPat
 		return err
 	}
 	log.Warn().Msgf("Got inode %v", ino)
-	if ok, _ := hookInodes.ContainsOrAdd(ino, 0); ok {
+	/*if ok, _ := hookInodes.ContainsOrAdd(ino, 0); ok {
 		return nil
-	}
+	}*/
 	log.Warn().Msg("Got past ContainsOrAdd.")
 
 	sslLibrary, err := link.OpenExecutable(sslLibraryPath)
@@ -193,7 +193,7 @@ func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *
 	log.Warn().Msg("sslReadRetProbe installed.")
 
 	// Install BIO_write probes
-	s.sslBioReadProbe, err = sslLibrary.Uprobe("BIO_read", bpfObjects.BpfObjs.BioRead, nil)
+	/*s.sslBioReadProbe, err = sslLibrary.Uprobe("BIO_read", bpfObjects.BpfObjs.BioRead, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -215,7 +215,7 @@ func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
-	log.Warn().Msg("bioReadRetProbe installed.")
+	log.Warn().Msg("bioReadRetProbe installed.")*/
 
 	return nil
 }

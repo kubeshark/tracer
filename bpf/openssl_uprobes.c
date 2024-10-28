@@ -88,17 +88,25 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u
 		return;
 
 	__u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+		__u64 id = tracer_get_current_pid_tgid();
+
+	bpf_printk("Calling should_target_cgroup for %llu pid %llu ", cgroup_id, id >> 32);
 	if (!should_target_cgroup(cgroup_id)) {
 		return;
 	}
 
-	__u64 id = tracer_get_current_pid_tgid();
+		bpf_printk("Calling tracer_get_current_pid_tgid ");
+
+	//__u64 id = tracer_get_current_pid_tgid();
 	struct ssl_info* infoPtr = bpf_map_lookup_elem(map_fd, &id);
 
 	if (infoPtr == NULL) {
 		log_error(ctx, LOG_ERROR_GETTING_SSL_CONTEXT, id, 0l, 0l);
 		return;
 	}
+
+			bpf_printk("Calling bpf_probe_read ");
+
 
 	struct ssl_info info;
 	long err = bpf_probe_read(&info, sizeof(struct ssl_info), infoPtr);
@@ -125,6 +133,9 @@ static __always_inline void ssl_uretprobe(struct pt_regs* ctx, void* map_fd, __u
 		return;
 	}
 
+				bpf_printk("Calling get_count_bytes ");
+
+
 	int count_bytes = get_count_bytes(ctx, &info, id);
 	if (count_bytes <= 0) {
 		return;
@@ -139,9 +150,8 @@ void BPF_KPROBE(ssl_write, void* ssl, uintptr_t buffer, int num) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
 
-	    if (is_pid_allowed(pid)) {
-        bpf_printk("called ssl_write by PID: %d", pid);
-	}	
+       // bpf_printk("called ssl_write by PID: %d", pid);
+	
 
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_write_context, 0);
 }
@@ -151,9 +161,8 @@ void BPF_KPROBE(ssl_ret_write) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
 
-		    if (is_pid_allowed(pid)) {
-        bpf_printk("called ssl_write_ret by PID: %d", pid);
-	}
+       // bpf_printk("called ssl_write_ret by PID: %d", pid);
+	
 	
 	ssl_uretprobe(ctx, &openssl_write_context, 0);
 }
@@ -163,7 +172,7 @@ void BPF_KPROBE(ssl_read, void* ssl, uintptr_t buffer, int num) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
 
-        bpf_printk("called ssl_read by PID: %d", pid);
+       // bpf_printk("called ssl_read by PID: %d", pid);
 	
 
 	ssl_uprobe(ctx, ssl, buffer, num, &openssl_read_context, 0);
@@ -174,9 +183,8 @@ void BPF_KPROBE(ssl_ret_read) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
 
-		    if (is_pid_allowed(pid)) {
-        bpf_printk("called read_ret by PID: %d", pid);
-	}
+       // bpf_printk("called read_ret by PID: %d", pid);
+	
 
 	ssl_uretprobe(ctx, &openssl_read_context, FLAGS_IS_READ_BIT);
 }
@@ -196,9 +204,8 @@ void BPF_KPROBE(bio_ret_read) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
 
-		    if (is_pid_allowed(pid)) {
         bpf_printk("called bio_read_ret by PID: %d", pid);
-	}
+	
 
     ssl_uretprobe(ctx, &openssl_read_context, FLAGS_IS_READ_BIT);
 }
@@ -218,9 +225,8 @@ void BPF_KPROBE(bio_ret_write) {
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     __u32 pid = pid_tgid >> 32;  // Extract PID from pid_tgid
 
-		    if (is_pid_allowed(pid)) {
         bpf_printk("called bio_read_ret by PID: %d", pid);
-	}
+	
 
     ssl_uretprobe(ctx, &openssl_read_context, 0);
 }

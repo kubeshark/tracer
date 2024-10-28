@@ -216,6 +216,7 @@ func (p *pids) installHooks(e foundPidEvent) {
 		sslPath:  goPath,
 	}
 	p.discoveredPIDs.Add(e.pid, &pi)
+	p.targetCgroup(e.cgroup)
 }
 
 func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
@@ -227,7 +228,7 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 	executableName := filepath.Base(path)
 
 	if executableName == "envoy" {
-		log.Warn().Msgf("Install uprobes into %v", path)
+		log.Warn().Msgf("Install envoy uprobes into %v", path)
 		hook := &sslHooks.SslHooks{}
 		err = hook.InstallEnvoyUprobes(p.bpfObjs, path)
 		if err != nil {
