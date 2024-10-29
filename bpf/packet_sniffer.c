@@ -295,12 +295,16 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
             p_len -= 1; // to satisfy verifier in below bpf_skb_load_bytes
             if (p_len + 1 < sizeof(p->buf))
             {
-                bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1);
+                if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1) != 0)
+                {
+                    log_error(skb, LOG_ERROR_PKT_SNIFFER, 8, 0l, 0l);
+                    goto save_end;
+                }
             }
             else
             {
                 // This is assertion if branch - should never happens according above logic
-                log_error(skb, LOG_ERROR_PKT_SNIFFER, 8, 0l, 0l);
+                log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
                 goto save_end;
             }
         }
@@ -322,7 +326,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
 
         if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, sizeof(struct pkt)))
         {
-            log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
+            log_error(skb, LOG_ERROR_PKT_SNIFFER, 10, 0l, 0l);
         }
     }
 save_end:
