@@ -75,7 +75,7 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 
 		n, err := strconv.ParseUint(pid.Name(), 10, 32)
 		if err != nil {
-			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't parse pid number.")
+			log.Warn().Str("pid", pid.Name()).Msg(fmt.Sprintf("Couldn't parse pid number: %v", err))
 			continue
 		}
 		pInfo := t.pidsInfo[uint32(n)]
@@ -114,7 +114,7 @@ func (t *tracerCgroup) scanPidsV2(procfs string, pids []os.DirEntry, containerId
 				}
 				containerCgroupId, err := discoverer.GetCgroupIdByPath(s)
 				if err != nil {
-					log.Warn().Err(err).Str("path", s).Msg("Couldn't get container cgroup ID.")
+					log.Warn().Str("path", s).Msg(fmt.Sprintf("Couldn't get container cgroup ID: %v", err))
 					continue
 				}
 				//TODO: removesyscallPoller.CgroupsInfo.Add(containerCgroupId, discoverer.GetContainerIdFromCgroupPath(cgroupPath))
@@ -164,7 +164,7 @@ func (t *tracerCgroup) scanPidsV1(procfs string, pids []os.DirEntry, containerId
 
 		n, err := strconv.ParseUint(pid.Name(), 10, 32)
 		if err != nil {
-			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't parse pid number.")
+			log.Warn().Str("pid", pid.Name()).Msg(fmt.Sprintf("Couldn't parse pid number: %v", err))
 			continue
 		}
 		pInfo := t.pidsInfo[uint32(n)]

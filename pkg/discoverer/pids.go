@@ -105,7 +105,7 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 
 			err = hook.InstallHooks(p.bpfObjs, ex, offsets)
 			if err != nil {
-				log.Debug().Err(err).Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg("install go hook failed")
+				log.Debug().Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg(fmt.Sprintf("install go hook failed: %v", err))
 				return
 			}
 			pi.goHook = &hook
@@ -240,7 +240,7 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 
 	err = hook.InstallHooks(p.bpfObjs, ex, offsets)
 	if err != nil {
-		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("install go hook failed")
+		log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg(fmt.Sprintf("install go hook failed: %v", err))
 		return nil, ""
 	}
 
@@ -293,7 +293,7 @@ func (p *pids) scanPidsV2() error {
 
 		n, err := strconv.ParseUint(pid.Name(), 10, 32)
 		if err != nil {
-			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't parse pid number.")
+			log.Warn().Str("pid", pid.Name()).Msg(fmt.Sprintf("Couldn't parse pid number: %v", err))
 			continue
 		}
 		lines := strings.Split(string(bytes), "\n")
@@ -343,7 +343,7 @@ func (p *pids) scanPidsV1() error {
 
 		n, err := strconv.ParseUint(pid.Name(), 10, 32)
 		if err != nil {
-			log.Warn().Err(err).Str("pid", pid.Name()).Msg("Couldn't parse pid number.")
+			log.Warn().Str("pid", pid.Name()).Msg(fmt.Sprintf("Couldn't parse pid number: %v", err))
 			continue
 		}
 		lines := strings.Split(string(bytes), "\n")

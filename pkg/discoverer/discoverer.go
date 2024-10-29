@@ -157,7 +157,7 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 
 		cgroupId, err := GetCgroupIdByPath(s)
 		if err != nil {
-			log.Warn().Err(err).Str("path", s).Msg("Couldn't get container cgroup ID.")
+			log.Warn().Str("path", s).Msg(fmt.Sprintf("Couldn't get container cgroup ID: %v", err))
 			return fmt.Errorf("failed to get cgroup id by path: %v", err)
 		}
 
@@ -217,7 +217,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 
 		mountPoint, err := getMountPointByDeviceId(p.deviceId)
 		if err != nil {
-			log.Warn().Err(err).Uint32("Device ID", p.deviceId).Msg("get mount point failed:")
+			log.Warn().Uint32("Device ID", p.deviceId).Msg(fmt.Sprintf("get mount point failed: %v", err))
 			continue
 		}
 		if mountPoint == "" {

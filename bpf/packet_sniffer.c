@@ -270,7 +270,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
 #pragma unroll
     for (__u32 i = 0; (i < PKT_MAX_LEN / PKT_PART_LEN) && p->counter; i++)
     {
-        p->len = (p->counter < PKT_PART_LEN) ? p->counter : PKT_PART_LEN;
+        p->len = (p->counter <= PKT_PART_LEN) ? p->counter : PKT_PART_LEN;
         p->num = i;
         p->counter -= p->len;
         p->last = (p->counter == 0) ? 1 : 0;
@@ -285,19 +285,27 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
         }
         else
         {
-            /*
-                FIXME: below loop should be simplified
-
-                so far next code can not pass verifier:
-
-                p_len &= 0xFFF;
-                bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len);
-            */
-
-            for (int j = 0; j < PKT_PART_LEN; j++)
+            uint16_t p_len = p->len;
+            if (p_len < 1 || p_len > 4095)
             {
-                if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN + j, &p->buf[j], 1))
-                    break;
+                // This is assertion if branch - should never happens according above logic
+                log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
+                goto save_end;
+            }
+            p_len -= 1; // to satisfy verifier in below bpf_skb_load_bytes
+            if (p_len + 1 < sizeof(p->buf))
+            {
+                if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1) != 0)
+                {
+                    log_error(skb, LOG_ERROR_PKT_SNIFFER, 8, 0l, 0l);
+                    goto save_end;
+                }
+            }
+            else
+            {
+                // This is assertion if branch - should never happens according above logic
+                log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
+                goto save_end;
             }
         }
 
@@ -318,7 +326,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
 
         if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, sizeof(struct pkt)))
         {
-            log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
+            log_error(skb, LOG_ERROR_PKT_SNIFFER, 10, 0l, 0l);
         }
     }
 save_end:
