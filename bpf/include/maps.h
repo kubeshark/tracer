@@ -137,7 +137,9 @@ struct socket_cookie_data {
     __u32 dst_ip;
     __u16 src_port;
     __u16 dst_port;
+    __u16 __pad1;
     __u8 side; // 0 - received, 1 - sent
+    __u8 __pad2;
 };
 
 #define CONFIGURATION_FLAG_CAPTURE_STOPPED (1 << 0)
