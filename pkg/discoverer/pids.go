@@ -210,6 +210,7 @@ func (p *pids) installHooks(e foundPidEvent) {
 	goHook, goPath := p.installGoHook(e)
 	if len(p.envoyPath) > 0 {
 		sslHook = p.installEnvoysslHook(e, p.envoyPath)
+		sslPath = p.envoyPath
 	} else {
 		sslHook, sslPath = p.installOpensslHook(e)
 	}
