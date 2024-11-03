@@ -99,7 +99,7 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 		return errors.Wrap(err, 0)
 	}
 
-	go e.handleFoundOpenssl()
+	//go e.handleFoundOpenssl()
 	go e.handleFoundCgroup(isCgroupV2)
 
 	go e.pids.handleFoundNewPIDs()

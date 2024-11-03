@@ -20,6 +20,7 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
 
     // Happens when we don't catch the connect / accept (if the connection is created before targeting is started)
     if (flags == NULL) {
+        bpf_printk("flags is NULL");
         return 0;
     }
 
@@ -31,6 +32,7 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
 }
 
 static int print_tls_chunk(struct tls_chunk *chunk) {
+    // Print chunk details
     bpf_printk("Timestamp: %llu", chunk->timestamp);
     bpf_printk("CGroup ID: %u", chunk->cgroup_id);
     bpf_printk("PID: %u", chunk->pid);
@@ -42,9 +44,16 @@ static int print_tls_chunk(struct tls_chunk *chunk) {
     bpf_printk("Flags: %u", chunk->flags);
     bpf_printk("Direction: %u", chunk->direction);
 
+    bpf_printk("Family: %u", chunk->address_info.family);
+    bpf_printk("Source Address (saddr): %u", chunk->address_info.saddr);
+    bpf_printk("Destination Address (daddr): %u", chunk->address_info.daddr);
+    bpf_printk("Source Port (sport): %u", chunk->address_info.sport);
+    bpf_printk("Destination Port (dport): %u", chunk->address_info.dport);
 
-    for (int i = 0; i < (CHUNK_SIZE < 16 ? CHUNK_SIZE : 16); i++) {
-        bpf_printk("Data[%d]: %u", i, chunk->data[i]);
+    // Start printing data in hex on a single line
+    bpf_printk("Data (hex): ");
+    for (int i = 0; i < 10; i++) {
+        bpf_printk("%02x", chunk->data[i]);
     }
 
     return 0;
@@ -55,6 +64,7 @@ static __always_inline void send_chunk_part(struct pt_regs* ctx, uintptr_t buffe
     size_t recorded = MIN(end - start, sizeof(chunk->data));
 
     if (recorded <= 0) {
+        bpf_printk("recorded less than 0 size of chunk %d start %d end %d", sizeof(chunk->data), start, end);
         return;
     }
 
@@ -93,7 +103,7 @@ static __always_inline void send_chunk(struct pt_regs* ctx, uintptr_t buffer, __
         if (chunk->len <= (CHUNK_SIZE * i)) {
             break;
         }
-
+        bpf_printk("calling send_chunk_part");
         send_chunk_part(ctx, buffer, id, chunk, CHUNK_SIZE * i, chunk->len);
     }
 }
@@ -125,6 +135,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
     chunk->len = count_bytes;
     chunk->fd = info->fd;
 
+    bpf_printk("calling add_address_to_chunk");
     if (!add_address_to_chunk(ctx, chunk, id, chunk->fd, info)) {
         // Without an address, we drop the chunk because there is not much to do with it in Go
         //

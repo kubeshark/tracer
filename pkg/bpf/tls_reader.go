@@ -1,5 +1,7 @@
 package bpf
 
+import "github.com/rs/zerolog/log"
+
 type TcpID struct {
 	SrcIP   string
 	DstIP   string
@@ -30,6 +32,8 @@ func NewTlsReader(tcpID *TcpID, parent *TlsStream, isClient bool) *tlsReader {
 }
 
 func (r *tlsReader) NewChunk(chunk *TracerTlsChunk) {
+	log.Warn().Msgf("NewChunk chunk from pid %v", chunk.Pid)
+
 	r.seenChunks = r.seenChunks + 1
 
 	r.parent.writeData(uint64(chunk.Timestamp), uint64(chunk.CgroupId), chunk.Direction, chunk.getRecordedData(), r)

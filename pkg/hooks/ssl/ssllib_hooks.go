@@ -55,9 +55,9 @@ func (s *SslHooks) InstallEnvoyUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPat
 		return err
 	}
 	log.Warn().Msgf("Got inode %v", ino)
-	/*if ok, _ := hookInodes.ContainsOrAdd(ino, 0); ok {
+	if ok, _ := hookInodes.ContainsOrAdd(ino, 0); ok {
 		return nil
-	}*/
+	}
 	log.Warn().Msg("Got past ContainsOrAdd.")
 
 	sslLibrary, err := link.OpenExecutable(sslLibraryPath)

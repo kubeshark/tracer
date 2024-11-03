@@ -70,6 +70,7 @@ func (s *SocketPcap) WritePacket(timestamp uint64, cgroupId uint64, direction ui
 		hdr.PacketCounter = conn.counter
 		conn.counter++
 
+		//log.Warn().Msgf("To WriteChn %v", hex.Dump(copyBuf))
 		if conn.writeChannel.Write(copyBuf) {
 			conn.packetSent++
 		} else {

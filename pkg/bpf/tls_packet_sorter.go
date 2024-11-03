@@ -1,10 +1,12 @@
 package bpf
 
 import (
+	"encoding/hex"
 	"sync"
 	"time"
 
 	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/socket"
@@ -17,6 +19,7 @@ type SortedPacket struct {
 }
 
 func (s *PacketSorter) WriteTLSPacket(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error) {
+	//log.Warn().Msg("WriteTLSPacket")
 	if !s.cgroupEnabled {
 		cgroupId = 0
 	}
@@ -32,6 +35,26 @@ func (s *PacketSorter) WriteTLSPacket(timestamp uint64, cgroupId uint64, directi
 		return
 	}
 
+	var saddr, daddr string
+	var sport, dport uint16
+
+	for _, layer := range l {
+		switch layer := layer.(type) {
+		case *layers.IPv4:
+			saddr = layer.SrcIP.String()
+			daddr = layer.DstIP.String()
+		case *layers.TCP:
+			sport = uint16(layer.SrcPort)
+			dport = uint16(layer.DstPort)
+		case *layers.UDP:
+			sport = uint16(layer.SrcPort)
+			dport = uint16(layer.DstPort)
+		}
+	}
+
+	// Print extracted IP and Port information
+	log.Warn().Msgf("Source Address: %s, Destination Address: %s, Source Port: %d, Destination Port: %d", saddr, daddr, sport, dport)
+	log.Warn().Msgf("Packet %v", hex.Dump(buf.Bytes()))
 	s.Lock()
 	defer s.Unlock()
 
@@ -42,12 +65,14 @@ func (s *PacketSorter) WriteTLSPacket(timestamp uint64, cgroupId uint64, directi
 			Length:        len(data),
 			CaptureLength: len(data),
 		}
-
+		log.Warn().Msgf("WritePacket %v", hex.Dump(data))
 		err = s.writer.WritePacket(ci, data)
 	}
 
 	if s.socketsTLS != nil {
+		//log.Warn().Msgf("Writing the following packet %v", buf)
 		err = s.socketsTLS.WritePacket(timestamp, cgroupId, direction, buf)
+		//log.Warn().Msgf("WritePacket err %v", err)
 	}
 
 	return

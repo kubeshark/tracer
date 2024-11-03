@@ -76,6 +76,8 @@ func (t *TlsStream) doTcpHandshake(timestamp uint64, cgroupId uint64, direction 
 }
 
 func (t *TlsStream) writeData(timestamp uint64, cgroupId uint64, direction uint8, data []byte, reader *tlsReader) {
+	log.Warn().Msgf("writeData")
+
 	t.setLayers(timestamp, cgroupId, direction, reader)
 	t.layers.tcp.ACK = true
 	if reader.isClient {
@@ -93,6 +95,7 @@ func (t *TlsStream) writeData(timestamp uint64, cgroupId uint64, direction uint8
 }
 
 func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uint8, data []byte, isClient bool, sentLen uint32) {
+	log.Warn().Msgf("writeLayers")
 	t.writePacket(
 		timestamp,
 		cgroupId,
@@ -107,7 +110,7 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 }
 
 func (t *TlsStream) writePacket(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) {
-
+	log.Warn().Msgf("writePacket")
 	err := t.poller.Sorter.WriteTLSPacket(timestamp, cgroupId, direction, firstLayerType, l...)
 	if err != nil {
 		log.Error().Err(err).Msg("Error writing PCAP:")

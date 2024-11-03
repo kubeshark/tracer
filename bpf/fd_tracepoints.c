@@ -60,7 +60,6 @@ static __always_inline void fd_tracepoints_handle_openssl(void* ctx, __u32 fd, _
 
 static __always_inline void fd_tracepoints_handle_go(void* ctx, __u32 fd, __u64 id, void* map_fd, __u64 origin_code) {
 	long err = bpf_map_update_elem(map_fd, &id, &fd, BPF_ANY);
-
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_PUTTING_FILE_DESCRIPTOR, id, err, origin_code);
 		return;

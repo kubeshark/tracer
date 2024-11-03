@@ -116,7 +116,7 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 			log.Info().Uint32("pid", pid).Uint64("cgroup", pi.cgroupId).Msg("go hook installed")
 		}
 
-		if pi.sslHook == nil && pi.sslPath != "" {
+		/*if pi.sslHook == nil && pi.sslPath != "" {
 			hook := sslHooks.SslHooks{}
 
 			err := hook.InstallUprobes(p.bpfObjs, pi.sslPath)
@@ -127,7 +127,7 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 			pi.sslHook = &hook
 
 			log.Info().Uint32("pid", pid).Uint64("cgroup", pi.cgroupId).Msg("ssl hook installed")
-		}
+		}*/
 
 		p.discoveredPIDs.Add(pid, pi)
 	}
@@ -241,7 +241,7 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 		log.Warn().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
 	}
 
-	log.Warn().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
+	/*log.Warn().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("openssl hook installed")
 
 	log.Warn().Msgf("Found the following lib %v go hook", path)
 
@@ -271,10 +271,12 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("openssl found")
 	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
 		return nil, path
-	}
+	}*/
 
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("go hook installed")
-	return &hook, path
+	//return &hook, path
+
+	return &goHooks.GoHooks{}, path
 }
 
 func (p *pids) installOpensslHook(e foundPidEvent) (*sslHooks.SslHooks, string) {

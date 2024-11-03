@@ -89,7 +89,6 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 
 	for {
 		record, err := p.chunksReader.Read()
-
 		if err != nil {
 			close(chunks)
 
@@ -121,7 +120,7 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 
 func (p *TlsPoller) handleTlsChunk(chunk *TracerTlsChunk, streamsMap *TcpStreamMap) error {
 	address := chunk.GetAddressPair()
-
+	log.Warn().Msgf("Got the chunk from pid %v", chunk.Pid)
 	// Creates one *tlsStream per TCP stream
 	key := buildTlsKey(address, chunk.IsRequest())
 	stream, streamExists := p.streams[key]
