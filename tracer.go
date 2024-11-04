@@ -146,8 +146,8 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 
 				if t.packetFilter != nil {
 					if err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath, []uint64{cInfo.cgroupID}); err != nil {
-						log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
-						return err
+						log.Warn().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+						continue
 					}
 					log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
 				} else {
