@@ -11,7 +11,7 @@ import (
 )
 
 type podLinks struct {
-	links     map[string][3]link.Link
+	links     map[string][2]link.Link
 	cgroupIDs []uint64
 }
 
@@ -54,19 +54,12 @@ func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) e
 		return fmt.Errorf("attach cgroup egress: %v", err)
 	}
 
-	traceConnect, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInet4Connect, Program: t.traceCgroupConnect})
-	if err != nil {
-		lIngress.Close()
-		lEgress.Close()
-		return fmt.Errorf("attach cgroup connect: %v", err)
-	}
-
 	if t.attachedPods[uuid] == nil {
 		t.attachedPods[uuid] = &podLinks{
-			links: make(map[string][3]link.Link),
+			links: make(map[string][2]link.Link),
 		}
 	}
-	t.attachedPods[uuid].links[cgroupV2Path] = [3]link.Link{lIngress, lEgress, traceConnect}
+	t.attachedPods[uuid].links[cgroupV2Path] = [2]link.Link{lIngress, lEgress}
 
 	for _, cgroupID := range cgoupIDs {
 		err := t.cgroupHashMap.Update(cgroupID, uint32(0), ebpf.UpdateNoExist)
@@ -96,7 +89,6 @@ func (t *PacketFilter) DetachPod(uuid string) error {
 	for _, l := range p.links {
 		l[0].Close()
 		l[1].Close()
-		l[2].Close()
 	}
 	delete(t.attachedPods, uuid)
 	return nil
