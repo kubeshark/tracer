@@ -3,6 +3,8 @@ package cgroup
 
 import (
 	"bufio"
+	"fmt"
+	"github.com/rs/zerolog/log"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -319,7 +321,7 @@ func GetCgroupDefaultVersion() (CgroupVersion, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			//TODO logger.Errorw("Closing file", "error", err)
+			log.Error().Msg(fmt.Sprintf("Closing file error: %v", err))
 		}
 	}()
 
@@ -367,7 +369,7 @@ func GetCgroupControllerHierarchy(subsys string) (int, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			//TODO logger.Errorw("Closing file", "error", err)
+			log.Error().Msg(fmt.Sprintf("Closing file error: %v", err))
 		}
 	}()
 

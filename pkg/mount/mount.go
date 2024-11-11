@@ -92,7 +92,7 @@ func (m *MountHostOnce) Mount() error {
 		if empty {
 			errRA := os.RemoveAll(m.target) // best effort for cleanup
 			if errRA != nil {
-				log.Error().Msg(fmt.Sprintf("Removing all", "error", errRA))
+				log.Error().Msg(fmt.Sprintf("Removing all error: %v", errRA))
 			}
 		}
 	}

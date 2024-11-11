@@ -39,8 +39,7 @@ type Tracer struct {
 	procfs            string
 	targetedCgroupIDs map[uint64]struct{}
 
-	runningPods  map[types.UID]podInfo
-	cgroupV2Ctrl cgroup.Cgroup
+	runningPods map[types.UID]podInfo
 
 	cgroupsController cgroup.CgroupsController
 }
@@ -94,37 +93,6 @@ func (t *Tracer) Init(
 	if t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs, t.cgroupsController, !*disableEbpfCapture, isCgroupsV2); err != nil {
 		return err
 	}
-
-	/*
-		isCgroupV2, err := utils.IsCgroupV2()
-		if err != nil {
-			return err
-		}
-
-		if !isCgroupV2 {
-			t.cgroupV2Ctrl, err = cgroup.NewCgroup(cgroup.CgroupVersion2)
-			if err != nil {
-				if _, ok := err.(*cgroup.VersionNotSupported); !ok {
-					return fmt.Errorf("cgroup v2 failed: %v", err)
-				}
-			}
-		}
-
-		t.cgroups = discoverer.NewCgroups()
-		if t.cgroups == nil {
-			return fmt.Errorf("discoverer cgroups create failed")
-		}
-		t.containers = discoverer.NewContainers(t.cgroupV2Ctrl)
-		if t.containers == nil {
-			return fmt.Errorf("discoverer containers create failed")
-		}
-
-		if !isCgroupV2 && t.cgroupV2Ctrl == nil {
-			// not cgroup V2 system, no cgroup V2 supported in kernel
-			//TODO: fallback to activate AF_PACKET in sniffer
-			return nil
-		}
-	*/
 
 	return nil
 }
