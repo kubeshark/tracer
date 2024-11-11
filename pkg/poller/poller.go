@@ -3,9 +3,8 @@ package poller
 import (
 	"fmt"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/tracer/pkg/bpf"
-	"github.com/kubeshark/tracer/pkg/discoverer"
+	"github.com/kubeshark/tracer/pkg/cgroup"
 	logPoller "github.com/kubeshark/tracer/pkg/poller/log"
 	packetsPoller "github.com/kubeshark/tracer/pkg/poller/packets"
 	syscallPoller "github.com/kubeshark/tracer/pkg/poller/syscall"
@@ -23,7 +22,7 @@ type BpfPollerImpl struct {
 	logPoller     *logPoller.BpfLogger
 }
 
-func NewBpfPoller(bpfObjs *bpf.BpfObjects, sorter *bpf.PacketSorter, cgroupsInfo *lru.Cache[discoverer.CgroupID, discoverer.ContainerID], tlsLogDisabled bool) (BpfPoller, error) {
+func NewBpfPoller(bpfObjs *bpf.BpfObjects, sorter *bpf.PacketSorter, cgroupsController cgroup.CgroupsController, tlsLogDisabled bool) (BpfPoller, error) {
 	var err error
 	p := BpfPollerImpl{}
 
@@ -31,7 +30,7 @@ func NewBpfPoller(bpfObjs *bpf.BpfObjects, sorter *bpf.PacketSorter, cgroupsInfo
 		return nil, fmt.Errorf("create tls poller failed: %v", err)
 	}
 
-	if p.syscallPoller, err = syscallPoller.NewSyscallEventsTracer(bpfObjs, cgroupsInfo); err != nil {
+	if p.syscallPoller, err = syscallPoller.NewSyscallEventsTracer(bpfObjs, cgroupsController); err != nil {
 		return nil, fmt.Errorf("create syscall poller failed: %v", err)
 	}
 

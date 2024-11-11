@@ -6,6 +6,8 @@ Copyright (C) Kubeshark
 #ifndef __PIDS__
 #define __PIDS__
 
+#include "common.h"
+
 int _pid_in_map(void* pmap, __u32 pid) {
 	__u32* shouldTarget = bpf_map_lookup_elem(pmap, &pid);
 
@@ -19,7 +21,6 @@ int _pid_in_map(void* pmap, __u32 pid) {
 	return shouldTargetGlobally != NULL && *shouldTargetGlobally == 1;
 }
 
-const volatile __u64 TRACER_NS_INO = 0;
 #define TRACER_NAMESPACES_MAX 4
 
 static __always_inline __u64 tracer_get_task_pid_tgid(__u64 base_pid_tgid, struct task_struct* task) {

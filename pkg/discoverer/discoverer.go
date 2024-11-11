@@ -14,25 +14,17 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"github.com/go-errors/errors"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/cgroup"
 	sslHooks "github.com/kubeshark/tracer/pkg/hooks/ssl"
 	"github.com/kubeshark/tracer/pkg/utils"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/rs/zerolog/log"
 )
 
-type CgroupID uint64
-type ContainerID string
-
-type CgroupData struct {
-	CgroupPath string
-	CgroupID   CgroupID
-}
+// ----------------------------------------------------------------------
 
 type InternalEventsDiscoverer interface {
 	Start() error
-	CgroupsInfo() *lru.Cache[CgroupID, ContainerID]
-	ContainersInfo() *lru.Cache[ContainerID, []CgroupData]
 	TargetCgroup(cgroupId uint64)
 	UntargetCgroup(cgroupId uint64)
 }
@@ -46,28 +38,22 @@ type InternalEventsDiscovererImpl struct {
 	readerFoundOpenssl *perf.Reader
 	readerFoundCgroup  *perf.Reader
 
-	cgroupsInfo       *lru.Cache[CgroupID, ContainerID]
-	containersInfo    *lru.Cache[ContainerID, []CgroupData]
+	cgroupsController cgroup.CgroupsController
 	containersInfoMtx sync.Mutex
 	pids              *pids
 }
 
-func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects) InternalEventsDiscoverer {
+func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgroupsController cgroup.CgroupsController) InternalEventsDiscoverer {
 	impl := InternalEventsDiscovererImpl{
-		bpfObjects:       bpfObjects,
-		isCgroupV2:       bpfObjects.IsCgroupV2,
-		perfFoundOpenssl: bpfObjects.BpfObjs.PerfFoundOpenssl,
-		perfFoundCgroup:  bpfObjects.BpfObjs.PerfFoundCgroup,
-		sslHooks:         make(map[string]sslHooks.SslHooks),
+		bpfObjects:        bpfObjects,
+		isCgroupV2:        bpfObjects.IsCgroupV2,
+		perfFoundOpenssl:  bpfObjects.BpfObjs.PerfFoundOpenssl,
+		perfFoundCgroup:   bpfObjects.BpfObjs.PerfFoundCgroup,
+		sslHooks:          make(map[string]sslHooks.SslHooks),
+		cgroupsController: cgroupsController,
 	}
 	var err error
-	if impl.cgroupsInfo, err = lru.New[CgroupID, ContainerID](16384); err != nil {
-		return nil
-	}
-	if impl.containersInfo, err = lru.New[ContainerID, []CgroupData](16384); err != nil {
-		return nil
-	}
-	impl.pids, err = newPids(procfs, bpfObjects, impl.containersInfo)
+	impl.pids, err = newPids(procfs, bpfObjects, impl.cgroupsController)
 	if err != nil {
 		return nil
 	}
@@ -111,15 +97,6 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 	}
 
 	return nil
-
-}
-
-func (e *InternalEventsDiscovererImpl) CgroupsInfo() *lru.Cache[CgroupID, ContainerID] {
-	return e.cgroupsInfo
-}
-
-func (e *InternalEventsDiscovererImpl) ContainersInfo() *lru.Cache[ContainerID, []CgroupData] {
-	return e.containersInfo
 }
 
 func (e *InternalEventsDiscovererImpl) TargetCgroup(cgroupId uint64) {
@@ -145,35 +122,10 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		if !d.IsDir() {
 			return nil
 		}
-		contId, _ := GetContainerIdFromCgroupPath(s)
-		if contId == "" {
-			log.Debug().Str("path", s).Msg("can not get container id")
-			return nil
-		}
 
-		if !isCgroupsV2 && !strings.HasPrefix(s, "/sys/fs/cgroup/cpuset") {
-			return nil
+		if cgroupID, contId, ok := e.cgroupsController.AddCgroupPath(s); ok {
+			log.Debug().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("Initial cgroup is detected")
 		}
-
-		cgroupId, err := GetCgroupIdByPath(s)
-		if err != nil {
-			log.Warn().Str("path", s).Msg(fmt.Sprintf("Couldn't get container cgroup ID: %v", err))
-			return fmt.Errorf("failed to get cgroup id by path: %v", err)
-		}
-
-		e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
-
-		item := CgroupData{CgroupPath: s, CgroupID: CgroupID(cgroupId)}
-		e.containersInfoMtx.Lock()
-		if !e.containersInfo.Contains(ContainerID(contId)) {
-			e.containersInfo.Add(ContainerID(contId), []CgroupData{item})
-		} else {
-			v, _ := e.containersInfo.Get(ContainerID(contId))
-			v = append(v, item)
-			e.containersInfo.Add(ContainerID(contId), v)
-		}
-		e.containersInfoMtx.Unlock()
-		log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Msg("Initial cgroup is detected")
 
 		return nil
 	}
@@ -287,26 +239,9 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 		if !isCgroupsV2 && !strings.HasPrefix(cgroupPath, "/sys/fs/cgroup/cpuset") {
 			return
 		}
-		contId, _ := GetContainerIdFromCgroupPath(cgroupPath)
-		if contId != "" {
-			cgroupId, err := GetCgroupIdByPath(cgroupPath)
-			if err != nil {
-				log.Warn().Str("Path", cgroupPath).Msg("Can not find out cgroup id by path")
-				continue
-			}
-			e.cgroupsInfo.Add(CgroupID(cgroupId), ContainerID(contId))
-			item := CgroupData{CgroupPath: cgroupPath, CgroupID: CgroupID(cgroupId)}
-			e.containersInfoMtx.Lock()
-			if !e.containersInfo.Contains(ContainerID(contId)) {
-				e.containersInfo.Add(ContainerID(contId), []CgroupData{item})
-			} else {
-				v, _ := e.containersInfo.Get(ContainerID(contId))
-				v = append(v, item)
-				e.containersInfo.Add(ContainerID(contId), v)
-			}
-			e.containersInfoMtx.Unlock()
 
-			log.Debug().Uint64("Cgroup ID", cgroupId).Str("Container ID", contId).Str("Cgroup Path", cgroupPath).Msg("New cgroup is detected")
+		if cgroupID, contId, ok := e.cgroupsController.AddCgroupPath(cgroupPath); ok {
+			log.Debug().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("New cgroup is detected")
 		}
 	}
 }

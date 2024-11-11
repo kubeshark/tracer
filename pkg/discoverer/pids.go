@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/ebpf/perf"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/cgroup"
 	goHooks "github.com/kubeshark/tracer/pkg/hooks/go"
 	sslHooks "github.com/kubeshark/tracer/pkg/hooks/ssl"
 	"github.com/rs/zerolog/log"
@@ -33,18 +34,17 @@ type pidInfo struct {
 }
 
 type pids struct {
-	procfs          string
-	bpfObjs         *bpf.BpfObjects
-	containersInfo  *lru.Cache[ContainerID, []CgroupData]
-	readerFoundPid  *perf.Reader
-	discoveredPIDs  *lru.Cache[uint32, *pidInfo]
-	targetedPIDs    *lru.Cache[uint32, *pidInfo]
-	targetedCgroups *lru.Cache[uint64, struct{}]
-	scanGolangQueue chan foundPidEvent
+	procfs            string
+	bpfObjs           *bpf.BpfObjects
+	cgroupsController cgroup.CgroupsController
+	readerFoundPid    *perf.Reader
+	discoveredPIDs    *lru.Cache[uint32, *pidInfo]
+	targetedPIDs      *lru.Cache[uint32, *pidInfo]
+	targetedCgroups   *lru.Cache[uint64, struct{}]
+	scanGolangQueue   chan foundPidEvent
 }
 
-func newPids(procfs string, bpfObjs *bpf.BpfObjects, containersInfo *lru.Cache[ContainerID, []CgroupData]) (*pids, error) {
-
+func newPids(procfs string, bpfObjs *bpf.BpfObjects, cgroupsController cgroup.CgroupsController) (*pids, error) {
 	discoveredPids, err := lru.New[uint32, *pidInfo](16384)
 	if err != nil {
 		return nil, err
@@ -65,14 +65,14 @@ func newPids(procfs string, bpfObjs *bpf.BpfObjects, containersInfo *lru.Cache[C
 	}
 
 	p := &pids{
-		procfs:          procfs,
-		bpfObjs:         bpfObjs,
-		containersInfo:  containersInfo,
-		readerFoundPid:  readerFoundPid,
-		discoveredPIDs:  discoveredPids,
-		targetedPIDs:    targetedPids,
-		targetedCgroups: targetedCgroups,
-		scanGolangQueue: make(chan foundPidEvent, 8192),
+		procfs:            procfs,
+		bpfObjs:           bpfObjs,
+		cgroupsController: cgroupsController,
+		readerFoundPid:    readerFoundPid,
+		discoveredPIDs:    discoveredPids,
+		targetedPIDs:      targetedPids,
+		targetedCgroups:   targetedCgroups,
+		scanGolangQueue:   make(chan foundPidEvent, 8192),
 	}
 
 	go p.scanPids()
@@ -300,16 +300,7 @@ func (p *pids) scanPidsV2() error {
 		parts := strings.Split(lines[0], ":")
 		cgroupPath := parts[len(parts)-1]
 
-		id, _ := GetContainerIdFromCgroupPath(normalyzeCgroupV2Path(cgroupPath))
-		if id == "" {
-			continue
-		}
-		cis, ok := p.containersInfo.Get(ContainerID(id))
-		if !ok {
-			continue
-		}
-
-		for _, ci := range cis {
+		for _, ci := range p.cgroupsController.GetExistingCgroupsByCgroupPath(normalyzeCgroupV2Path(cgroupPath)) {
 			pEvent := foundPidEvent{
 				cgroup: uint64(ci.CgroupID),
 				pid:    uint32(n),
@@ -366,17 +357,19 @@ func (p *pids) scanPidsV1() error {
 			continue
 		}
 
-		id, _ := GetContainerIdFromCgroupPath(cgroupPath)
-		if id == "" {
-			continue
-		}
+		/*
+			id, _ := GetContainerIdFromCgroupPath(cgroupPath)
+			if id == "" {
+				continue
+			}
 
-		cis, ok := p.containersInfo.Get(ContainerID(id))
-		if !ok {
-			continue
-		}
+			cis, ok := p.containersInfo.Get(ContainerID(id))
+			if !ok {
+				continue
+			}
+		*/
 
-		for _, ci := range cis {
+		for _, ci := range p.cgroupsController.GetExistingCgroupsByCgroupPath(cgroupPath) {
 			pEvent := foundPidEvent{
 				cgroup: uint64(ci.CgroupID),
 				pid:    uint32(n),

@@ -1,4 +1,4 @@
-package discoverer
+package cgroup
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ var (
 )
 
 // Borrowed from https://github.com/aquasecurity/tracee/blob/main/pkg/containers/containers.go
-func GetContainerIdFromCgroupPath(cgroupPath string) (id string, runtime RuntimeId) {
+func getContainerIdByCgroupPath(cgroupPath string) (id string, runtime RuntimeId) {
 	cgroupParts := strings.Split(cgroupPath, "/")
 
 	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
@@ -84,7 +84,7 @@ func GetContainerIdFromCgroupPath(cgroupPath string) (id string, runtime Runtime
 	return
 }
 
-func GetCgroupIdByPath(filepath string) (uint64, error) {
+func getCgroupIdByPath(filepath string) (uint64, error) {
 	fileInfo, err := os.Stat(filepath)
 	if err != nil {
 		return 0, err

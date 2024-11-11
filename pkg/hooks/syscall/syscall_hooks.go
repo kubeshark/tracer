@@ -150,6 +150,10 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
+	if err = s.addKprobe("security_sk_clone", bpfObjects.SecuritySkClone); err != nil {
+		return err
+	}
+
 	return nil
 }
 

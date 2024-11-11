@@ -12,6 +12,7 @@ type tcpKprobeHooks struct {
 	tcpRecvmsg  link.Link
 	tcp4Connect link.Link
 	accept      link.Link
+	acceptRet   link.Link
 	accept4     link.Link
 }
 
@@ -33,7 +34,7 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *bpf.TracerObjects) er
 		return errors.Wrap(err, 0)
 	}
 
-	s.accept, err = link.Kretprobe("sys_accept4", bpfObjects.SyscallAccept4Ret, nil)
+	s.acceptRet, err = link.Kretprobe("sys_accept4", bpfObjects.SyscallAccept4Ret, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}

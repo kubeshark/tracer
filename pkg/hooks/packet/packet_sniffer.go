@@ -1,108 +1,133 @@
 package packet
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/cgroup"
 
 	"github.com/rs/zerolog/log"
 )
 
 type podLinks struct {
-	links     map[string][3]link.Link
-	cgroupIDs []uint64
+	links map[string][]link.Link
 }
 
 type PacketFilter struct {
-	ingressFilterProgram *ebpf.Program
-	egressFilterProgram  *ebpf.Program
-	traceCgroupConnect   *ebpf.Program
-	cgroupHashMap        *ebpf.Map
-	attachedPods         map[string]*podLinks
-	tcClient             TcClient
+	enabled      bool
+	isCgroupV2   bool
+	attachedPods map[string]*podLinks
+	tcClient     TcClient
+	bpfObjs      bpf.TracerObjects
 }
 
-func NewPacketFilter(procfs string, ingressFilterProgram, egressFilterProgram, traceCgroupConnect *ebpf.Program, cgroupHash *ebpf.Map) (*PacketFilter, error) {
-	pf := &PacketFilter{
-		ingressFilterProgram: ingressFilterProgram,
-		egressFilterProgram:  egressFilterProgram,
-		traceCgroupConnect:   traceCgroupConnect,
-		cgroupHashMap:        cgroupHash,
-		attachedPods:         make(map[string]*podLinks),
-		tcClient:             &TcClientImpl{},
+func NewPacketFilter(procfs string, bpfObjs bpf.TracerObjects, cgroupsController cgroup.CgroupsController, enabled, isCgroupV2 bool) (*PacketFilter, error) {
+	if !cgroupsController.EbpfCapturePossible() {
+		enabled = false
 	}
+
+	pf := &PacketFilter{
+		enabled:      enabled,
+		isCgroupV2:   isCgroupV2,
+		attachedPods: make(map[string]*podLinks),
+		tcClient:     &TcClientImpl{},
+		bpfObjs:      bpfObjs,
+	}
+
+	if enabled && !isCgroupV2 {
+		if _, err := pf.attachPod("0", cgroupsController.GetCgroupV2MountPoint()); err != nil {
+			return nil, err
+		}
+		log.Info().Msg("Using eBPF packet capture for Cgroup V1")
+	} else {
+		log.Info().Msg("Using eBPF packet capture for Cgroup V2")
+	}
+
 	return pf, nil
 }
 
-func (p *PacketFilter) Close() error {
-	return p.tcClient.CleanTC()
+func (pf *PacketFilter) Close() error {
+	for uuid, p := range pf.attachedPods {
+		for _, l := range p.links {
+			closeLinks(l)
+		}
+		delete(pf.attachedPods, uuid)
+	}
+
+	return pf.tcClient.CleanTC()
 }
 
-func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string, cgoupIDs []uint64) error {
+func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string) (bool, error) {
+	if !t.enabled || !t.isCgroupV2 {
+		return false, nil
+	}
+	return t.attachPod(uuid, cgroupV2Path)
+}
+
+func (t *PacketFilter) attachPod(uuid, cgroupV2Path string) (bool, error) {
 	log.Info().Str("pod", uuid).Str("path", cgroupV2Path).Msg("Attaching pod:")
+	var links []link.Link
 
-	lIngress, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInetIngress, Program: t.ingressFilterProgram})
-	if err != nil {
-		return fmt.Errorf("attach cgroup ingress: %v", err)
+	addLink := func(attachType ebpf.AttachType, prog *ebpf.Program) error {
+		l, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: attachType, Program: prog})
+		if err != nil {
+			closeLinks(links)
+			return fmt.Errorf("attach cgroup %v: %v", attachType, err)
+		}
+		links = append(links, l)
+		return nil
 	}
 
-	lEgress, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInetEgress, Program: t.egressFilterProgram})
-	if err != nil {
-		lIngress.Close()
-		return fmt.Errorf("attach cgroup egress: %v", err)
+	if err := addLink(ebpf.AttachCGroupInetSockCreate, t.bpfObjs.FilterSockCreate); err != nil {
+		return false, err
 	}
 
-	traceConnect, err := link.AttachCgroup(link.CgroupOptions{Path: cgroupV2Path, Attach: ebpf.AttachCGroupInet4Connect, Program: t.traceCgroupConnect})
-	if err != nil {
-		lIngress.Close()
-		lEgress.Close()
-		return fmt.Errorf("attach cgroup connect: %v", err)
+	if err := addLink(ebpf.AttachCgroupInetSockRelease, t.bpfObjs.FilterSockRelease); err != nil {
+		return false, err
+	}
+
+	if err := addLink(ebpf.AttachCGroupInetIngress, t.bpfObjs.FilterIngressPackets); err != nil {
+		return false, err
+	}
+
+	if err := addLink(ebpf.AttachCGroupInetEgress, t.bpfObjs.FilterEgressPackets); err != nil {
+		return false, err
+	}
+
+	if err := addLink(ebpf.AttachCGroupInet4Bind, t.bpfObjs.FilterSockBind); err != nil {
+		return false, err
 	}
 
 	if t.attachedPods[uuid] == nil {
-		t.attachedPods[uuid] = &podLinks{
-			links: make(map[string][3]link.Link),
-		}
+		t.attachedPods[uuid] = &podLinks{}
 	}
-	t.attachedPods[uuid].links[cgroupV2Path] = [3]link.Link{lIngress, lEgress, traceConnect}
-
-	for _, cgroupID := range cgoupIDs {
-		err := t.cgroupHashMap.Update(cgroupID, uint32(0), ebpf.UpdateNoExist)
-		if err != nil && !errors.Is(err, ebpf.ErrKeyExist) {
-			return fmt.Errorf("adding cgroup %v failed: %v", cgroupID, err)
-		} else if err == nil {
-			t.attachedPods[uuid].cgroupIDs = append(t.attachedPods[uuid].cgroupIDs, cgroupID)
-		}
+	if t.attachedPods[uuid].links == nil {
+		t.attachedPods[uuid].links = map[string][]link.Link{}
 	}
+	t.attachedPods[uuid].links[cgroupV2Path] = links
 
-	return nil
+	return true, nil
 }
 
-func (t *PacketFilter) DetachPod(uuid string) error {
+func (t *PacketFilter) DetachPod(uuid string) bool {
 	log.Info().Str("pod", uuid).Msg("Detaching pod:")
-	p, ok := t.GetAttachedPod(uuid)
+	p, ok := t.attachedPods[uuid]
 	if !ok {
-		return fmt.Errorf("pod not attached")
-	}
-
-	for _, cgroupID := range p.cgroupIDs {
-		if err := t.cgroupHashMap.Delete(cgroupID); err != nil {
-			return fmt.Errorf("deleting cgroup %v failed: %v", cgroupID, err)
-		}
+		// pod can be on a different node
+		return false
 	}
 
 	for _, l := range p.links {
-		l[0].Close()
-		l[1].Close()
-		l[2].Close()
+		closeLinks(l)
 	}
 	delete(t.attachedPods, uuid)
-	return nil
+	return true
 }
 
-func (t *PacketFilter) GetAttachedPod(uuid string) (p *podLinks, ok bool) {
-	p, ok = t.attachedPods[uuid]
-	return
+func closeLinks(links []link.Link) {
+	for _, l := range links {
+		l.Close()
+	}
 }
