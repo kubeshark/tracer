@@ -92,7 +92,7 @@ func (m *MountHostOnce) Mount() error {
 		if empty {
 			errRA := os.RemoveAll(m.target) // best effort for cleanup
 			if errRA != nil {
-				//TODO logger.Errorw("Removing all", "error", errRA)
+				log.Error().Msg(fmt.Sprintf("Removing all", "error", errRA))
 			}
 		}
 	}
@@ -172,7 +172,7 @@ func IsFileSystemSupported(fsType string) (bool, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			//TODO logger.Errorw("Closing file", "error", err)
+			log.Error().Msg(fmt.Sprintf("Closing file: error: %v", err))
 		}
 	}()
 
@@ -194,20 +194,17 @@ func IsFileSystemSupported(fsType string) (bool, error) {
 func SearchMountpointFromHost(fstype string, search string) (string, error) {
 	mp := ""
 
-	fmt.Printf("SEARCH 0\n")
 	file, err := os.Open(procMounts)
 	if err != nil {
 		return "", errfmt.WrapError(err)
 	}
-	fmt.Printf("SEARCH 1\n")
 	defer func() {
 		if err := file.Close(); err != nil {
-			//TODO logger.Errorw("Closing file", "error", err)
+			log.Error().Msg(fmt.Sprintf("Closing file: error: %v", err))
 		}
 	}()
 
 	scanner := bufio.NewScanner(file)
-	fmt.Printf("SEARCH 2\n")
 	for scanner.Scan() {
 		line := strings.Split(scanner.Text(), " ")
 		mountRoot := line[3]
@@ -223,13 +220,11 @@ func SearchMountpointFromHost(fstype string, search string) (string, error) {
 		//    For example, if we are searching for /sys/fs/cgroup, we want to
 		//    be sure that it is not actually .../sys/fs/cgroup, but strictly
 		//    the searched path.
-		fmt.Printf("SEARCH 3 fstype: %v:%v mountpoint: %v search: %v mountroot: %v\n", fstype, currFstype, mountpoint, search, mountRoot)
 		if fstype == currFstype && strings.Contains(mountpoint, search) && mountRoot == "/" {
 			mp = mountpoint
 			break
 		}
 	}
-	fmt.Printf("SEARCH 4: %v\n", mp)
 
 	return mp, nil
 }
@@ -241,7 +236,7 @@ func isDirEmpty(pathname string) (bool, error) {
 	}
 	defer func() {
 		if err := dir.Close(); err != nil {
-			//TODO logger.Errorw("Closing file", "error", err)
+			log.Error().Msg(fmt.Sprintf("Closing file: error: %v", err))
 		}
 	}()
 

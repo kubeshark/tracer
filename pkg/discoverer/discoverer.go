@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"unsafe"
 
@@ -39,7 +38,6 @@ type InternalEventsDiscovererImpl struct {
 	readerFoundCgroup  *perf.Reader
 
 	cgroupsController cgroup.CgroupsController
-	containersInfoMtx sync.Mutex
 	pids              *pids
 }
 
