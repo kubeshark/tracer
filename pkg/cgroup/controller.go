@@ -79,13 +79,21 @@ func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint6
 
 	e.containerMtx.Lock()
 	defer e.containerMtx.Unlock()
-	//TODO: check same already exists
 	if !e.containerToCgroup.Contains(containerID) {
 		e.containerToCgroup.Add(containerID, []CgroupInfo{item})
 	} else {
 		v, _ := e.containerToCgroup.Get(containerID)
-		v = append(v, item)
-		e.containerToCgroup.Add(containerID, v)
+		found := false
+		for _, it := range v {
+			if it.CgroupID == item.CgroupID && it.CgroupPath == item.CgroupPath {
+				found = true
+				break
+			}
+		}
+		if !found {
+			v = append(v, item)
+			e.containerToCgroup.Add(containerID, v)
+		}
 	}
 
 	ok = true
@@ -159,10 +167,19 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error 
 					continue
 				}
 				if err := inodeMap.Update(inode, cgroup.CgroupID, ebpf.UpdateNoExist); err != nil {
-					log.Error().Err(err).Msg("Update inodemap failed")
-					break
+					if errors.Is(err, ebpf.ErrKeyExist) {
+						// two processes in the same cgroup can share one socket
+						var cgroupExist uint64
+						if err := inodeMap.Lookup(inode, &cgroupExist); err != nil {
+							log.Error().Err(err).Str("Cgroup Path", cgroup.CgroupPath).Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Msg("Lookup inodemap failed")
+						}
+						if cgroup.CgroupID != cgroupExist {
+							log.Error().Err(err).Str("Cgroup Path", cgroup.CgroupPath).Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Uint64("Cgroup ID exists", cgroupExist).Msg("Update inodemap failed")
+						}
+					}
+				} else {
+					log.Debug().Str("Cgroup Path", cgroup.CgroupPath).Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Msg("Found socket inode")
 				}
-				log.Debug().Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Msg("Found socket inode")
 			}
 		}
 	}
