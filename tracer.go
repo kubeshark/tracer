@@ -121,7 +121,6 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs delete failed")
 					return err
 				}
-			} else {
 			}
 		}
 		log.Info().Str("pod", pod.Name).Msg("Detached pod:")
