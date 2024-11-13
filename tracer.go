@@ -117,8 +117,11 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 			t.eventsDiscoverer.UntargetCgroup(cInfo.cgroupID)
 
 			if err := t.bpfObjects.BpfObjs.CgroupIds.Delete(cInfo.cgroupID); err != nil {
-				log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs delete failed")
-				return err
+				if !errors.Is(err, ebpf.ErrKeyNotExist) {
+					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs delete failed")
+					return err
+				}
+			} else {
 			}
 		}
 		log.Info().Str("pod", pod.Name).Msg("Detached pod:")
@@ -136,7 +139,7 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 				pd.containers = append(pd.containers, cInfo)
 
 				if err := t.bpfObjects.BpfObjs.CgroupIds.Update(cInfo.cgroupID, uint32(0), ebpf.UpdateAny); err != nil {
-					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs update failed")
+					log.Error().Err(err).Str("Cgroup Path", cInfo.cgroupPath).Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs update failed")
 					return err
 				}
 
