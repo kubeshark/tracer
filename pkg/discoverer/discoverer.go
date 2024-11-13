@@ -20,8 +20,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// ----------------------------------------------------------------------
-
 type InternalEventsDiscoverer interface {
 	Start() error
 	TargetCgroup(cgroupId uint64)
@@ -122,7 +120,7 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		}
 
 		if cgroupID, contId, ok := e.cgroupsController.AddCgroupPath(s); ok {
-			log.Info().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("Initial cgroup is detected") //XXX:debug
+			log.Debug().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("Initial cgroup is detected")
 		}
 
 		return nil
@@ -141,7 +139,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
-				log.Info().Msg("found openssl handler is closed")
+				log.Warn().Msg("found openssl handler is closed")
 				return
 			}
 
@@ -149,7 +147,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 			return
 		}
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Buffer is full, dropped %d libssl entry", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d libssl entry", record.LostSamples))
 			continue
 		}
 
@@ -213,7 +211,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
-				log.Info().Msg("found cgroupv2 handler is closed")
+				log.Error().Msg("found cgroupv2 handler is closed")
 				return
 			}
 
@@ -221,7 +219,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 			return
 		}
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Buffer is full, dropped %d cgroupv2 entry", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d cgroupv2 entry", record.LostSamples))
 			continue
 		}
 

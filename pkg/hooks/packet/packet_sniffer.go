@@ -36,13 +36,15 @@ func NewPacketFilter(procfs string, bpfObjs bpf.TracerObjects, cgroupsController
 		bpfObjs:      bpfObjs,
 	}
 
-	if enabled && !isCgroupV2 {
-		if _, err := pf.attachPod("0", cgroupsController.GetCgroupV2MountPoint()); err != nil {
-			return nil, err
+	if enabled {
+		if isCgroupV2 {
+			log.Info().Msg("Using eBPF packet capture for Cgroup V2")
+		} else {
+			if _, err := pf.attachPod("0", cgroupsController.GetCgroupV2MountPoint()); err != nil {
+				return nil, err
+			}
+			log.Info().Msg("Using eBPF packet capture for Cgroup V1")
 		}
-		log.Info().Msg("Using eBPF packet capture for Cgroup V1")
-	} else {
-		log.Info().Msg("Using eBPF packet capture for Cgroup V2")
 	}
 
 	return pf, nil
