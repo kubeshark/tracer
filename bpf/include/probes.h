@@ -20,9 +20,6 @@ Copyright (C) Kubeshark
 #define MAX_PATH_COMPONENTS 20
 #define MAX_STRING_SIZE 4096 // same as PATH_MAX
 
-const volatile __u64 KERNEL_VERSION = 0;
-const volatile __u64 CGROUP_V1 = 0;
-const volatile __u64 HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns = 0;
 
 typedef struct simple_buf
 {
@@ -338,5 +335,6 @@ statfunc __u64 compat_get_current_cgroup_id(struct task_struct *t)
 
     return bpf_get_current_cgroup_id();
 }
+
 
 #undef statfunc

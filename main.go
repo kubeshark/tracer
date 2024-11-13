@@ -7,6 +7,7 @@ import (
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -91,6 +92,11 @@ func main() {
 	runtimeDebug.SetPanicOnFault(true)
 	defer func() {
 		if err := recover(); err != nil {
+			stackTrace := string(runtimeDebug.Stack())
+
+			for _, line := range strings.Split(stackTrace, "\n") {
+				log.Error().Msg(line)
+			}
 			log.Fatal().Err(fmt.Errorf("panic: %v", err)).Send()
 		}
 	}()

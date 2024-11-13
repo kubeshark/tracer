@@ -9,31 +9,30 @@ import (
 	"os"
 
 	"github.com/cilium/ebpf/perf"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
-	"github.com/kubeshark/tracer/pkg/discoverer"
+	"github.com/kubeshark/tracer/pkg/cgroup"
 	"github.com/kubeshark/tracer/pkg/events"
 	"github.com/kubeshark/tracer/socket"
 	"github.com/rs/zerolog/log"
 )
 
 type SyscallEventsTracer struct {
-	cgroupsInfo *lru.Cache[discoverer.CgroupID, discoverer.ContainerID]
-	eventReader *perf.Reader
-	eventSocket *socket.SocketEvent
+	cgroupController cgroup.CgroupsController
+	eventReader      *perf.Reader
+	eventSocket      *socket.SocketEvent
 }
 
-func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupsInfo *lru.Cache[discoverer.CgroupID, discoverer.ContainerID]) (*SyscallEventsTracer, error) {
+func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController) (*SyscallEventsTracer, error) {
 	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize())
 	if err != nil {
 		return nil, fmt.Errorf("open events perf buffer failed")
 	}
 
 	return &SyscallEventsTracer{
-		cgroupsInfo: cgroupsInfo,
-		eventReader: reader,
-		eventSocket: socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
+		cgroupController: cgroupController,
+		eventReader:      reader,
+		eventSocket:      socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
 	}, nil
 }
 
@@ -96,7 +95,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 
 		var e events.SyscallEvent
 		e.SyscallEventMessage = ev
-		contID, _ := t.cgroupsInfo.Get(discoverer.CgroupID(ev.CgroupID))
+		contID := t.cgroupController.GetContainerID(ev.CgroupID)
 		e.ContainerID = string(contID)
 
 		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v container id: %v",

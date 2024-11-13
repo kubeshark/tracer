@@ -11,6 +11,12 @@ Copyright (C) Kubeshark
 
 const __s32 invalid_fd = -1;
 
+const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
+const volatile __u64 TRACER_NS_INO = 0;
+const volatile __u64 KERNEL_VERSION = 0;
+const volatile __u64 CGROUP_V1 = 0;
+const volatile __u64 HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns = 0;
+
 static int add_address_to_chunk(struct pt_regs* ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info);
 static void send_chunk_part(struct pt_regs* ctx, uintptr_t buffer, __u64 id, struct tls_chunk* chunk, int start, int end);
 static void send_chunk(struct pt_regs* ctx, uintptr_t buffer, __u64 id, struct tls_chunk* chunk);

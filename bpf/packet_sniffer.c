@@ -40,8 +40,9 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 #include "include/log.h"
 #include "include/logger_messages.h"
 #include "include/common.h"
+#include "include/cgroups.h"
 
-const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
+#include "packet_sniffer_v1.c"
 
 /*
     defining ENABLE_TRACE_PACKETS enables tracing into kernel cyclic buffer
@@ -51,19 +52,20 @@ const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
 // #define ENABLE_TRACE_PACKETS
 
 #ifdef ENABLE_TRACE_PACKETS
-#define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)                                                                             \
-    bpf_printk("PKT " NAME " skb: %p len: %d ret: %d, cgroup: %d cookie:0x%x", skb, (IS_CGROUP ? (skb->len + 14) : skb->len), ret, CGROUP_ID, bpf_get_socket_cookie(skb)); \
-    bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP));                                                                                  \
-    {                                                                                                                                                                      \
-        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                                                                                                        \
-        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                                                                                                                      \
-        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);                                                                        \
-    }                                                                                                                                                                      \
-    bpf_printk("PKT " NAME " ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip));                                                                                             \
-    {                                                                                                                                                                      \
-        __u32 __src_port = bpf_ntohl(src_port);                                                                                                                            \
-        __u32 __dst_port = bpf_ntohl(dst_port);                                                                                                                            \
-        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port);                                                                                  \
+#define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)              \
+    bpf_printk("PKT " NAME " skb: %p len: %d ret: %d", skb, (IS_CGROUP ? (skb->len + 14) : skb->len), ret); \
+    bpf_printk("PKT " NAME " cgroup: %d cookie:0x%x", CGROUP_ID, bpf_get_socket_cookie(skb));               \
+    bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP));                   \
+    {                                                                                                       \
+        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                                         \
+        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                                                       \
+        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);         \
+    }                                                                                                       \
+    bpf_printk("PKT " NAME " ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip));                              \
+    {                                                                                                       \
+        __u32 __src_port = bpf_ntohl(src_port);                                                             \
+        __u32 __dst_port = bpf_ntohl(dst_port);                                                             \
+        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port);                   \
     }
 #define TRACE_PACKET_SENT(NAME) \
     bpf_printk("PKT " NAME " sent");
@@ -78,79 +80,51 @@ const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
 
 #define ETH_P_IP 0x0800
 
-static __always_inline void save_packet(struct __sk_buff *skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
+static __always_inline void save_packet(struct __sk_buff *skb, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
 static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc, __u32 *src_ip4, __u16 *src_port, __u32 *dst_ip4, __u16 *dst_port, __u8 *ipp);
 
-// TODO: remove cookies from the socket_cookies map on socket close,
-// untill this LRU performs cleaning
-
-int reported_cookie_error = 0;
-static __always_inline __u64 get_socket_cookie(struct __sk_buff *skb)
-{
-    __u64 cookie = bpf_get_socket_cookie(skb);
-    if (!cookie && !reported_cookie_error)
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 100, 0l, 0l);
-        reported_cookie_error = 1;
-    }
-
-    return cookie;
-}
-
-static __always_inline int filter_packets(struct __sk_buff *skb, __u8 side)
+static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxmap, __u8 side)
 {
     if (DISABLE_EBPF_CAPTURE)
         return 1;
     if (capture_disabled())
         return 1;
 
-    __u64 cookie = get_socket_cookie(skb);
-    if (!cookie)
+    __u64 cgroup_id = 0;
+    if (CGROUP_V1)
+    {
+        cgroup_id = get_packet_cgroup(skb, cgrpctxmap);
+    }
+    else
+    {
+        cgroup_id = bpf_skb_cgroup_id(skb);
+    }
+
+    if (cgroup_id == 0 || !should_target_cgroup(cgroup_id))
+    {
         return 1;
+    }
 
     __u32 src_ip = 0;
     __u16 src_port = 0;
     __u32 dst_ip = 0;
     __u16 dst_port = 0;
     int ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, NULL);
-    TRACE_PACKET("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, bpf_skb_cgroup_id(skb));
     if (!ret)
     {
         return 1;
     }
 
-    struct socket_cookie_data init_data = {
-        .cgroup_id = bpf_skb_cgroup_id(skb),
-        .src_ip = src_ip,
-        .dst_ip = dst_ip,
-        .src_port = src_port,
-        .dst_port = dst_port,
-        .side = side,
-    };
-    bpf_map_update_elem(&socket_cookies, &cookie, &init_data, BPF_NOEXIST);
-    struct socket_cookie_data *data = bpf_map_lookup_elem(&socket_cookies, &cookie);
-    if (!data)
+    if (side == PACKET_DIRECTION_RECEIVED)
     {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 101, 0l, 0l);
-        return 1;
-    }
-
-    if (data->side == side)
-    {
-        src_ip = data->src_ip;
-        src_port = data->src_port;
-        dst_ip = data->dst_ip;
-        dst_port = data->dst_port;
+        TRACE_PACKET("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
     }
     else
     {
-        src_ip = data->dst_ip;
-        src_port = data->dst_port;
-        dst_ip = data->src_ip;
-        dst_port = data->src_port;
+        TRACE_PACKET("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
     }
 
-    save_packet(skb, 0, src_ip, src_port, dst_ip, dst_port, bpf_skb_cgroup_id(skb), side);
+    save_packet(skb, src_ip, src_port, dst_ip, dst_port, cgroup_id, side);
 
     return 1;
 }
@@ -158,19 +132,18 @@ static __always_inline int filter_packets(struct __sk_buff *skb, __u8 side)
 SEC("cgroup_skb/ingress")
 int filter_ingress_packets(struct __sk_buff *skb)
 {
-    return filter_packets(skb, PACKET_DIRECTION_RECEIVED);
+    return filter_packets(skb, &cgrpctxmap_in, PACKET_DIRECTION_RECEIVED);
 }
 
 SEC("cgroup_skb/egress")
 int filter_egress_packets(struct __sk_buff *skb)
 {
-    return filter_packets(skb, PACKET_DIRECTION_SENT);
+    return filter_packets(skb, &cgrpctxmap_eg, PACKET_DIRECTION_SENT);
 }
 
 struct pkt_sniffer_ctx
 {
     struct __sk_buff *skb;
-    __u32 offset;
     __u32 rewrite_ip_src;
     __u16 rewrite_port_src;
     __u32 rewrite_ip_dst;
@@ -180,11 +153,10 @@ struct pkt_sniffer_ctx
 };
 
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx);
-static __always_inline void save_packet(struct __sk_buff *skb, __u32 offset, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction)
+static __always_inline void save_packet(struct __sk_buff *skb, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction)
 {
     struct pkt_sniffer_ctx ctx = {
         .skb = skb,
-        .offset = offset,
         .rewrite_ip_src = rewrite_ip_src,
         .rewrite_port_src = rewrite_port_src,
         .rewrite_ip_dst = rewrite_ip_dst,
@@ -195,12 +167,9 @@ static __always_inline void save_packet(struct __sk_buff *skb, __u32 offset, __u
     return _save_packet(&ctx);
 }
 
-// TODO: remove offset:
-//  mark _save_packet as _noinline to make BPF-to-BPF call
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
 {
     struct __sk_buff *skb = ctx->skb;
-    __u32 offset = ctx->offset;
     __u32 rewrite_ip_src = ctx->rewrite_ip_src;
     __u16 rewrite_port_src = ctx->rewrite_port_src;
     __u32 rewrite_ip_dst = ctx->rewrite_ip_dst;
@@ -218,11 +187,6 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
 
     p->tot_len = skb->len;
     p->counter = skb->len;
-
-    if (p->counter < offset)
-    {
-        return;
-    }
 
     if (p->counter == 0)
     {
