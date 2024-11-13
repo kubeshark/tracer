@@ -1,6 +1,8 @@
 package ssl
 
 import (
+	"path/filepath"
+
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -23,6 +25,11 @@ type SslHooks struct {
 var hookInodes, _ = lru.New[uint64, uint32](16384)
 
 func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath string) error {
+	var isEnvoy bool
+	if filepath.Base(sslLibraryPath) == "envoy" {
+		isEnvoy = true
+	}
+
 	ino, err := utils.GetInode(sslLibraryPath)
 	if err != nil {
 		return err
@@ -37,12 +44,15 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 		return errors.Wrap(err, 0)
 	}
 
+	if isEnvoy {
+		return s.installEnvoySslHooks(bpfObjects, sslLibrary)
+	}
+
 	return s.installSslHooks(bpfObjects, sslLibrary)
 }
 
 func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.Executable) error {
 	var err error
-
 	s.sslWriteProbe, err = sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
 
 	if err != nil {
@@ -86,6 +96,36 @@ func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.
 	}
 
 	s.sslReadExRetProbe, err = sslLibrary.Uretprobe("SSL_read_ex", bpfObjects.BpfObjs.SslRetReadEx, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	return nil
+}
+
+func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.Executable) error {
+	var err error
+
+	s.sslWriteProbe, err = sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.sslWriteRetProbe, err = sslLibrary.Uretprobe("SSL_write", bpfObjects.BpfObjs.SslRetWrite, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.sslReadProbe, err = sslLibrary.Uprobe("SSL_read", bpfObjects.BpfObjs.SslRead, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
+	s.sslReadRetProbe, err = sslLibrary.Uretprobe("SSL_read", bpfObjects.BpfObjs.SslRetRead, nil)
 
 	if err != nil {
 		return errors.Wrap(err, 0)
