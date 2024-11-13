@@ -80,23 +80,11 @@ func (t *PacketFilter) attachPod(uuid, cgroupV2Path string) (bool, error) {
 		return nil
 	}
 
-	if err := addLink(ebpf.AttachCGroupInetSockCreate, t.bpfObjs.FilterSockCreate); err != nil {
-		return false, err
-	}
-
-	if err := addLink(ebpf.AttachCgroupInetSockRelease, t.bpfObjs.FilterSockRelease); err != nil {
-		return false, err
-	}
-
 	if err := addLink(ebpf.AttachCGroupInetIngress, t.bpfObjs.FilterIngressPackets); err != nil {
 		return false, err
 	}
 
 	if err := addLink(ebpf.AttachCGroupInetEgress, t.bpfObjs.FilterEgressPackets); err != nil {
-		return false, err
-	}
-
-	if err := addLink(ebpf.AttachCGroupInet4Bind, t.bpfObjs.FilterSockBind); err != nil {
 		return false, err
 	}
 

@@ -357,18 +357,6 @@ func (p *pids) scanPidsV1() error {
 			continue
 		}
 
-		/*
-			id, _ := GetContainerIdFromCgroupPath(cgroupPath)
-			if id == "" {
-				continue
-			}
-
-			cis, ok := p.containersInfo.Get(ContainerID(id))
-			if !ok {
-				continue
-			}
-		*/
-
 		for _, ci := range p.cgroupsController.GetExistingCgroupsByCgroupPath(cgroupPath) {
 			pEvent := foundPidEvent{
 				cgroup: uint64(ci.CgroupID),

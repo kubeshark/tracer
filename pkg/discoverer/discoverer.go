@@ -122,12 +122,17 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 		}
 
 		if cgroupID, contId, ok := e.cgroupsController.AddCgroupPath(s); ok {
-			log.Debug().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("Initial cgroup is detected")
+			log.Info().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("Initial cgroup is detected") //XXX:debug
 		}
 
 		return nil
 	}
 	_ = filepath.WalkDir("/sys/fs/cgroup", walk)
+
+	// scan all existing pids to find out all opened inodes of sockets
+	if err := e.cgroupsController.PopulateSocketsInodes(e.bpfObjects.BpfObjs.Inodemap); err != nil {
+		log.Error().Err(err).Msg("Populate sockets inodes failed")
+	}
 }
 
 func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {

@@ -57,7 +57,7 @@ func (t *Tracer) Init(
 		return err
 	}
 
-	t.cgroupsController = cgroup.NewCgroupsController()
+	t.cgroupsController = cgroup.NewCgroupsController(procfs)
 	if t.cgroupsController == nil {
 		return fmt.Errorf("cgroups controller create failed")
 	}
@@ -163,19 +163,6 @@ func (t *Tracer) Deinit() error {
 		return err
 	}
 
-	/*
-		if t.cgroups != nil {
-			if err = t.cgroups.Close(); err != nil {
-				return err
-			}
-		}
-
-		if t.containers != nil {
-			if err = t.containers.Close(); err != nil {
-				return err
-			}
-		}
-	*/
 	if t.cgroupsController != nil {
 		if err = t.cgroupsController.Close(); err != nil {
 			return err

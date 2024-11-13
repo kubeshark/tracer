@@ -1,15 +1,25 @@
 package cgroup
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 
+	"github.com/cilium/ebpf"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 )
+
+var socketRegex = regexp.MustCompile(`socket:\[(\d+)\]`)
 
 type CgroupInfo struct {
 	CgroupPath string
@@ -19,6 +29,7 @@ type CgroupInfo struct {
 type CgroupsController interface {
 	EbpfCapturePossible() bool
 	AddCgroupPath(cgroupPath string) (cgroupID uint64, containerID string, ok bool)
+	PopulateSocketsInodes(inodeMap *ebpf.Map) error
 	DelCgroupID(cgroupID uint64)
 	GetContainerID(cgroupID uint64) (containerID string)
 	GetCgroupsV2(containerId string) []CgroupInfo
@@ -28,6 +39,7 @@ type CgroupsController interface {
 }
 
 type CgroupsControllerImpl struct {
+	procfs            string
 	cgroupToContainer *lru.Cache[uint64, string]
 
 	containerToCgroup *lru.Cache[string, []CgroupInfo]
@@ -116,11 +128,102 @@ func (e *CgroupsControllerImpl) GetCgroupV2MountPoint() string {
 	return e.cgroup.mountpoint
 }
 
+func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error {
+	getContId := func(pid string) string {
+		path := filepath.Join(e.procfs, pid, "cgroup")
+		file, err := os.Open(path)
+		if err != nil {
+			return ""
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, ":cpuset:") {
+				continue
+			}
+			items := strings.Split(line, ":")
+			cgroupPath := items[len(items)-1]
+			containerID, _ := getContainerIdByCgroupPath(cgroupPath)
+			return containerID
+		}
+
+		return ""
+	}
+
+	extractInode := func(socketId string, cgroups []CgroupInfo) {
+		if inode, err := strconv.ParseUint(socketId, 10, 64); err == nil {
+			for _, cgroup := range cgroups {
+				if !strings.Contains(cgroup.CgroupPath, "/sys/fs/cgroup/cpuset") {
+					continue
+				}
+				if err := inodeMap.Update(inode, cgroup.CgroupID, ebpf.UpdateNoExist); err != nil {
+					log.Error().Err(err).Msg("Update inodemap failed")
+					break
+				}
+				log.Debug().Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Msg("Found socket inode")
+			}
+		}
+	}
+
+	findProcessSockets := func(prefix string, files []os.DirEntry, cgroups []CgroupInfo) {
+		for _, file := range files {
+			link, err := os.Readlink(filepath.Join(prefix, file.Name()))
+			if err != nil {
+				// some files can be unaccessable
+				continue
+			}
+			match := socketRegex.FindStringSubmatch(link)
+			if match != nil {
+				extractInode(match[1], cgroups)
+			}
+		}
+
+	}
+
+	procDir, err := os.Open(e.procfs)
+	if err != nil {
+		return err
+	}
+	defer procDir.Close()
+
+	for {
+		entries, err := procDir.Readdirnames(100) // to prevent consuming memory
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+
+		for _, entry := range entries {
+			if _, err := strconv.Atoi(entry); err != nil {
+				continue
+			}
+			containerID := getContId(entry)
+			if containerID == "" {
+				continue
+			}
+			if cgroups, ok := e.containerToCgroup.Get(containerID); ok {
+				fdPath := filepath.Join(e.procfs, entry, "fd")
+				files, err := os.ReadDir(fdPath)
+				if err != nil {
+					// process can be already terminated
+					continue
+				}
+
+				findProcessSockets(fdPath, files, cgroups)
+			}
+		}
+	}
+}
+
 func (e *CgroupsControllerImpl) Close() error {
 	return nil
 }
 
-func NewCgroupsController() CgroupsController {
+func NewCgroupsController(procfs string) CgroupsController {
 	var err error
 	cgroupToContainer, err := lru.New[uint64, string](16384)
 	if err != nil {
@@ -170,6 +273,7 @@ func NewCgroupsController() CgroupsController {
 	}
 
 	return &CgroupsControllerImpl{
+		procfs:              procfs,
 		cgroupToContainer:   cgroupToContainer,
 		containerToCgroup:   containerToCgroup,
 		cgroup:              cgroupV2.(*CgroupV2),

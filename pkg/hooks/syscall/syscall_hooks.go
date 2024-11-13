@@ -138,6 +138,24 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
+	if err = s.addKprobe("security_socket_recvmsg", bpfObjects.SecuritySocketRecvmsg); err != nil {
+		return err
+	}
+
+	if err = s.addKprobe("security_socket_sendmsg", bpfObjects.SecuritySocketSendmsg); err != nil {
+		return err
+	}
+	if err = s.addKprobe("__cgroup_bpf_run_filter_skb", bpfObjects.CgroupBpfRunFilterSkb); err != nil {
+		return err
+	}
+
+	if err = s.addKprobe("sock_alloc_file", bpfObjects.SockAllocFile); err != nil {
+		return err
+	}
+	if err = s.addKretprobe("sock_alloc_file", bpfObjects.SockAllocFileRet); err != nil {
+		return err
+	}
+
 	if err = s.addKprobe("security_path_mkdir", bpfObjects.SecurityPathMkdir); err != nil {
 		log.Warn().Err(err).Msg("security_path_mkdir can not be attached. Probably system is running on incomatible kernel")
 	}

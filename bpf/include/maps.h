@@ -190,8 +190,5 @@ BPF_LRU_HASH(go_kernel_write_context, __u64, __u32);
 BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
-BPF_LRU_HASH_BIG(socket_cookies, __u64, struct socket_cookie_data);
-BPF_LRU_HASH_BIG(all_binds, __u64, __u64); // bind_sk -> cgroup_id
-BPF_LRU_HASH_BIG(all_sks, __u64, __u64); // sk -> cgroup_id
 
 #endif /* __MAPS__ */
