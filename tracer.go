@@ -143,12 +143,12 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 				}
 
 				if ok, err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath); err != nil {
-					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
-					return err
+					log.Warn().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Str("Cgroup path", cInfo.cgroupPath).Str("pod", pod.Name).Msg("Attach pod to cgroup failed:")
+					_ = t.bpfObjects.BpfObjs.CgroupIds.Delete(cInfo.cgroupID)
+					continue
 				} else if ok {
 					log.Info().Str("pod", pod.Name).Msg("Attached pod to cgroup:")
 				}
-
 				t.eventsDiscoverer.TargetCgroup(cInfo.cgroupID)
 				log.Info().Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup has been targeted")
 			}
