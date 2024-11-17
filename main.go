@@ -110,7 +110,7 @@ func run() {
 	log.Info().Msg("Starting tracer...")
 
 	if err := checkMountedTracerInfo(); err != nil {
-		log.Error().Msg("bpffs or debugfs are not available. Tracer is disabled")
+		log.Error().Msg("bpffs or debugfs is not available. Tracer is disabled")
 		select {}
 	}
 
