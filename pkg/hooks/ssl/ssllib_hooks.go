@@ -19,6 +19,7 @@ type SslHooks struct {
 	sslWriteExRetProbe link.Link
 	sslReadExProbe     link.Link
 	sslReadExRetProbe  link.Link
+	sslPendingProbe    link.Link
 }
 
 // TODO: incapsulate, add devuce id to the key, delete on file is deleted
@@ -101,6 +102,12 @@ func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.
 		return errors.Wrap(err, 0)
 	}
 
+	s.sslPendingProbe, err = sslLibrary.Uprobe("SSL_pending", bpfObjects.BpfObjs.SslPending, nil)
+
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
 	return nil
 }
 
@@ -173,6 +180,12 @@ func (s *SslHooks) Close() []error {
 
 	if s.sslReadExRetProbe != nil {
 		if err := s.sslReadExRetProbe.Close(); err != nil {
+			returnValue = append(returnValue, err)
+		}
+	}
+
+	if s.sslPendingProbe != nil {
+		if err := s.sslPendingProbe.Close(); err != nil {
 			returnValue = append(returnValue, err)
 		}
 	}

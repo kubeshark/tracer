@@ -154,3 +154,9 @@ SEC("uretprobe/ssl_read_ex")
 void BPF_KPROBE(ssl_ret_read_ex) {
 	ssl_uretprobe(ctx, &openssl_read_context, FLAGS_IS_READ_BIT);
 }
+
+SEC("uprobe/ssl_pending")
+void BPF_KPROBE(ssl_pending, void* ssl) {
+	ssl_uprobe(ctx, ssl, 0, 0, &openssl_read_context, 0);
+}
+
