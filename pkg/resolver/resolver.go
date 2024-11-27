@@ -15,8 +15,6 @@ import (
 	"github.com/kubeshark/api"
 	"github.com/rs/zerolog/log"
 
-	"syscall"
-
 	"github.com/kubeshark/tracer/pkg/utils"
 )
 
