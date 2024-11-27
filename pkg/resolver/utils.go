@@ -1,0 +1,258 @@
+package resolver
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"os"
+
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+
+	"github.com/prometheus/procfs"
+	"github.com/rs/zerolog/log"
+	"github.com/vishvananda/netns"
+)
+
+type IpSocketLine struct {
+	Sl        uint64
+	LocalAddr net.IP
+	LocalPort uint64
+	RemAddr   net.IP
+	RemPort   uint64
+	St        uint64
+	TxQueue   uint64
+	RxQueue   uint64
+	UID       uint64
+	Inode     uint64
+}
+
+func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	var tcpConns procfs.NetTCP
+	getTcpConns := func() error {
+		fs, err := procfs.NewDefaultFS()
+		if err != nil {
+			return err
+		}
+
+		tcpConns, err = fs.NetTCP()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	var udpConns procfs.NetUDP
+	getUdpConns := func() error {
+		fs, err := procfs.NewDefaultFS()
+		if err != nil {
+			return err
+		}
+
+		udpConns, err = fs.NetUDP()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if proto == "tcp" {
+		if err = executeInNs("/hostproc", pid, getTcpConns); err != nil {
+			err = fmt.Errorf("execute tcp in ns failed for pid: %v error: %v", pid, err)
+			return
+		}
+		for _, c := range tcpConns {
+			d := IpSocketLine{
+				Sl:        c.Sl,
+				LocalAddr: c.LocalAddr,
+				LocalPort: c.LocalPort,
+				RemAddr:   c.RemAddr,
+				RemPort:   c.RemPort,
+				St:        c.St,
+				TxQueue:   c.TxQueue,
+				RxQueue:   c.RxQueue,
+				UID:       c.UID,
+				Inode:     c.Inode,
+			}
+			lines = append(lines, d)
+		}
+	} else if proto == "udp" {
+		if err = executeInNs("/hostproc", pid, getUdpConns); err != nil {
+			err = fmt.Errorf("execute udp in ns failed for pid: %v error: %v", pid, err)
+			return
+		}
+		for _, c := range udpConns {
+			d := IpSocketLine{
+				Sl:        c.Sl,
+				LocalAddr: c.LocalAddr,
+				LocalPort: c.LocalPort,
+				RemAddr:   c.RemAddr,
+				RemPort:   c.RemPort,
+				St:        c.St,
+				TxQueue:   c.TxQueue,
+				RxQueue:   c.RxQueue,
+				UID:       c.UID,
+				Inode:     c.Inode,
+			}
+			lines = append(lines, d)
+		}
+	}
+
+	return
+}
+
+func executeInNs(proc, pid string, cb func() error) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	nsh, err := netns.GetFromPath(fmt.Sprintf("%s/%s/ns/net", proc, pid))
+	if err != nil {
+		return fmt.Errorf("unable to get netns of pid: %v: %v", pid, err)
+	}
+
+	oldnetns, err := netns.Get()
+	if err != nil {
+		return fmt.Errorf("unable to get current netns: %v", err)
+	}
+
+	if err := netns.Set(nsh); err != nil {
+		return fmt.Errorf("failed to switch to target network namespace: %v\n", err)
+	}
+
+	if err := cb(); err != nil {
+		return err
+	}
+
+	if err := netns.Set(oldnetns); err != nil {
+		return fmt.Errorf("Failed to switch back to original network namespace: %v\n", err)
+	}
+	return nil
+}
+
+func getPidStatus(proc string, hostPid uint32) (status map[string]string, err error) {
+	status = make(map[string]string)
+	path := filepath.Join(proc, fmt.Sprintf("%v", hostPid), "status")
+	var file *os.File
+	file, err = os.Open(path)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Error().Msg(fmt.Sprintf("Closing file error: %v", err))
+		}
+	}()
+
+	scanner := bufio.NewScanner(file)
+	checkFields := map[string]struct{}{
+		"Name:":  struct{}{},
+		"PPid:":  struct{}{},
+		"NSpid:": struct{}{},
+	}
+
+	for scanner.Scan() {
+		line := strings.Fields(scanner.Text())
+		if len(line) < 2 {
+			continue
+		}
+		if _, ok := checkFields[line[0]]; ok {
+			status[line[0]] = line[len(line)-1]
+		}
+	}
+	for f := range checkFields {
+		if _, ok := status[f]; !ok {
+			err = fmt.Errorf("process status field %q not found, pid: %v", f, hostPid)
+			return
+		}
+	}
+
+	return
+}
+
+func getPidCgroup(proc string, hostPid uint32, isCgroupV2 bool) (cgroup string, err error) {
+	path := filepath.Join(proc, fmt.Sprintf("%v", hostPid), "cgroup")
+	var file *os.File
+	file, err = os.Open(path)
+	if err != nil {
+		return
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Error().Msg(fmt.Sprintf("Closing file error: %v", err))
+		}
+	}()
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.Split(scanner.Text(), ":")
+		if len(line) < 3 {
+			continue
+		}
+		if isCgroupV2 || strings.Contains(line[1], "cpuset") {
+			cgroup = line[2]
+			return
+		}
+	}
+
+	return
+}
+
+func getPidSocketInodes(proc string, pid uint32) (map[uint64]struct{}, error) {
+	fdPath := filepath.Join(proc, fmt.Sprintf("%v", pid), "fd")
+
+	fdDir, err := os.Open(fdPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open fd directory: %v", err)
+	}
+	defer fdDir.Close()
+
+	fds, err := fdDir.Readdirnames(0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read fd directory: %v", err)
+	}
+
+	socketInodes := make(map[uint64]struct{})
+
+	for _, fd := range fds {
+		fdLink := filepath.Join(fdPath, fd)
+		linkTarget, err := os.Readlink(fdLink)
+		if err != nil {
+			// Ignore errors for invalid file descriptors
+			continue
+		}
+
+		if strings.HasPrefix(linkTarget, "socket:[") {
+			inode := strings.TrimSuffix(strings.TrimPrefix(linkTarget, "socket:["), "]")
+			inodeNum, err := strconv.ParseUint(inode, 10, 64)
+			if err != nil {
+				continue
+			}
+			socketInodes[inodeNum] = struct{}{}
+		}
+	}
+
+	return socketInodes, nil
+}
+
+func resolveSymlinkWithoutValidation(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+
+	if info.Mode()&os.ModeSymlink == 0 {
+		return "", fmt.Errorf("path is not a symlink")
+	}
+
+	target, err := os.Readlink(path)
+	if err != nil {
+		return "", err
+	}
+
+	return target, nil
+}

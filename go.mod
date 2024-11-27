@@ -17,14 +17,17 @@ require (
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/golang-lru/v2 v2.0.2
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
+	github.com/kubeshark/api v1.1.31
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/moby/sys/mount v0.3.4
 	github.com/moby/sys/mountinfo v0.7.2
+	github.com/prometheus/procfs v0.15.1
 	github.com/rs/zerolog v1.32.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
+	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848
 	golang.org/x/sys v0.20.0
 	k8s.io/api v0.28.3
@@ -74,12 +77,10 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
-	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.23.0 // indirect
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
-	golang.org/x/sync v0.5.0 // indirect
 	golang.org/x/term v0.20.0 // indirect
 	golang.org/x/text v0.15.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
