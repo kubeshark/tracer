@@ -224,23 +224,6 @@ func getAllCgroups(procfs string, isCgroupV2 bool) (ret map[string]uint64, err e
 	return findCgroupsEndWith(pidPaths)
 }
 
-func getCgroupIDEntry(id uint64) (result string, err error) {
-	basePath := "/sys/fs/cgroup/"
-	err = filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
-		var stat syscall.Stat_t
-		if err := syscall.Stat(path, &stat); err != nil {
-			return err
-		}
-
-		if stat.Ino == id {
-			result = path
-			return nil
-		}
-		return nil
-	})
-	return
-}
-
 func findPIDsInCgroup(procfs string, isCgroupV2 bool, cgroupEntry string) ([]pidInfo, error) {
 	procDir, err := os.Open(procfs)
 	if err != nil {
