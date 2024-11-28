@@ -26,10 +26,10 @@ type Resolver interface {
 }
 
 type ResolverImpl struct {
-	procfs       string
-	isCgroupV2   bool
-	cgroupTCPMap connectionsMap
-	cgroupUDPMap connectionsMap
+	procfs     string
+	isCgroupV2 bool
+	tcpMap     connectionsMap
+	udpMap     connectionsMap
 }
 
 func NewResolver(procfs string) Resolver {
@@ -43,16 +43,19 @@ func NewResolver(procfs string) Resolver {
 	defer runtime.UnlockOSThread()
 
 	return &ResolverImpl{
-		procfs:       procfs,
-		isCgroupV2:   isCgroupV2,
-		cgroupTCPMap: getAllFlows(procfs, isCgroupV2, "tcp"),
-		cgroupUDPMap: getAllFlows(procfs, isCgroupV2, "udp"),
+		procfs:     procfs,
+		isCgroupV2: isCgroupV2,
+		tcpMap:     getAllFlows(procfs, isCgroupV2, "tcp"),
+		udpMap:     getAllFlows(procfs, isCgroupV2, "udp"),
 	}
 }
 
-func getIpPortPairKey(localIP, localPort, remoteIP, remotePort string) string {
-	// resolving by local IP and port
-	return fmt.Sprintf("%s%s", localIP, localPort)
+func getIpPortKey(localIP, localPort, remoteIP, remotePort string) string {
+	return fmt.Sprintf("%s%s%s%s", localIP, localPort, remoteIP, remotePort)
+}
+
+func getIpPortKeyLocal(localIP, localPort string) string {
+	return fmt.Sprintf("l%s%s", localIP, localPort)
 }
 
 type connectionResolution struct {
@@ -76,11 +79,16 @@ type pidInfo struct {
 	socketInodes  map[uint64]struct{}
 }
 
-type connectionsMap map[string]connectionResolution
+type connectionsMap map[string]*connectionResolution
 
-func resolveCgroupPair(connMap connectionsMap, localIP, localPort, remoteIP, remotePort string) *api.Resolution {
-	key := getIpPortPairKey(localIP, localPort, remoteIP, remotePort)
+func resolvePair(connMap connectionsMap, localIP, localPort, remoteIP, remotePort string) *api.Resolution {
+	log.Info().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Msg("looking resolution") //TODO: Debug
+	key := getIpPortKey(localIP, localPort, remoteIP, remotePort)
 	res, ok := connMap[key]
+	if !ok {
+		key = getIpPortKeyLocal(localIP, localPort)
+		res, ok = connMap[key]
+	}
 	if !ok {
 		return nil
 	}
@@ -93,15 +101,16 @@ func resolveCgroupPair(connMap connectionsMap, localIP, localPort, remoteIP, rem
 		HostParentProcessID: int(res.HostParentProcessID),
 		ProcessName:         res.ProcessName,
 	}
+	log.Info().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Interface("resolution", r).Msg("found resolution") //TODO: Debug
 	return &r
 }
 
 func (r *ResolverImpl) resolveTCP(localIP, localPort, remoteIP, remotePort string) *api.Resolution {
-	return resolveCgroupPair(r.cgroupTCPMap, localIP, localPort, remoteIP, remotePort)
+	return resolvePair(r.tcpMap, localIP, localPort, remoteIP, remotePort)
 }
 
 func (r *ResolverImpl) resolveUDP(localIP, localPort, remoteIP, remotePort string) *api.Resolution {
-	return resolveCgroupPair(r.cgroupUDPMap, localIP, localPort, remoteIP, remotePort)
+	return resolvePair(r.udpMap, localIP, localPort, remoteIP, remotePort)
 }
 
 func (r *ResolverImpl) ResolveSourceTCP(cInfo *api.ConnectionInfo) *api.Resolution {
@@ -127,12 +136,15 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 		log.Error().Err(err).Msg("get all cgroups failed")
 		return nil
 	}
+	log.Info().Int("cgroups", len(cgroups)).Str("proto", proto).Msg("got cgroups")
 	for cgroup, cgroupID := range cgroups {
 		pids, err := findPIDsInCgroup(procfs, isCgroupV2, cgroup)
 		if err != nil {
 			log.Debug().Msg(fmt.Sprintf("get pids for cgroup %q failed: %v", cgroup, err))
 			continue
 		}
+
+		log.Debug().Int("connections", len(pids)).Str("Cgroup", cgroup).Str("proto", proto).Msg("got pids")
 
 		var conns []IpSocketLine
 		for i := range pids {
@@ -172,8 +184,7 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 				continue
 			}
 
-			key := getIpPortPairKey(conn.LocalAddr.String(), fmt.Sprintf("%v", conn.LocalPort), conn.RemAddr.String(), fmt.Sprintf("%v", conn.RemPort))
-			res[key] = connectionResolution{
+			resolution := &connectionResolution{
 				CgroupID:            cgroupID,
 				SocketID:            conn.Inode,
 				ProcessID:           pidFound.pid,
@@ -182,6 +193,15 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 				HostParentProcessID: pidFound.hostParentPid,
 				ProcessName:         pidFound.name,
 				ProcessPath:         pidFound.path,
+			}
+
+			key := getIpPortKey(conn.LocalAddr.String(), fmt.Sprintf("%v", conn.LocalPort), conn.RemAddr.String(), fmt.Sprintf("%v", conn.RemPort))
+			res[key] = resolution
+			log.Debug().Str("Cgroup", cgroup).Str("proto", proto).Str("local IP", conn.LocalAddr.String()).Uint64("local Port", conn.LocalPort).Str("remote IP", conn.RemAddr.String()).Uint64("remote Port", conn.RemPort).Interface("resolution", resolution).Msg("saved resolution")
+
+			if conn.LocalAddr[0] != 127 { // save non-loopback locals
+				keyLocal := getIpPortKeyLocal(conn.LocalAddr.String(), fmt.Sprintf("%v", conn.LocalPort))
+				res[keyLocal] = resolution
 			}
 		}
 	}
@@ -219,7 +239,7 @@ func getAllCgroups(procfs string, isCgroupV2 bool) (ret map[string]uint64, err e
 		}
 	}
 
-	return findCgroupsEndWith(pidPaths)
+	return findCgroupsEndWith(isCgroupV2, pidPaths)
 }
 
 func findPIDsInCgroup(procfs string, isCgroupV2 bool, cgroupEntry string) ([]pidInfo, error) {
@@ -415,11 +435,14 @@ func findPidPaths(pidPaths map[string]struct{}, procfs string, isCgroupV2 bool, 
 	return nil
 }
 
-func findCgroupsEndWith(pidPaths map[string]struct{}) (paths map[string]uint64, err error) {
+func findCgroupsEndWith(isCgroupsV2 bool, pidPaths map[string]struct{}) (paths map[string]uint64, err error) {
 	paths = make(map[string]uint64)
 
 	basePath := "/sys/fs/cgroup/"
 	err = filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
+		if !isCgroupsV2 && !strings.HasPrefix(path, "/sys/fs/cgroup/cpuset") {
+			return nil
+		}
 		for pidPath := range pidPaths {
 			if strings.HasSuffix(path, pidPath) {
 				inode, err := utils.GetInode(path)

@@ -33,6 +33,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	var tcpConns procfs.NetTCP
+	var tcpConns6 procfs.NetTCP
 	getTcpConns := func() error {
 		fs, err := procfs.NewDefaultFS()
 		if err != nil {
@@ -43,10 +44,17 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		if err != nil {
 			return err
 		}
+
+		tcpConns6, err = fs.NetTCP6()
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 
 	var udpConns procfs.NetUDP
+	var udpConns6 procfs.NetUDP
 	getUdpConns := func() error {
 		fs, err := procfs.NewDefaultFS()
 		if err != nil {
@@ -57,6 +65,12 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		if err != nil {
 			return err
 		}
+
+		udpConns6, err = fs.NetUDP6()
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 
@@ -78,8 +92,35 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 				UID:       c.UID,
 				Inode:     c.Inode,
 			}
+			// pass only established connections
+			if c.St != 1 {
+				continue
+			}
 			lines = append(lines, d)
 		}
+		for _, c := range tcpConns6 {
+			if !isIPv4Mapped(c.LocalAddr) || !isIPv4Mapped(c.RemAddr) {
+				continue
+			}
+			d := IpSocketLine{
+				Sl:        c.Sl,
+				LocalAddr: c.LocalAddr.To4(),
+				LocalPort: c.LocalPort,
+				RemAddr:   c.RemAddr.To4(),
+				RemPort:   c.RemPort,
+				St:        c.St,
+				TxQueue:   c.TxQueue,
+				RxQueue:   c.RxQueue,
+				UID:       c.UID,
+				Inode:     c.Inode,
+			}
+			// pass only established connections
+			if c.St != 1 {
+				continue
+			}
+			lines = append(lines, d)
+		}
+
 	} else if proto == "udp" {
 		if err = executeInNs("/hostproc", pid, getUdpConns); err != nil {
 			err = fmt.Errorf("execute udp in ns failed for pid: %v error: %v", pid, err)
@@ -97,6 +138,32 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 				RxQueue:   c.RxQueue,
 				UID:       c.UID,
 				Inode:     c.Inode,
+			}
+			// pass only established connections
+			if c.St != 1 {
+				continue
+			}
+			lines = append(lines, d)
+		}
+		for _, c := range udpConns6 {
+			if !isIPv4Mapped(c.LocalAddr) || !isIPv4Mapped(c.RemAddr) {
+				continue
+			}
+			d := IpSocketLine{
+				Sl:        c.Sl,
+				LocalAddr: c.LocalAddr.To4(),
+				LocalPort: c.LocalPort,
+				RemAddr:   c.RemAddr.To4(),
+				RemPort:   c.RemPort,
+				St:        c.St,
+				TxQueue:   c.TxQueue,
+				RxQueue:   c.RxQueue,
+				UID:       c.UID,
+				Inode:     c.Inode,
+			}
+			// pass only established connections
+			if c.St != 1 {
+				continue
 			}
 			lines = append(lines, d)
 		}
@@ -255,4 +322,11 @@ func resolveSymlinkWithoutValidation(path string) (string, error) {
 	}
 
 	return target, nil
+}
+
+func isIPv4Mapped(ip net.IP) bool {
+	return ip.To4() != nil && len(ip) == net.IPv6len && ip[0] == 0 && ip[1] == 0 &&
+		ip[2] == 0 && ip[3] == 0 && ip[4] == 0 && ip[5] == 0 &&
+		ip[6] == 0 && ip[7] == 0 && ip[8] == 0 && ip[9] == 0 &&
+		ip[10] == 0xff && ip[11] == 0xff
 }
