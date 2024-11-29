@@ -58,7 +58,7 @@ func (e *CgroupsControllerImpl) EbpfCapturePossible() bool {
 func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint64, containerID string, ok bool) {
 	var err error
 
-	containerID, _ = getContainerIdByCgroupPath(cgroupPath)
+	containerID, _ = GetContainerIdByCgroupPath(cgroupPath)
 	if containerID == "" {
 		log.Debug().Str("path", cgroupPath).Msg("Can not get container id")
 		return
@@ -123,7 +123,7 @@ func (e *CgroupsControllerImpl) GetCgroupsV2(containerID string) (info []CgroupI
 }
 
 func (e *CgroupsControllerImpl) GetExistingCgroupsByCgroupPath(cgroupPath string) (info []CgroupInfo) {
-	containerID, _ := getContainerIdByCgroupPath(cgroupPath)
+	containerID, _ := GetContainerIdByCgroupPath(cgroupPath)
 	if containerID == "" {
 		return
 	}
@@ -148,12 +148,12 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(isCgroupV2 bool, inodeMap 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if !isCgroupV2 && !strings.Contains(line, ":pids:") {
+			if !isCgroupV2 && !strings.Contains(line, ":cpuset:") {
 				continue
 			}
 			items := strings.Split(line, ":")
 			cgroupPath := items[len(items)-1]
-			containerID, _ := getContainerIdByCgroupPath(cgroupPath)
+			containerID, _ := GetContainerIdByCgroupPath(cgroupPath)
 			return containerID
 		}
 

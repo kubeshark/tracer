@@ -15,6 +15,7 @@ import (
 	"github.com/kubeshark/api"
 	"github.com/rs/zerolog/log"
 
+	"github.com/kubeshark/tracer/pkg/cgroup"
 	"github.com/kubeshark/tracer/pkg/utils"
 )
 
@@ -82,7 +83,7 @@ type pidInfo struct {
 type connectionsMap map[string]*connectionResolution
 
 func resolvePair(connMap connectionsMap, localIP, localPort, remoteIP, remotePort string) *api.Resolution {
-	log.Info().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Msg("looking resolution") //TODO: Debug
+	log.Debug().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Msg("looking resolution")
 	key := getIpPortKey(localIP, localPort, remoteIP, remotePort)
 	res, ok := connMap[key]
 	if !ok {
@@ -101,7 +102,7 @@ func resolvePair(connMap connectionsMap, localIP, localPort, remoteIP, remotePor
 		HostParentProcessID: int(res.HostParentProcessID),
 		ProcessName:         res.ProcessName,
 	}
-	log.Info().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Interface("resolution", r).Msg("found resolution") //TODO: Debug
+	log.Debug().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Interface("resolution", r).Msg("found resolution")
 	return &r
 }
 
@@ -416,7 +417,9 @@ func findPidPaths(pidPaths map[string]struct{}, procfs string, isCgroupV2 bool, 
 			for strings.HasPrefix(path, "/..") {
 				path = path[3:]
 			}
-			pidPaths[path] = struct{}{}
+			if contId, _ := cgroup.GetContainerIdByCgroupPath(path); contId != "" {
+				pidPaths[path] = struct{}{}
+			}
 		}
 	} else {
 		for scanner.Scan() {

@@ -98,8 +98,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 		contID := t.cgroupController.GetContainerID(ev.CgroupID)
 		e.ContainerID = string(contID)
 
-		//XXX: Debug:
-		log.Info().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v container id: %v",
+		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v container id: %v",
 			evName,
 			toIP(e.IpSrc),
 			toPort(e.PortSrc),

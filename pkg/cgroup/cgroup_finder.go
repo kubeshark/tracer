@@ -25,7 +25,7 @@ var (
 )
 
 // Borrowed from https://github.com/aquasecurity/tracee/blob/main/pkg/containers/containers.go
-func getContainerIdByCgroupPath(cgroupPath string) (id string, runtime RuntimeId) {
+func GetContainerIdByCgroupPath(cgroupPath string) (id string, runtime RuntimeId) {
 	cgroupParts := strings.Split(cgroupPath, "/")
 
 	for i := len(cgroupParts) - 1; i >= 0; i = i - 1 {
