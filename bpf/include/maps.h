@@ -191,4 +191,7 @@ BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
 
+BPF_LRU_HASH(tcp_connect_context, __u64, __u32);
+BPF_LRU_HASH(tcp_accept_context, __u64, __u32);
+
 #endif /* __MAPS__ */

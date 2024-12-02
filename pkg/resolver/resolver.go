@@ -198,7 +198,7 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 
 			key := getIpPortKey(conn.LocalAddr.String(), fmt.Sprintf("%v", conn.LocalPort), conn.RemAddr.String(), fmt.Sprintf("%v", conn.RemPort))
 			res[key] = resolution
-			log.Debug().Str("Cgroup", cgroup).Str("proto", proto).Str("local IP", conn.LocalAddr.String()).Uint64("local Port", conn.LocalPort).Str("remote IP", conn.RemAddr.String()).Uint64("remote Port", conn.RemPort).Interface("resolution", resolution).Msg("saved resolution")
+			log.Debug().Str("Cgroup", cgroup).Str("proto", proto).Str("local IP", conn.LocalAddr.String()).Uint64("local Port", conn.LocalPort).Str("remote IP", conn.RemAddr.String()).Uint64("remote Port", conn.RemPort).Interface("resolution", resolution).Msg("saved static resolution")
 
 			if conn.LocalAddr[0] != 127 { // save non-loopback locals
 				keyLocal := getIpPortKeyLocal(conn.LocalAddr.String(), fmt.Sprintf("%v", conn.LocalPort))

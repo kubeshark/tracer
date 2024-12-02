@@ -14,6 +14,7 @@ type tcpKprobeHooks struct {
 	accept      link.Link
 	acceptRet   link.Link
 	accept4     link.Link
+	tcpClose    link.Link
 }
 
 func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *bpf.TracerObjects) error {
@@ -42,6 +43,11 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *bpf.TracerObjects) er
 	s.accept4, err = link.Kretprobe("do_accept", bpfObjects.DoAccept, nil)
 	if err != nil {
 		log.Warn().Err(err).Msg("do_accept can not be attached. Probably system is running on incomatible kernel")
+	}
+
+	s.tcpClose, err = link.Kprobe("tcp_close", bpfObjects.TcpClose, nil)
+	if err != nil {
+		return errors.Wrap(err, 0)
 	}
 
 	return nil
@@ -76,6 +82,12 @@ func (s *tcpKprobeHooks) close() []error {
 
 	if s.accept4 != nil {
 		if err := s.accept4.Close(); err != nil {
+			returnValue = append(returnValue, err)
+		}
+	}
+
+	if s.tcpClose != nil {
+		if err := s.tcpClose.Close(); err != nil {
 			returnValue = append(returnValue, err)
 		}
 	}
