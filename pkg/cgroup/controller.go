@@ -29,7 +29,7 @@ type CgroupInfo struct {
 type CgroupsController interface {
 	EbpfCapturePossible() bool
 	AddCgroupPath(cgroupPath string) (cgroupID uint64, containerID string, ok bool)
-	PopulateSocketsInodes(inodeMap *ebpf.Map) error
+	PopulateSocketsInodes(isCgroupV2 bool, inodeMap *ebpf.Map) error
 	DelCgroupID(cgroupID uint64)
 	GetContainerID(cgroupID uint64) (containerID string)
 	GetCgroupsV2(containerId string) []CgroupInfo
@@ -58,7 +58,7 @@ func (e *CgroupsControllerImpl) EbpfCapturePossible() bool {
 func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint64, containerID string, ok bool) {
 	var err error
 
-	containerID, _ = getContainerIdByCgroupPath(cgroupPath)
+	containerID, _ = GetContainerIdByCgroupPath(cgroupPath)
 	if containerID == "" {
 		log.Debug().Str("path", cgroupPath).Msg("Can not get container id")
 		return
@@ -123,7 +123,7 @@ func (e *CgroupsControllerImpl) GetCgroupsV2(containerID string) (info []CgroupI
 }
 
 func (e *CgroupsControllerImpl) GetExistingCgroupsByCgroupPath(cgroupPath string) (info []CgroupInfo) {
-	containerID, _ := getContainerIdByCgroupPath(cgroupPath)
+	containerID, _ := GetContainerIdByCgroupPath(cgroupPath)
 	if containerID == "" {
 		return
 	}
@@ -136,7 +136,7 @@ func (e *CgroupsControllerImpl) GetCgroupV2MountPoint() string {
 	return e.cgroup.mountpoint
 }
 
-func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error {
+func (e *CgroupsControllerImpl) PopulateSocketsInodes(isCgroupV2 bool, inodeMap *ebpf.Map) error {
 	getContId := func(pid string) string {
 		path := filepath.Join(e.procfs, pid, "cgroup")
 		file, err := os.Open(path)
@@ -148,22 +148,22 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			line := scanner.Text()
-			if !strings.Contains(line, ":cpuset:") {
+			if !isCgroupV2 && !strings.Contains(line, ":cpuset:") {
 				continue
 			}
 			items := strings.Split(line, ":")
 			cgroupPath := items[len(items)-1]
-			containerID, _ := getContainerIdByCgroupPath(cgroupPath)
+			containerID, _ := GetContainerIdByCgroupPath(cgroupPath)
 			return containerID
 		}
 
 		return ""
 	}
 
-	extractInode := func(socketId string, cgroups []CgroupInfo) {
+	extractInode := func(isCgroupsV2 bool, socketId string, cgroups []CgroupInfo) {
 		if inode, err := strconv.ParseUint(socketId, 10, 64); err == nil {
 			for _, cgroup := range cgroups {
-				if !strings.Contains(cgroup.CgroupPath, "/sys/fs/cgroup/cpuset") {
+				if !isCgroupsV2 && !strings.Contains(cgroup.CgroupPath, "/sys/fs/cgroup/cpuset") {
 					continue
 				}
 				if err := inodeMap.Update(inode, cgroup.CgroupID, ebpf.UpdateNoExist); err != nil {
@@ -174,7 +174,8 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error 
 							log.Error().Err(err).Str("Cgroup Path", cgroup.CgroupPath).Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Msg("Lookup inodemap failed")
 						}
 						if cgroup.CgroupID != cgroupExist {
-							log.Error().Err(err).Str("Cgroup Path", cgroup.CgroupPath).Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Uint64("Cgroup ID exists", cgroupExist).Msg("Update inodemap failed")
+							// having one of IDs in inodemap must be enough
+							log.Debug().Err(err).Str("Cgroup Path", cgroup.CgroupPath).Uint64("Cgroup ID", cgroup.CgroupID).Uint64("inode", inode).Uint64("Cgroup ID exists", cgroupExist).Msg("Update inodemap failed")
 						}
 					}
 				} else {
@@ -184,7 +185,7 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error 
 		}
 	}
 
-	findProcessSockets := func(prefix string, files []os.DirEntry, cgroups []CgroupInfo) {
+	findProcessSockets := func(isCgroupsV2 bool, prefix string, files []os.DirEntry, cgroups []CgroupInfo) {
 		for _, file := range files {
 			link, err := os.Readlink(filepath.Join(prefix, file.Name()))
 			if err != nil {
@@ -193,7 +194,7 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error 
 			}
 			match := socketRegex.FindStringSubmatch(link)
 			if match != nil {
-				extractInode(match[1], cgroups)
+				extractInode(isCgroupsV2, match[1], cgroups)
 			}
 		}
 
@@ -230,7 +231,7 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(inodeMap *ebpf.Map) error 
 					continue
 				}
 
-				findProcessSockets(fdPath, files, cgroups)
+				findProcessSockets(isCgroupV2, fdPath, files, cgroups)
 			}
 		}
 	}

@@ -20,6 +20,8 @@ BPF_LRU_HASH(accept_context, __u64, struct accept_data);
 
 #define SYSCALL_EVENT_ID_CONNECT 0
 #define SYSCALL_EVENT_ID_ACCEPT 1
+#define SYSCALL_EVENT_ID_CLOSE_CONNECT 2
+#define SYSCALL_EVENT_ID_CLOSE_ACCEPT 3
 
 struct syscall_event {
     char comm[16];

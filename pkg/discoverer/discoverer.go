@@ -128,7 +128,7 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 	_ = filepath.WalkDir("/sys/fs/cgroup", walk)
 
 	// scan all existing pids to find out all opened inodes of sockets
-	if err := e.cgroupsController.PopulateSocketsInodes(e.bpfObjects.BpfObjs.Inodemap); err != nil {
+	if err := e.cgroupsController.PopulateSocketsInodes(isCgroupsV2, e.bpfObjects.BpfObjs.Inodemap); err != nil {
 		log.Error().Err(err).Msg("Populate sockets inodes failed")
 	}
 }

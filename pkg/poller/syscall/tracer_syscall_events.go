@@ -88,17 +88,18 @@ func (t *SyscallEventsTracer) pollEvents() {
 		var evName string
 		if ev.EventId == 0 {
 			evName = "connect"
-		}
-		if ev.EventId == 1 {
+		} else if ev.EventId == 1 {
 			evName = "accept"
+		} else if ev.EventId == 2 {
+			evName = "close connect"
+		} else if ev.EventId == 3 {
+			evName = "close accept"
 		}
 
 		var e events.SyscallEvent
 		e.SyscallEventMessage = ev
-		contID := t.cgroupController.GetContainerID(ev.CgroupID)
-		e.ContainerID = string(contID)
 
-		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v container id: %v",
+		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v",
 			evName,
 			toIP(e.IpSrc),
 			toPort(e.PortSrc),
@@ -110,7 +111,6 @@ func (t *SyscallEventsTracer) pollEvents() {
 			e.Pid,
 			e.ParentPid,
 			e.CgroupID,
-			e.ContainerID,
 		))
 
 		t.eventSocket.WriteObject(e)

@@ -17,9 +17,6 @@ void BPF_KPROBE(tcp_connect) {
 
     long err;
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
-    if (!should_target_cgroup(cgroup_id)) {
-        return;
-    }
     __u64 id = tracer_get_current_pid_tgid();
 
     struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
@@ -48,6 +45,9 @@ void BPF_KPROBE(tcp_connect) {
     if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst)) {
         return;
     }
+
+    __u64 key = (__u64)sk;
+    bpf_map_update_elem(&tcp_connect_context, &key, &ev.pid, BPF_ANY);
 
     bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
 
@@ -99,6 +99,9 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
         return;
     }
 
+    __u64 key = (__u64)sk;
+    bpf_map_update_elem(&tcp_accept_context, &key, &ev.pid, BPF_ANY);
+
     bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
 
     ev.port_src = bpf_ntohs(ev.port_src);
@@ -113,9 +116,6 @@ void BPF_KRETPROBE(do_accept) {
         return;
 
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
-    if (!should_target_cgroup(cgroup_id)) {
-        return;
-    }
     struct file* f = (struct file*)PT_REGS_RC(ctx);
     if (!f)
         return;
@@ -139,6 +139,61 @@ int trace_cgroup_connect4(struct bpf_sock_addr* ctx) {
         return 1;
 
     return 1;
+}
+
+SEC("kprobe/tcp_close")
+void BPF_KPROBE(tcp_close) {
+    if (capture_disabled())
+        return;
+
+    long err;
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
+    __u64 id = tracer_get_current_pid_tgid();
+
+    struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
+
+    short unsigned int family;
+    err = bpf_probe_read(&family, sizeof(family), (void*)&sk->__sk_common.skc_family);
+    if (err != 0) {
+        log_error(ctx, LOG_ERROR_READING_SOCKET_FAMILY, id, err, 0l);
+        return;
+    }
+
+    if (family != AF_INET) {
+        return;
+    }
+
+    __u16 event = 0;
+
+    __u64 key = (__u64)sk;
+    if (bpf_map_lookup_elem(&tcp_accept_context, &key)) {
+        event = SYSCALL_EVENT_ID_CLOSE_ACCEPT;
+        bpf_map_delete_elem(&tcp_accept_context, &key);
+    } else if (bpf_map_lookup_elem(&tcp_connect_context, &key)) {
+        event = SYSCALL_EVENT_ID_CLOSE_CONNECT;
+        bpf_map_delete_elem(&tcp_connect_context, &key);
+    } else {
+        return;
+    }
+
+    struct task_struct* task = (struct task_struct*)bpf_get_current_task();
+    struct syscall_event ev = {
+        .event_id = event,
+        .cgroup_id = cgroup_id,
+        .pid = get_task_pid(task),
+        .parent_pid = get_task_pid(get_parent_task(task)),
+        .host_pid = BPF_CORE_READ(task, tgid),
+        .host_parent_pid = get_parent_task_pid(task),
+    };
+
+    if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst)) {
+        return;
+    }
+
+    bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
+
+    ev.port_dst = bpf_ntohs(ev.port_dst);
+    bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event));
 }
 
 static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk, __be32* saddr, __be16* sport, __be32* daddr, __be16* dport) {

@@ -101,8 +101,6 @@ func main() {
 		}
 	}()
 
-	misc.InitDataDir()
-
 	run()
 }
 
@@ -143,6 +141,7 @@ func run() {
 	if clusterMode {
 		misc.SetDataDir(fmt.Sprintf("/app/data/%s", nodeName))
 	}
+	misc.InitDataDir()
 
 	err = createTracer()
 	if err != nil {
