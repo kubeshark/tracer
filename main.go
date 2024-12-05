@@ -13,6 +13,8 @@ import (
 
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
+	"github.com/kubeshark/tracer/pkg/resolver"
+	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
@@ -112,13 +114,26 @@ func run() {
 		select {}
 	}
 
+	isCgroupsV2, err := utils.IsCgroupV2()
+	if err != nil {
+		log.Error().Err(err).Msg("detect cgroup version failed")
+		return
+	}
+
+		tcpMap, err := resolver.GatherPidsTCPMap(*procfs, isCgroupsV2)
+		if err != nil {
+			log.Error().Err(err).Msg("tcp map lookup failed")
+			return
+		}
+
 	tracer = &Tracer{
 		procfs:            *procfs,
 		targetedCgroupIDs: map[uint64]struct{}{},
 		runningPods:       make(map[types.UID]podInfo),
+		tcpMap:            tcpMap,
 	}
 
-	_, err := rest.InClusterConfig()
+	_, err = rest.InClusterConfig()
 	clusterMode := err == nil
 	errOut := make(chan error, 100)
 	go func() {
@@ -143,7 +158,7 @@ func run() {
 	}
 	misc.InitDataDir()
 
-	err = createTracer()
+	err = createTracer(isCgroupsV2)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Couldn't initialize the tracer:")
 	}
@@ -173,7 +188,7 @@ func stop() {
 	}
 }
 
-func createTracer() (err error) {
+func createTracer(isCgroupsV2 bool) (err error) {
 	chunksBufferSize := os.Getpagesize() * 10000
 	logBufferSize := os.Getpagesize()
 
@@ -181,6 +196,7 @@ func createTracer() (err error) {
 		chunksBufferSize,
 		logBufferSize,
 		*procfs,
+		isCgroupsV2,
 	); err != nil {
 		return
 	}

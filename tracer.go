@@ -14,7 +14,6 @@ import (
 	packetHooks "github.com/kubeshark/tracer/pkg/hooks/packet"
 	syscallHooks "github.com/kubeshark/tracer/pkg/hooks/syscall"
 	"github.com/kubeshark/tracer/pkg/poller"
-	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -42,12 +41,14 @@ type Tracer struct {
 	runningPods map[types.UID]podInfo
 
 	cgroupsController cgroup.CgroupsController
+	tcpMap            map[uint64]bool
 }
 
 func (t *Tracer) Init(
 	chunksBufferSize int,
 	logBufferSize int,
 	procfs string,
+	isCgroupsV2 bool,
 ) error {
 	log.Info().Msg(fmt.Sprintf("Initializing tracer (chunksSize: %d) (logSize: %d)", chunksBufferSize, logBufferSize))
 
@@ -76,13 +77,21 @@ func (t *Tracer) Init(
 	if err = t.syscallHooks.Install(); err != nil {
 		return err
 	}
+	for pidFd, isClient := range t.tcpMap {
+		var isCli uint8
+		if isClient {
+			isCli = 1
+		}
+		err := t.bpfObjects.BpfObjs.ConnectionContext.Update(pidFd, isCli, ebpf.UpdateNoExist)
+		if err == ebpf.ErrKeyExist {
+			log.Warn().Uint64("pid fd", pidFd).Uint8("client", isCli).Msg("connection context key already exist")
+		} else if err != nil {
+			log.Error().Err(err).Uint64("pid fd", pidFd).Uint8("client", isCli).Msg("update connection context failed")
+			return err
+		}
+	}
 
 	sortedPackets := make(chan *bpf.SortedPacket, misc.PacketChannelBufferSize)
-
-	isCgroupsV2, err := utils.IsCgroupV2()
-	if err != nil {
-		return err
-	}
 
 	allPollers, err := poller.NewBpfPoller(t.bpfObjects, bpf.NewPacketSorter(sortedPackets, isCgroupsV2), t.cgroupsController, *disableTlsLog)
 	if err != nil {

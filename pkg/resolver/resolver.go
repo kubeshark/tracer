@@ -77,7 +77,7 @@ type pidInfo struct {
 	hostParentPid uint32
 	name          string
 	path          string
-	socketInodes  map[uint64]struct{}
+	socketInodes  map[uint64]uint32 // inode -> fd
 }
 
 type connectionsMap map[string]*connectionResolution
@@ -101,6 +101,7 @@ func resolvePair(connMap connectionsMap, localIP, localPort, remoteIP, remotePor
 		HostProcessID:       int(res.HostProcessID),
 		HostParentProcessID: int(res.HostParentProcessID),
 		ProcessName:         res.ProcessName,
+		ProcessPath:         res.ProcessPath,
 	}
 	log.Debug().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Interface("resolution", r).Msg("found resolution")
 	return &r
@@ -168,6 +169,12 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 		log.Debug().Int("connections", len(conns)).Str("Cgroup", cgroup).Str("proto", proto).Msg("got connections")
 
 		for _, conn := range conns {
+
+			// pass only established connections
+			if conn.St != 1 {
+				continue
+			}
+
 			if conn.Inode == 0 {
 				continue
 			}
@@ -331,7 +338,7 @@ func getPidInfo(proc string, hostPid uint32, isCgroupV2 bool) (pi pidInfo, err e
 		return
 	}
 
-	if pi.path, err = resolveSymlinkWithoutValidation(filepath.Join(proc, fmt.Sprintf("%v", hostPid), "exe")); err != nil {
+	if pi.path, err = ResolveSymlinkWithoutValidation(filepath.Join(proc, fmt.Sprintf("%v", hostPid), "exe")); err != nil {
 		return
 	}
 

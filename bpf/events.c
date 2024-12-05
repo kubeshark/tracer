@@ -32,6 +32,16 @@ void BPF_KPROBE(tcp_connect) {
         return;
     }
 
+    u64 inode = 0;
+    struct socket *s = BPF_CORE_READ(sk, sk_socket);
+    if (s) {
+        struct file *sock_file = BPF_CORE_READ(s, file);
+        if (sock_file) {
+            inode = BPF_CORE_READ(sock_file, f_inode, i_ino);
+        }
+    }
+
+
     struct task_struct* task = (struct task_struct*)bpf_get_current_task();
     struct syscall_event ev = {
         .event_id = SYSCALL_EVENT_ID_CONNECT,
@@ -40,6 +50,7 @@ void BPF_KPROBE(tcp_connect) {
         .parent_pid = get_task_pid(get_parent_task(task)),
         .host_pid = BPF_CORE_READ(task, tgid),
         .host_parent_pid = get_parent_task_pid(task),
+        .inode_id = inode,
     };
 
     if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst)) {
@@ -84,6 +95,12 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
         return;
     }
 
+    u64 inode = 0;
+    struct file *sock_file = BPF_CORE_READ(sock, file);
+    if (sock_file) {
+        inode = BPF_CORE_READ(sock_file, f_inode, i_ino);
+    }
+
     struct task_struct* task = (struct task_struct*)bpf_get_current_task();
 
     struct syscall_event ev = {
@@ -93,6 +110,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
         .parent_pid = get_task_pid(get_parent_task(task)),
         .host_pid = BPF_CORE_READ(task, tgid),
         .host_parent_pid = get_parent_task_pid(task),
+        .inode_id = inode,
     };
 
     if (read_addrs_ports(ctx, sk, &ev.ip_dst, &ev.port_dst, &ev.ip_src, &ev.port_src)) {
@@ -163,6 +181,15 @@ void BPF_KPROBE(tcp_close) {
         return;
     }
 
+    u64 inode = 0;
+    struct socket *s = BPF_CORE_READ(sk, sk_socket);
+    if (s) {
+        struct file *sock_file = BPF_CORE_READ(s, file);
+        if (sock_file) {
+            inode = BPF_CORE_READ(sock_file, f_inode, i_ino);
+        }
+    }
+
     __u16 event = 0;
 
     __u64 key = (__u64)sk;
@@ -184,6 +211,7 @@ void BPF_KPROBE(tcp_close) {
         .parent_pid = get_task_pid(get_parent_task(task)),
         .host_pid = BPF_CORE_READ(task, tgid),
         .host_parent_pid = get_parent_task_pid(task),
+        .inode_id = inode,
     };
 
     if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst)) {
