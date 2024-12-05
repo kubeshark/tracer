@@ -62,7 +62,6 @@ static __always_inline void ssl_uprobe(struct pt_regs* ctx, void* ssl, uintptr_t
 
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_PUTTING_SSL_CONTEXT, id, err, 0l);
-	} else {
 	}
 }
 
