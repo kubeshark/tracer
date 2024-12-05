@@ -4,6 +4,7 @@ type SyscallEventMessage struct {
 	Command [16]byte
 
 	CgroupID uint64
+	SocketID uint64
 
 	IpSrc         uint32
 	IpDst         uint32
@@ -22,4 +23,5 @@ type SyscallEventMessage struct {
 type SyscallEvent struct {
 	SyscallEventMessage
 	ContainerID string
+	ProcessPath string
 }

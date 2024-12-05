@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 
 	"github.com/cilium/ebpf/perf"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/cgroup"
 	"github.com/kubeshark/tracer/pkg/events"
+	"github.com/kubeshark/tracer/pkg/resolver"
 	"github.com/kubeshark/tracer/socket"
 	"github.com/rs/zerolog/log"
 )
@@ -99,6 +101,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 		var e events.SyscallEvent
 		e.SyscallEventMessage = ev
 
+		e.ProcessPath, _ = resolver.ResolveSymlinkWithoutValidation(filepath.Join("/hostproc", fmt.Sprintf("%v", ev.HostPid), "exe"))
 		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v",
 			evName,
 			toIP(e.IpSrc),

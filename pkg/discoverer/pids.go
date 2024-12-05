@@ -96,19 +96,19 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 			if err != nil {
 				// process can be already terminated
 				log.Debug().Err(err).Uint32("pid", pid).Uint64("cgroup", pi.cgroupId).Msg("Open executable failed")
-				return
+				continue
 			}
 
 			offsets, err := goHooks.FindGoOffsets(pi.goPath)
 			if err != nil {
-				return
+				continue
 			}
 			hook := goHooks.GoHooks{}
 
 			err = hook.InstallHooks(p.bpfObjs, ex, offsets)
 			if err != nil {
 				log.Debug().Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg(fmt.Sprintf("install go hook failed: %v", err))
-				return
+				continue
 			}
 			pi.goHook = &hook
 
@@ -121,7 +121,7 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 			err := hook.InstallUprobes(p.bpfObjs, pi.sslPath)
 			if err != nil {
 				log.Debug().Err(err).Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg("install ssl hook failed")
-				return
+				continue
 			}
 			pi.sslHook = &hook
 
@@ -232,6 +232,9 @@ func (p *pids) installGoHook(e foundPidEvent) (*goHooks.GoHooks, string) {
 
 	if filepath.Base(path) == "envoy" {
 		p.envoyPath = path
+		defer func() {
+			p.envoyPath = ""
+		}()
 	}
 
 	ex, err := link.OpenExecutable(path)

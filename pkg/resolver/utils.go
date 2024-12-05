@@ -92,10 +92,6 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 				UID:       c.UID,
 				Inode:     c.Inode,
 			}
-			// pass only established connections
-			if c.St != 1 {
-				continue
-			}
 			lines = append(lines, d)
 		}
 		for _, c := range tcpConns6 {
@@ -113,10 +109,6 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 				RxQueue:   c.RxQueue,
 				UID:       c.UID,
 				Inode:     c.Inode,
-			}
-			// pass only established connections
-			if c.St != 1 {
-				continue
 			}
 			lines = append(lines, d)
 		}
@@ -138,10 +130,6 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 				RxQueue:   c.RxQueue,
 				UID:       c.UID,
 				Inode:     c.Inode,
-			}
-			// pass only established connections
-			if c.St != 1 {
-				continue
 			}
 			lines = append(lines, d)
 		}
@@ -269,7 +257,7 @@ func getPidCgroup(proc string, hostPid uint32, isCgroupV2 bool) (cgroup string, 
 	return
 }
 
-func getPidSocketInodes(proc string, pid uint32) (map[uint64]struct{}, error) {
+func getPidSocketInodes(proc string, pid uint32) (map[uint64]uint32, error) {
 	fdPath := filepath.Join(proc, fmt.Sprintf("%v", pid), "fd")
 
 	fdDir, err := os.Open(fdPath)
@@ -283,7 +271,7 @@ func getPidSocketInodes(proc string, pid uint32) (map[uint64]struct{}, error) {
 		return nil, fmt.Errorf("failed to read fd directory: %v", err)
 	}
 
-	socketInodes := make(map[uint64]struct{})
+	socketInodes := make(map[uint64]uint32)
 
 	for _, fd := range fds {
 		fdLink := filepath.Join(fdPath, fd)
@@ -299,14 +287,19 @@ func getPidSocketInodes(proc string, pid uint32) (map[uint64]struct{}, error) {
 			if err != nil {
 				continue
 			}
-			socketInodes[inodeNum] = struct{}{}
+			fdVal, err := strconv.ParseUint(fd, 10, 32)
+			if err != nil {
+				log.Error().Err(err).Str("fd", fd).Msg("parse process file descriptor failed")
+				continue
+			}
+			socketInodes[inodeNum] = uint32(fdVal)
 		}
 	}
 
 	return socketInodes, nil
 }
 
-func resolveSymlinkWithoutValidation(path string) (string, error) {
+func ResolveSymlinkWithoutValidation(path string) (string, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "", err
