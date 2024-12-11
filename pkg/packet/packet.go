@@ -11,7 +11,6 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/poller/packets"
-	"github.com/rs/zerolog/log"
 )
 
 var (
