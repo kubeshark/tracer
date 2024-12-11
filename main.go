@@ -120,11 +120,11 @@ func run() {
 		return
 	}
 
-		tcpMap, err := resolver.GatherPidsTCPMap(*procfs, isCgroupsV2)
-		if err != nil {
-			log.Error().Err(err).Msg("tcp map lookup failed")
-			return
-		}
+	tcpMap, err := resolver.GatherPidsTCPMap(*procfs, isCgroupsV2)
+	if err != nil {
+		log.Error().Err(err).Msg("tcp map lookup failed")
+		return
+	}
 
 	tracer = &Tracer{
 		procfs:            *procfs,

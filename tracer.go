@@ -67,6 +67,7 @@ func (t *Tracer) Init(
 	if err != nil {
 		return fmt.Errorf("creating bpf failed: %v", err)
 	}
+
 	t.eventsDiscoverer = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects, t.cgroupsController)
 	if err := t.eventsDiscoverer.Start(); err != nil {
 		log.Error().Msg(fmt.Sprintf("start internal discovery failed: %v", err))

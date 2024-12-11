@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
 	"github.com/go-errors/errors"
 	"github.com/hashicorp/golang-lru/simplelru"
+	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
@@ -20,24 +23,32 @@ const (
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
 
+type RawWriter func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
+type GopacketWriter func(packet gopacket.Packet) (err error)
+
 type TlsPoller struct {
-	streams        map[string]*TlsStream
-	closeStreams   chan string
-	chunksReader   *perf.Reader
-	fdCache        *simplelru.LRU // Actual type is map[string]addressPair
-	evictedCounter int
-	Sorter         *PacketSorter
+	streams         map[string]*TlsStream
+	closeStreams    chan string
+	chunksReader    *perf.Reader
+	fdCache         *simplelru.LRU // Actual type is map[string]addressPair
+	evictedCounter  int
+	rawWriter       RawWriter
+	gopacketWriter  GopacketWriter
+	receivedPackets uint64
+	lostChunks      uint64
 }
 
 func NewTlsPoller(
-	bpfObjs *BpfObjects,
-	sorter *PacketSorter,
+	perfBuffer *ebpf.Map,
+	rawWriter RawWriter,
+	gopacketWriter GopacketWriter,
 ) (*TlsPoller, error) {
 	poller := &TlsPoller{
-		streams:      make(map[string]*TlsStream),
-		closeStreams: make(chan string, misc.TlsCloseChannelBufferSize),
-		chunksReader: nil,
-		Sorter:       sorter,
+		streams:        make(map[string]*TlsStream),
+		closeStreams:   make(chan string, misc.TlsCloseChannelBufferSize),
+		chunksReader:   nil,
+		rawWriter:      rawWriter,
+		gopacketWriter: gopacketWriter,
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
@@ -46,7 +57,7 @@ func NewTlsPoller(
 	}
 	poller.fdCache = fdCache
 
-	poller.chunksReader, err = perf.NewReader(bpfObjs.BpfObjs.ChunksBuffer, os.Getpagesize()*10000)
+	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
 
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
@@ -84,8 +95,29 @@ func (p *TlsPoller) Start() {
 	}()
 }
 
+func (p *TlsPoller) GetLostChunks() uint64 {
+	return p.lostChunks
+}
+
+func (p *TlsPoller) GetReceivedPackets() uint64 {
+	return p.receivedPackets
+}
+
 func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 	log.Info().Msg("Start polling for tls events")
+
+	p.chunksReader.SetDeadline(time.Unix(1, 0))
+	var emptyRecord perf.Record
+	for {
+		err := p.chunksReader.ReadInto(&emptyRecord)
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			break
+		} else if err != nil {
+			log.Error().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+			return
+		}
+	}
+	p.chunksReader.SetDeadline(time.Time{})
 
 	for {
 		record, err := p.chunksReader.Read()
@@ -97,12 +129,13 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 				return
 			}
 
-			utils.LogError(errors.Errorf("Error reading chunks from tls perf, aborting TLS! %v", err))
+			log.Error().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
 			return
 		}
 
 		if record.LostSamples != 0 {
 			log.Info().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", record.LostSamples))
+			p.lostChunks += record.LostSamples
 			continue
 		}
 
@@ -111,7 +144,7 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 		var chunk TracerTlsChunk
 
 		if err := binary.Read(buffer, binary.LittleEndian, &chunk); err != nil {
-			utils.LogError(errors.Errorf("Error parsing chunk %v", err))
+			log.Error().Err(err).Msg("Error parsing chunk")
 			continue
 		}
 

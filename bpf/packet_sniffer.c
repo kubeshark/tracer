@@ -211,6 +211,14 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
     packet_id = pkt_id_ptr->id++;
     bpf_spin_unlock(&pkt_id_ptr->lock);
 
+    // send initial chunk before the first packet
+    if (unlikely(packet_id == 0)) {
+        if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, 0))
+        {
+            log_error(skb, LOG_ERROR_PKT_SNIFFER, 11, 0l, 0l);
+        }
+    }
+
     if (bpf_map_update_elem(&packet_context, &packet_id, p, BPF_NOEXIST))
     {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 5, 0l, 0l);
