@@ -4,11 +4,13 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/misc/ethernet"
+	"github.com/kubeshark/tracerproto/pkg/unixpacket"
 	"github.com/rs/zerolog/log"
 )
 
@@ -25,19 +27,33 @@ func (l *tlsLayers) swap() {
 }
 
 type TlsStream struct {
-	poller *TlsPoller
-	key    string
-	id     int64
-	Client *tlsReader
-	Server *tlsReader
-	layers *tlsLayers
+	serializeOptions gopacket.SerializeOptions
+	ipv4Decoder      gopacket.Decoder
+	poller           *TlsPoller
+	key              string
+	id               int64
+	Client           *tlsReader
+	Server           *tlsReader
+	layers           *tlsLayers
 	sync.Mutex
 }
 
 func NewTlsStream(poller *TlsPoller, key string) *TlsStream {
+	ipv4Decoder := gopacket.DecodersByLayerName["IPv4"]
+	if ipv4Decoder == nil {
+		log.Error().Msg("Failed to get IPv4 decoder")
+		return nil
+	}
+	serializeOptions := gopacket.SerializeOptions{
+		FixLengths:       true,
+		ComputeChecksums: true,
+	}
+
 	return &TlsStream{
-		poller: poller,
-		key:    key,
+		serializeOptions: serializeOptions,
+		ipv4Decoder:      ipv4Decoder,
+		poller:           poller,
+		key:              key,
 	}
 }
 
@@ -93,26 +109,50 @@ func (t *TlsStream) writeData(timestamp uint64, cgroupId uint64, direction uint8
 }
 
 func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uint8, data []byte, isClient bool, sentLen uint32) {
-	t.writePacket(
-		timestamp,
-		cgroupId,
-		direction,
-		layers.LayerTypeEthernet,
-		t.layers.ethernet,
-		t.layers.ipv4,
-		t.layers.tcp,
-		gopacket.Payload(data),
-	)
-	t.doTcpSeqAckWalk(isClient, sentLen)
-}
-
-func (t *TlsStream) writePacket(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) {
-
-	err := t.poller.Sorter.WriteTLSPacket(timestamp, cgroupId, direction, firstLayerType, l...)
-	if err != nil {
-		log.Error().Err(err).Msg("Error writing PCAP:")
-		return
+	t.poller.receivedPackets++
+	if t.poller.rawWriter != nil {
+		err := t.poller.rawWriter(
+			timestamp,
+			cgroupId,
+			direction,
+			layers.LayerTypeEthernet,
+			t.layers.ethernet,
+			t.layers.ipv4,
+			t.layers.tcp,
+			gopacket.Payload(data),
+		)
+		if err != nil {
+			log.Error().Err(err).Msg("Error writing PCAP:")
+			return
+		}
 	}
+
+	if t.poller.gopacketWriter != nil {
+		buf := gopacket.NewSerializeBuffer()
+
+		err := gopacket.SerializeLayers(buf, t.serializeOptions, t.layers.ipv4, t.layers.tcp, gopacket.Payload(data))
+		if err != nil {
+			log.Error().Err(err).Msg("Error serializing packet:")
+			return
+		}
+
+		bufBytes := buf.Bytes()
+		pkt := gopacket.NewPacket(bufBytes, t.ipv4Decoder, gopacket.NoCopy, cgroupId, unixpacket.PacketDirection(direction))
+		m := pkt.Metadata()
+		ci := &m.CaptureInfo
+		ci.Timestamp = time.Unix(0, int64(timestamp))
+		ci.CaptureLength = len(bufBytes)
+		ci.Length = len(bufBytes)
+		ci.CaptureBackend = gopacket.CaptureBackendEbpfTls
+
+		err = t.poller.gopacketWriter(pkt)
+		if err != nil {
+			log.Error().Err(err).Msg("Error writing gopacket:")
+			return
+		}
+	}
+
+	t.doTcpSeqAckWalk(isClient, sentLen)
 }
 
 func (t *TlsStream) loadSecNumbers(isClient bool) {

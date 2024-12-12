@@ -14,6 +14,7 @@ import (
 	packetHooks "github.com/kubeshark/tracer/pkg/hooks/packet"
 	syscallHooks "github.com/kubeshark/tracer/pkg/hooks/syscall"
 	"github.com/kubeshark/tracer/pkg/poller"
+	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -67,6 +68,7 @@ func (t *Tracer) Init(
 	if err != nil {
 		return fmt.Errorf("creating bpf failed: %v", err)
 	}
+
 	t.eventsDiscoverer = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects, t.cgroupsController)
 	if err := t.eventsDiscoverer.Start(); err != nil {
 		log.Error().Msg(fmt.Sprintf("start internal discovery failed: %v", err))
@@ -210,4 +212,21 @@ func getContainerIDs(pod *v1.Pod) []string {
 	}
 
 	return containerIDs
+}
+
+func initBPFSubsystem() {
+	// Cleanup is required in case map set or format is changed in the new tracer version
+	if files, err := utils.RemoveAllFilesInDir(bpf.PinPath); err != nil {
+		log.Error().Str("path", bpf.PinPath).Err(err).Msg("directory cleanup failed")
+	} else {
+		for _, file := range files {
+			log.Info().Str("path", file).Msg("removed bpf entry")
+		}
+	}
+
+	_, err := bpf.NewBpfObjects(false)
+	if err != nil {
+		log.Error().Err(err).Msg("create objects failed")
+	}
+
 }

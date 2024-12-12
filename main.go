@@ -41,6 +41,8 @@ var procfs = flag.String("procfs", "/proc", "The procfs directory, used when map
 // development
 var debug = flag.Bool("debug", false, "Enable debug mode")
 
+var initBPF = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers.")
+
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
@@ -103,6 +105,10 @@ func main() {
 		}
 	}()
 
+	if *initBPF {
+		initBPFSubsystem()
+		return
+	}
 	run()
 }
 
@@ -120,11 +126,11 @@ func run() {
 		return
 	}
 
-		tcpMap, err := resolver.GatherPidsTCPMap(*procfs, isCgroupsV2)
-		if err != nil {
-			log.Error().Err(err).Msg("tcp map lookup failed")
-			return
-		}
+	tcpMap, err := resolver.GatherPidsTCPMap(*procfs, isCgroupsV2)
+	if err != nil {
+		log.Error().Err(err).Msg("tcp map lookup failed")
+		return
+	}
 
 	tracer = &Tracer{
 		procfs:            *procfs,

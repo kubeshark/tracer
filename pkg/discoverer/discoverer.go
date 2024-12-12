@@ -28,7 +28,6 @@ type InternalEventsDiscoverer interface {
 
 type InternalEventsDiscovererImpl struct {
 	bpfObjects         *bpf.BpfObjects
-	isCgroupV2         bool
 	sslHooks           map[string]sslHooks.SslHooks
 	perfFoundOpenssl   *ebpf.Map
 	perfFoundCgroup    *ebpf.Map
@@ -42,7 +41,6 @@ type InternalEventsDiscovererImpl struct {
 func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgroupsController cgroup.CgroupsController) InternalEventsDiscoverer {
 	impl := InternalEventsDiscovererImpl{
 		bpfObjects:        bpfObjects,
-		isCgroupV2:        bpfObjects.IsCgroupV2,
 		perfFoundOpenssl:  bpfObjects.BpfObjs.PerfFoundOpenssl,
 		perfFoundCgroup:   bpfObjects.BpfObjs.PerfFoundCgroup,
 		sslHooks:          make(map[string]sslHooks.SslHooks),
@@ -88,7 +86,7 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 
 	e.scanExistingCgroups(isCgroupV2)
 
-	if err = e.pids.scanExistingPIDs(e.isCgroupV2); err != nil {
+	if err = e.pids.scanExistingPIDs(isCgroupV2); err != nil {
 		return errors.Wrap(err, 0)
 	}
 
