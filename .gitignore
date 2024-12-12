@@ -20,9 +20,6 @@
 # Go workspace file
 go.work
 
-# Object files
-*.o
-
 # Editors/IDEs
 .vscode/
 
