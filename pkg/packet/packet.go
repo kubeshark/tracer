@@ -45,8 +45,6 @@ type PacketSourceImpl struct {
 type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter) (PacketsPoller, error)
 
 func newPacketSource(perfName string, createPoller createPollerFunc, pathNotSupported string) (PacketSource, error) {
-	// TODO: check file flag, that source is disabled
-
 	path := filepath.Join(bpf.PinPath, perfName)
 
 	var err error
