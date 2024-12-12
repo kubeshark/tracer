@@ -118,13 +118,13 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     if (side == PACKET_DIRECTION_RECEIVED)
     {
         TRACE_PACKET("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+        save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), cgroup_id, side);
     }
     else
     {
         TRACE_PACKET("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+        save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, cgroup_id, side);
     }
-
-    save_packet(skb, src_ip, src_port, dst_ip, dst_port, cgroup_id, side);
 
     return 1;
 }
