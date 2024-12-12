@@ -28,7 +28,7 @@ func (l *tlsLayers) swap() {
 
 type TlsStream struct {
 	serializeOptions gopacket.SerializeOptions
-	ipv4Decoder      gopacket.Decoder
+	ethernetDecoder  gopacket.Decoder
 	poller           *TlsPoller
 	key              string
 	id               int64
@@ -38,10 +38,11 @@ type TlsStream struct {
 	sync.Mutex
 }
 
+var ethernetDecoder = gopacket.DecodersByLayerName["Ethernet"]
+
 func NewTlsStream(poller *TlsPoller, key string) *TlsStream {
-	ipv4Decoder := gopacket.DecodersByLayerName["IPv4"]
-	if ipv4Decoder == nil {
-		log.Error().Msg("Failed to get IPv4 decoder")
+	if ethernetDecoder == nil {
+		log.Error().Msg("Failed to get Ethernet decoder")
 		return nil
 	}
 	serializeOptions := gopacket.SerializeOptions{
@@ -51,7 +52,7 @@ func NewTlsStream(poller *TlsPoller, key string) *TlsStream {
 
 	return &TlsStream{
 		serializeOptions: serializeOptions,
-		ipv4Decoder:      ipv4Decoder,
+		ethernetDecoder:  ethernetDecoder,
 		poller:           poller,
 		key:              key,
 	}
@@ -130,14 +131,14 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 	if t.poller.gopacketWriter != nil {
 		buf := gopacket.NewSerializeBuffer()
 
-		err := gopacket.SerializeLayers(buf, t.serializeOptions, t.layers.ipv4, t.layers.tcp, gopacket.Payload(data))
+		err := gopacket.SerializeLayers(buf, t.serializeOptions, t.layers.ethernet, t.layers.ipv4, t.layers.tcp, gopacket.Payload(data))
 		if err != nil {
 			log.Error().Err(err).Msg("Error serializing packet:")
 			return
 		}
 
 		bufBytes := buf.Bytes()
-		pkt := gopacket.NewPacket(bufBytes, t.ipv4Decoder, gopacket.NoCopy, cgroupId, unixpacket.PacketDirection(direction))
+		pkt := gopacket.NewPacket(bufBytes, t.ethernetDecoder, gopacket.NoCopy, cgroupId, unixpacket.PacketDirection(direction))
 		m := pkt.Metadata()
 		ci := &m.CaptureInfo
 		ci.Timestamp = time.Unix(0, int64(timestamp))
