@@ -148,12 +148,13 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		}
 
 		if p.gopacketWriter != nil {
-			pkt := gopacket.NewPacket(append(p.ethhdr.Contents, pkts.buf[:pkts.len]...), p.ipv4Decoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
+			pktBuf := append(p.ethhdr.Contents, pkts.buf[:pkts.len]...)
+			pkt := gopacket.NewPacket(pktBuf, p.ipv4Decoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
 			m := pkt.Metadata()
 			ci := &m.CaptureInfo
 			ci.Timestamp = time.Unix(0, int64(ptr.Timestamp))
-			ci.CaptureLength = int(pkts.len)
-			ci.Length = int(pkts.len)
+			ci.CaptureLength = len(pktBuf)
+			ci.Length = len(pktBuf)
 			ci.CaptureBackend = gopacket.CaptureBackendEbpf
 
 			err := p.gopacketWriter(pkt)
