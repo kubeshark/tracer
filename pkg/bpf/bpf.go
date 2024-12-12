@@ -3,6 +3,7 @@ package bpf
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"bytes"
 	"os"
@@ -108,15 +109,22 @@ func NewBpfObjects(disableEbpfCapture bool) (*BpfObjects, error) {
 		disableEbpfCapture = true
 	}
 
-	ebpfBackendStatus := "enabled"
-	if disableEbpfCapture {
-		ebpfBackendStatus = "disabled"
+	markDisabledEBPF := func() error {
 		pathNoEbpf := filepath.Join(misc.GetDataDir(), "noebpf")
 		file, err := os.Create(pathNoEbpf)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		file.Close()
+		return nil
+	}
+
+	ebpfBackendStatus := "enabled"
+	if disableEbpfCapture {
+		ebpfBackendStatus = "disabled"
+		if err = markDisabledEBPF(); err != nil {
+			return nil, err
+		}
 	}
 
 	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v, eBPF backend %v", kernelVersion, isCgroupV2, ebpfBackendStatus))
@@ -182,6 +190,17 @@ func NewBpfObjects(disableEbpfCapture bool) (*BpfObjects, error) {
 	}
 
 	// Pin packet perf maps:
+
+	defer func() {
+		if os.IsPermission(err) || strings.Contains(fmt.Sprintf("%v", err), "permission") {
+			log.Warn().Msg(fmt.Sprintf("There are no enough permissions to activate eBPF. Error: %v", err))
+			if err = markDisabledEBPF(); err != nil {
+				log.Error().Err(err).Msg("disable ebpf failed")
+			} else {
+				err = nil
+			}
+		}
+	}()
 
 	if err = os.MkdirAll(PinPath, 0700); err != nil {
 		log.Error().Msg(fmt.Sprintf("mkdir pin path failed: %v", err))
