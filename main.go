@@ -38,8 +38,7 @@ var port = flag.Int("port", 80, "Port number of the HTTP server")
 // capture
 var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
 
-// development
-var debug = flag.Bool("debug", false, "Enable debug mode")
+var logLevel = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
 
 var initBPF = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers.")
 
@@ -49,6 +48,23 @@ var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 var tracer *Tracer
 
 func main() {
+	flag.Parse()
+
+	// Set log level
+	var level zerolog.Level
+	switch strings.ToLower(*logLevel) {
+	case "debug":
+		level = zerolog.DebugLevel
+	case "info":
+		level = zerolog.InfoLevel
+	case "warning":
+		level = zerolog.WarnLevel
+	default:
+		level = zerolog.WarnLevel
+		log.Warn().Msgf("Invalid log level '%s'. Defaulting to 'warning'.", *logLevel)
+	}
+	zerolog.SetGlobalLevel(level)
+
 	var sentryDSN string
 	if sentrypkg.IsSentryEnabled() {
 		sentryDSN, err := sentrypkg.GetDSN(context.Background(), "tracer", version.Ver)
@@ -72,8 +88,6 @@ func main() {
 			defer sentry.Flush(2 * time.Second)
 		}
 	}
-
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	w, err := zlogsentry.New(
 		sentryDSN,
 	)
@@ -88,10 +102,6 @@ func main() {
 
 	flag.Parse()
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Caller().Logger()
-
-	if *debug {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	}
 
 	runtimeDebug.SetPanicOnFault(true)
 	defer func() {
