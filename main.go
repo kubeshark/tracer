@@ -48,7 +48,7 @@ var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 var tracer *Tracer
 
 func main() {
-	flag.Parse()
+	()
 
 	// Set log level
 	var level zerolog.Level
@@ -100,7 +100,6 @@ func main() {
 	multi := zerolog.MultiLevelWriter(w, zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 	log.Logger = zerolog.New(multi).With().Timestamp().Caller().Logger()
 
-	flag.Parse()
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Caller().Logger()
 
 	runtimeDebug.SetPanicOnFault(true)
