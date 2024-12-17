@@ -447,7 +447,7 @@ int BPF_KPROBE(security_socket_sendmsg)
 SEC("kprobe/security_sk_clone")
 int BPF_KPROBE(security_sk_clone)
 {
-    if (!CGROUP_V1)
+    if (!CGROUP_V1 && !PREFER_CGROUP_V1_EBPF_CAPTURE)
         return 0;
     struct sock *osock = (void *)PT_REGS_PARM1(ctx);
     struct sock *nsock = (void *)PT_REGS_PARM2(ctx);

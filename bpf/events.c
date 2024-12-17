@@ -48,8 +48,8 @@ void BPF_KPROBE(tcp_connect) {
         .cgroup_id = cgroup_id,
         .pid = get_task_pid(task),
         .parent_pid = get_task_pid(get_parent_task(task)),
-        .host_pid = BPF_CORE_READ(task, tgid),
-        .host_parent_pid = get_parent_task_pid(task),
+        .host_pid = tracer_get_current_pid_tgid()>>32,
+        .host_parent_pid = tracer_get_task_pid_tgid(0, get_parent_task(task)) >>32,
         .inode_id = inode,
     };
 
@@ -108,8 +108,8 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
         .cgroup_id = cgroup_id,
         .pid = get_task_pid(task),
         .parent_pid = get_task_pid(get_parent_task(task)),
-        .host_pid = BPF_CORE_READ(task, tgid),
-        .host_parent_pid = get_parent_task_pid(task),
+        .host_pid = tracer_get_current_pid_tgid()>>32,
+        .host_parent_pid = tracer_get_task_pid_tgid(0, get_parent_task(task)) >>32,
         .inode_id = inode,
     };
 
@@ -209,8 +209,8 @@ void BPF_KPROBE(tcp_close) {
         .cgroup_id = cgroup_id,
         .pid = get_task_pid(task),
         .parent_pid = get_task_pid(get_parent_task(task)),
-        .host_pid = BPF_CORE_READ(task, tgid),
-        .host_parent_pid = get_parent_task_pid(task),
+        .host_pid = tracer_get_current_pid_tgid()>>32,
+        .host_parent_pid = tracer_get_task_pid_tgid(0, get_parent_task(task)) >>32,
         .inode_id = inode,
     };
 
