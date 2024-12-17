@@ -45,10 +45,12 @@ var initBPF = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Co
 var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
+var preferCgroupV1Capture = flag.Bool("ebpf1", false, "On systems with Cgroup V2 use Cgroup V1 method for packet capturing")
+
 var tracer *Tracer
 
 func main() {
-	()
+	flag.Parse()
 
 	// Set log level
 	var level zerolog.Level

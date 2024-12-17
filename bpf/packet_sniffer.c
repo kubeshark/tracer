@@ -91,7 +91,7 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
         return 1;
 
     __u64 cgroup_id = 0;
-    if (CGROUP_V1)
+    if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE)
     {
         cgroup_id = get_packet_cgroup(skb, cgrpctxmap);
     }
