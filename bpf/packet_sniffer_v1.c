@@ -8,9 +8,9 @@
 #include "include/common.h"
 #include "include/cgroups.h"
 
-#define PF_INET      2
-#define PF_INET6     10
-#define IPPROTO_ICMPV6   58
+#define PF_INET 2
+#define PF_INET6 10
+#define IPPROTO_ICMPV6 58
 
 typedef union iphdrs_t
 {
@@ -72,44 +72,45 @@ struct
 
 static __always_inline bool is_family_supported(struct socket *sock)
 {
-    struct sock *sk = (void *) BPF_CORE_READ(sock, sk);
-    struct sock_common *common = (void *) sk;
+    struct sock *sk = (void *)BPF_CORE_READ(sock, sk);
+    struct sock_common *common = (void *)sk;
     u8 family = BPF_CORE_READ(common, skc_family);
 
-    switch (family) {
-        case PF_INET:
-        case PF_INET6:
-            break;
-        // case PF_UNSPEC:
-        // case PF_LOCAL:      // PF_UNIX or PF_FILE
-        // case PF_NETLINK:
-        // case PF_VSOCK:
-        // case PF_XDP:
-        // case PF_BRIDGE:
-        // case PF_PACKET:
-        // case PF_MPLS:
-        // case PF_BLUETOOTH:
-        // case PF_IB:
-        // ...
-        default:
-            return 0; // not supported
+    switch (family)
+    {
+    case PF_INET:
+    case PF_INET6:
+        break;
+    // case PF_UNSPEC:
+    // case PF_LOCAL:      // PF_UNIX or PF_FILE
+    // case PF_NETLINK:
+    // case PF_VSOCK:
+    // case PF_XDP:
+    // case PF_BRIDGE:
+    // case PF_PACKET:
+    // case PF_MPLS:
+    // case PF_BLUETOOTH:
+    // case PF_IB:
+    // ...
+    default:
+        return 0; // not supported
     }
 
     return 1; // supported
 }
 
-
-struct sock___old {
-    struct sock_common  __sk_common;
-    unsigned int        __sk_flags_offset[0];
-    unsigned int        sk_padding : 1,
-                        sk_kern_sock : 1,
-                        sk_no_check_tx : 1,
-                        sk_no_check_rx : 1,
-                        sk_userlocks : 4,
-                        sk_protocol  : 8,
-                        sk_type      : 16;
-    u16                 sk_gso_max_segs;
+struct sock___old
+{
+    struct sock_common __sk_common;
+    unsigned int __sk_flags_offset[0];
+    unsigned int sk_padding : 1,
+        sk_kern_sock : 1,
+        sk_no_check_tx : 1,
+        sk_no_check_rx : 1,
+        sk_userlocks : 4,
+        sk_protocol : 8,
+        sk_type : 16;
+    u16 sk_gso_max_segs;
 };
 
 static __always_inline u16 get_sock_protocol(struct sock *sock)
@@ -118,10 +119,13 @@ static __always_inline u16 get_sock_protocol(struct sock *sock)
 
     // commit bf9765145b85 ("sock: Make sk_protocol a 16-bit value")
     struct sock___old *check = NULL;
-    if (bpf_core_field_exists(check->__sk_flags_offset)) {
-        check = (struct sock___old *) sock;
-        bpf_core_read(&protocol, 1, (void *) (&check->sk_gso_max_segs) - 3);
-    } else {
+    if (bpf_core_field_exists(check->__sk_flags_offset))
+    {
+        check = (struct sock___old *)sock;
+        bpf_core_read(&protocol, 1, (void *)(&check->sk_gso_max_segs) - 3);
+    }
+    else
+    {
         protocol = BPF_CORE_READ(sock, sk_protocol);
     }
 
@@ -130,22 +134,23 @@ static __always_inline u16 get_sock_protocol(struct sock *sock)
 
 static __always_inline bool is_socket_supported(struct socket *sock)
 {
-    struct sock *sk = (void *) BPF_CORE_READ(sock, sk);
+    struct sock *sk = (void *)BPF_CORE_READ(sock, sk);
     u16 protocol = get_sock_protocol(sk);
-    switch (protocol) {
-        // case IPPROTO_IPIP:
-        // case IPPROTO_DCCP:
-        // case IPPROTO_SCTP:
-        // case IPPROTO_UDPLITE:
-        case IPPROTO_IP:
-        case IPPROTO_IPV6:
-        case IPPROTO_TCP:
-        case IPPROTO_UDP:
-        case IPPROTO_ICMP:
-        case IPPROTO_ICMPV6:
-            break;
-        default:
-            return 0; // not supported
+    switch (protocol)
+    {
+    // case IPPROTO_IPIP:
+    // case IPPROTO_DCCP:
+    // case IPPROTO_SCTP:
+    // case IPPROTO_UDPLITE:
+    case IPPROTO_IP:
+    case IPPROTO_IPV6:
+    case IPPROTO_TCP:
+    case IPPROTO_UDP:
+    case IPPROTO_ICMP:
+    case IPPROTO_ICMPV6:
+        break;
+    default:
+        return 0; // not supported
     }
 
     return 1; // supported
@@ -276,12 +281,28 @@ int BPF_KPROBE(cgroup_bpf_run_filter_skb)
     u8 proto = 0;
 
     // Parse the packet layer 3 headers.
+    __u8 ip_version = 0;
     switch (family)
     {
     case PF_INET:
-        if (nethdrs->iphdrs.iphdr.version != 4) // IPv4
+        if (nethdrs->iphdrs.iphdr.version != 4)
+        {
             return 1;
+        }
+        ip_version = nethdrs->iphdrs.iphdr.version;
+        break;
 
+    case PF_INET6:
+        ip_version = nethdrs->iphdrs.ipv6hdr.version;
+        break;
+
+    default:
+        return 1;
+    }
+
+    switch (ip_version)
+    {
+    case 4:
         if (nethdrs->iphdrs.iphdr.ihl > 5)
         { // re-read IP header if needed
             l3_size -= bpf_core_type_size(struct iphdr);
@@ -306,12 +327,7 @@ int BPF_KPROBE(cgroup_bpf_run_filter_skb)
         indexer.dst.in6_u.u6_addr32[0] = nethdrs->iphdrs.iphdr.daddr;
         break;
 
-    case PF_INET6:
-        // TODO: dual-stack IP implementation unsupported for now
-        // https://en.wikipedia.org/wiki/IPv6_transition_mechanism
-        if (nethdrs->iphdrs.ipv6hdr.version != 6) // IPv6
-            return 1;
-
+    case 6:
         proto = nethdrs->iphdrs.ipv6hdr.nexthdr;
         switch (proto)
         {
@@ -485,7 +501,6 @@ int BPF_KPROBE(security_sk_clone)
     return 0;
 }
 
-
 // implementation ogriginally borrowd from tracee
 static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrpctxmap)
 {
@@ -496,7 +511,7 @@ static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrp
     case PF_INET6:
         break;
     default:
-        return 1;
+        return cgroup_id;
     }
 
     struct bpf_sock *sk = ctx->sk;
@@ -537,12 +552,27 @@ static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrp
     indexer.ts = ctx->tstamp;
 
     u32 ihl = 0;
+    __u8 ip_version = 0;
     switch (family)
     {
     case PF_INET:
-        if (nethdrs->iphdrs.iphdr.version != 4)
-            return cgroup_id;
+        if (nethdrs->iphdrs.iphdr.version == 4)
+        {
+            ip_version = nethdrs->iphdrs.iphdr.version;
+        }
+        break;
 
+    case PF_INET6:
+        ip_version = nethdrs->iphdrs.ipv6hdr.version;
+        break;
+
+    default:
+        return cgroup_id;
+    }
+
+    switch (ip_version)
+    {
+    case 4:
         ihl = nethdrs->iphdrs.iphdr.ihl;
         if (ihl > 5)
         { // re-read IPv4 header if needed
@@ -567,12 +597,7 @@ static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrp
         indexer.dst.in6_u.u6_addr32[0] = nethdrs->iphdrs.iphdr.daddr;
         break;
 
-    case PF_INET6:
-        // TODO: dual-stack IP implementation unsupported for now
-        // https://en.wikipedia.org/wiki/IPv6_transition_mechanism
-        if (nethdrs->iphdrs.ipv6hdr.version != 6)
-            return cgroup_id;
-
+    case 6:
         switch (nethdrs->iphdrs.ipv6hdr.nexthdr)
         {
         case IPPROTO_TCP:
@@ -608,4 +633,3 @@ static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrp
 
     return cgroup_id;
 }
-

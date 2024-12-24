@@ -117,6 +117,10 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 			return nil
 		}
 
+		if !isCgroupsV2 && !strings.HasPrefix(s, "/sys/fs/cgroup/cpuset") {
+			return nil
+		}
+
 		if cgroupID, contId, ok := e.cgroupsController.AddCgroupPath(s); ok {
 			log.Debug().Uint64("Cgroup ID", cgroupID).Str("Container ID", contId).Msg("Initial cgroup is detected")
 		}
