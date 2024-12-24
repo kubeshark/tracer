@@ -14,6 +14,7 @@ import (
 	"encoding/binary"
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/gopacket/layers"
+	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc/ethernet"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracerproto/pkg/unixpacket"
@@ -56,6 +57,7 @@ type PacketsPoller struct {
 	pktsMap         map[uint64]*pktBuffer // packet id to packet
 	receivedPackets uint64
 	lostChunks      uint64
+	tai             tai.TaiInfo
 }
 
 func NewPacketsPoller(
@@ -80,6 +82,7 @@ func NewPacketsPoller(
 		rawWriter:       rawWriter,
 		gopacketWriter:  gopacketWriter,
 		pktsMap:         make(map[uint64]*pktBuffer),
+		tai:             tai.NewTaiInfo(),
 	}
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
@@ -159,7 +162,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 			m := pkt.Metadata()
 			ci := &m.CaptureInfo
 			if ptr.Timestamp != 0 {
-				ci.Timestamp = time.Unix(0, int64(ptr.Timestamp))
+				ci.Timestamp = time.Unix(0, int64(ptr.Timestamp)-int64(p.tai.GetTAIOffset()))
 			} else {
 				ci.Timestamp = time.Now()
 			}

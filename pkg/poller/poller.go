@@ -19,7 +19,7 @@ type BpfPollerImpl struct {
 	logPoller     *logPoller.BpfLogger
 }
 
-func NewBpfPoller(bpfObjs *bpf.BpfObjects, sorter *bpf.PacketSorter, cgroupsController cgroup.CgroupsController, tlsLogDisabled bool) (BpfPoller, error) {
+func NewBpfPoller(bpfObjs *bpf.BpfObjects, cgroupsController cgroup.CgroupsController, tlsLogDisabled bool) (BpfPoller, error) {
 	var err error
 	p := BpfPollerImpl{}
 

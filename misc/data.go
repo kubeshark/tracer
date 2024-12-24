@@ -34,14 +34,6 @@ func GetCbufPcapPath() string {
 	return fmt.Sprintf("%s/tls_last.pcap", GetDataDir())
 }
 
-func GetTLSSocketPath() string {
-	return fmt.Sprintf("%s/tls.unix", GetDataDir())
-}
-
-func GetPlainSocketPath() string {
-	return fmt.Sprintf("%s/plain.unix", GetDataDir())
-}
-
 func GetEventSocketPath() string {
 	return fmt.Sprintf("%s/event.unix", GetDataDir())
 }
