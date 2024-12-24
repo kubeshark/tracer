@@ -11,6 +11,7 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"github.com/go-errors/errors"
 
+	"encoding/binary"
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/misc/ethernet"
@@ -45,8 +46,9 @@ type pktBuffer struct {
 }
 
 type PacketsPoller struct {
-	ipv4Decoder     gopacket.Decoder
+	ethernetDecoder gopacket.Decoder
 	ethhdr          *layers.Ethernet
+	ethhdrContent   []byte
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
 	rawWriter       bpf.RawWriter
@@ -63,17 +65,21 @@ func NewPacketsPoller(
 ) (*PacketsPoller, error) {
 	var err error
 
-	ipv4Decoder := gopacket.DecodersByLayerName["IPv4"]
-	if ipv4Decoder == nil {
-		return nil, errors.New("Failed to get IPv4 decoder")
+	ethernetDecoder := gopacket.DecodersByLayerName["Ethernet"]
+	if ethernetDecoder == nil {
+		return nil, errors.New("Failed to get Ethernet decoder")
 	}
 
+	ethhdrContent := make([]byte, 14)
+	binary.BigEndian.PutUint16(ethhdrContent[12:14], uint16(layers.EthernetTypeIPv4))
+
 	poller := &PacketsPoller{
-		ipv4Decoder:    ipv4Decoder,
-		ethhdr:         ethernet.NewEthernetLayer(layers.EthernetTypeIPv4),
-		rawWriter:      rawWriter,
-		gopacketWriter: gopacketWriter,
-		pktsMap:        make(map[uint64]*pktBuffer),
+		ethernetDecoder: ethernetDecoder,
+		ethhdr:          ethernet.NewEthernetLayer(layers.EthernetTypeIPv4),
+		ethhdrContent:   ethhdrContent,
+		rawWriter:       rawWriter,
+		gopacketWriter:  gopacketWriter,
+		pktsMap:         make(map[uint64]*pktBuffer),
 	}
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
@@ -148,11 +154,15 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		}
 
 		if p.gopacketWriter != nil {
-			pktBuf := append(p.ethhdr.Contents, pkts.buf[:pkts.len]...)
-			pkt := gopacket.NewPacket(pktBuf, p.ipv4Decoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
+			pktBuf := append(p.ethhdrContent, pkts.buf[:pkts.len]...)
+			pkt := gopacket.NewPacket(pktBuf, p.ethernetDecoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
 			m := pkt.Metadata()
 			ci := &m.CaptureInfo
-			ci.Timestamp = time.Unix(0, int64(ptr.Timestamp))
+			if ptr.Timestamp != 0 {
+				ci.Timestamp = time.Unix(0, int64(ptr.Timestamp))
+			} else {
+				ci.Timestamp = time.Now()
+			}
 			ci.CaptureLength = len(pktBuf)
 			ci.Length = len(pktBuf)
 			ci.CaptureBackend = gopacket.CaptureBackendEbpf
