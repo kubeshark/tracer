@@ -7,7 +7,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
-	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/cgroup"
 	"github.com/kubeshark/tracer/pkg/discoverer"
@@ -93,9 +92,7 @@ func (t *Tracer) Init(
 		}
 	}
 
-	sortedPackets := make(chan *bpf.SortedPacket, misc.PacketChannelBufferSize)
-
-	allPollers, err := poller.NewBpfPoller(t.bpfObjects, bpf.NewPacketSorter(sortedPackets, isCgroupsV2), t.cgroupsController, *disableTlsLog)
+	allPollers, err := poller.NewBpfPoller(t.bpfObjects, t.cgroupsController, *disableTlsLog)
 	if err != nil {
 		return err
 	}

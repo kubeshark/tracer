@@ -16,6 +16,7 @@ import (
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
+	"github.com/kubeshark/tracer/internal/tai"
 )
 
 const (
@@ -36,6 +37,7 @@ type TlsPoller struct {
 	gopacketWriter  GopacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
+	tai tai.TaiInfo
 }
 
 func NewTlsPoller(
@@ -49,6 +51,7 @@ func NewTlsPoller(
 		chunksReader:   nil,
 		rawWriter:      rawWriter,
 		gopacketWriter: gopacketWriter,
+		tai: tai.NewTaiInfo(),
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)

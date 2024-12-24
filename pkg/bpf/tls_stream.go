@@ -141,7 +141,12 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 		pkt := gopacket.NewPacket(bufBytes, t.ethernetDecoder, gopacket.NoCopy, cgroupId, unixpacket.PacketDirection(direction))
 		m := pkt.Metadata()
 		ci := &m.CaptureInfo
-		ci.Timestamp = time.Unix(0, int64(timestamp))
+		if timestamp != 0 {
+			ci.Timestamp = time.Unix(0, int64(timestamp)-int64(t.poller.tai.GetTAIOffset()))
+		} else {
+			ci.Timestamp = time.Now()
+		}
+
 		ci.CaptureLength = len(bufBytes)
 		ci.Length = len(bufBytes)
 		ci.CaptureBackend = gopacket.CaptureBackendEbpfTls
