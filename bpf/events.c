@@ -60,7 +60,8 @@ void BPF_KPROBE(tcp_connect) {
     __u64 key = (__u64)sk;
     bpf_map_update_elem(&tcp_connect_context, &key, &ev.pid, BPF_ANY);
 
-    bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
+    struct task_struct *group_leader = BPF_CORE_READ(task, group_leader);
+    bpf_probe_read_kernel_str(&ev.comm, 16, group_leader->comm);
 
     ev.port_dst = bpf_ntohs(ev.port_dst);
     bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event));
@@ -120,7 +121,8 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
     __u64 key = (__u64)sk;
     bpf_map_update_elem(&tcp_accept_context, &key, &ev.pid, BPF_ANY);
 
-    bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
+    struct task_struct *group_leader = BPF_CORE_READ(task, group_leader);
+    bpf_probe_read_kernel_str(&ev.comm, 16, group_leader->comm);
 
     ev.port_src = bpf_ntohs(ev.port_src);
     bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event));
@@ -218,7 +220,8 @@ void BPF_KPROBE(tcp_close) {
         return;
     }
 
-    bpf_probe_read_kernel_str(&ev.comm, 16, task->comm);
+    struct task_struct *group_leader = BPF_CORE_READ(task, group_leader);
+    bpf_probe_read_kernel_str(&ev.comm, 16, group_leader->comm);
 
     ev.port_dst = bpf_ntohs(ev.port_dst);
     bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event));
