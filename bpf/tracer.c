@@ -18,7 +18,11 @@ Copyright (C) Kubeshark
 #include "go_uprobes.c"
 #include "fd_tracepoints.c"
 #include "fd_to_address_tracepoints.c"
+
+#ifndef DISABLE_EBPF_CAPTURE
 #include "packet_sniffer.c"
+#endif
+
 #include "events.c"
 #include "file_probes.c"
 #include "pids_probes.c"

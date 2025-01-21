@@ -17,6 +17,7 @@ Copyright (C) Kubeshark
 
 #define MAX_ENTRIES_HASH        (1 << 12)  // 4096
 #define MAX_ENTRIES_PERF_OUTPUT	(1 << 10)  // 1024
+#define MAX_ENTRIES_PERF_OUTPUT_LARGE	(1 << 12)  // 4096
 #define MAX_ENTRIES_LRU_HASH	(1 << 14)  // 16384
 #define MAX_ENTRIES_LRU_HASH_BIG	(1 << 20)  // 1M
 
@@ -124,13 +125,6 @@ struct {
     __type(value, struct pkt_id_t);
 } pkt_id SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
-    __uint(max_entries, 4096);
-    __type(key, __u64);
-    __type(value, struct pkt);
-} packet_context SEC(".maps");
-
 struct socket_cookie_data {
     __u64 cgroup_id;
     __u32 src_ip;
@@ -160,6 +154,8 @@ struct configuration {
 
 #define BPF_PERF_OUTPUT(_name) \
     BPF_MAP(_name, BPF_MAP_TYPE_PERF_EVENT_ARRAY, int, __u32, MAX_ENTRIES_PERF_OUTPUT)
+#define BPF_PERF_OUTPUT_LARGE(_name) \
+    BPF_MAP(_name, BPF_MAP_TYPE_PERF_EVENT_ARRAY, int, __u32, MAX_ENTRIES_PERF_OUTPUT_LARGE)
 
 #define BPF_LRU_HASH(_name, _key_type, _value_type) \
     BPF_MAP(_name, BPF_MAP_TYPE_LRU_HASH, _key_type, _value_type, MAX_ENTRIES_LRU_HASH)
@@ -173,7 +169,7 @@ struct configuration {
 BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
-BPF_PERF_OUTPUT(pkts_buffer);
+BPF_PERF_OUTPUT_LARGE(pkts_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 BPF_ARRAY(settings, __u32, struct configuration, 1);
 BPF_LRU_HASH(cgroup_ids, __u64, __u32);

@@ -219,18 +219,6 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
         }
     }
 
-    if (bpf_map_update_elem(&packet_context, &packet_id, p, BPF_NOEXIST))
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 5, 0l, 0l);
-        return;
-    }
-    p = bpf_map_lookup_elem(&packet_context, &packet_id);
-    if (!p)
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 6, 0l, 0l);
-        return;
-    }
-
     p->timestamp = compat_get_uprobe_timestamp();
     p->cgroup_id = cgroup_id;
     p->direction = direction;
@@ -252,7 +240,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
             if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], PKT_PART_LEN) != 0)
             {
                 log_error(skb, LOG_ERROR_PKT_SNIFFER, 6, 0l, 0l);
-                goto save_end;
+                return;
             }
         }
         else
@@ -262,7 +250,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
             {
                 // This is assertion if branch - should never happens according above logic
                 log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
-                goto save_end;
+                return;
             }
             p_len -= 1; // to satisfy verifier in below bpf_skb_load_bytes
             if (p_len + 1 < sizeof(p->buf))
@@ -270,14 +258,14 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
                 if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1) != 0)
                 {
                     log_error(skb, LOG_ERROR_PKT_SNIFFER, 8, 0l, 0l);
-                    goto save_end;
+                    return;
                 }
             }
             else
             {
                 // This is assertion if branch - should never happens according above logic
                 log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
-                goto save_end;
+                return;
             }
         }
 
@@ -300,11 +288,6 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
         {
             log_error(skb, LOG_ERROR_PKT_SNIFFER, 10, 0l, 0l);
         }
-    }
-save_end:
-    if (bpf_map_delete_elem(&packet_context, &packet_id))
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 100, 0l, 0l);
     }
 }
 
