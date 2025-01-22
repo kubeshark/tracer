@@ -40,15 +40,32 @@ func NewResolver(procfs string) Resolver {
 		return nil
 	}
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	return &ResolverImpl{
+	res := &ResolverImpl{
 		procfs:     procfs,
 		isCgroupV2: isCgroupV2,
-		tcpMap:     getAllFlows(procfs, isCgroupV2, "tcp"),
-		udpMap:     getAllFlows(procfs, isCgroupV2, "udp"),
+		tcpMap:     make(connectionsMap),
+		udpMap:     make(connectionsMap),
 	}
+
+	locked := make(chan struct{})
+
+	go func(res *ResolverImpl, locked chan struct{}) {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		close(locked)
+
+		log.Info().Str("procfs", procfs).Msg("resolver creation started")
+		defer func() {
+			log.Info().Str("procfs", procfs).Msg("resolver creation completed")
+		}()
+		res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp")
+		res.udpMap = getAllFlows(procfs, isCgroupV2, "udp")
+	}(res, locked)
+
+	<-locked
+
+	return res
 }
 
 func getIpPortKey(localIP, localPort, remoteIP, remotePort string) string {

@@ -13,6 +13,7 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/features"
 	"github.com/go-errors/errors"
+	"github.com/jinzhu/copier"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/moby/moby/pkg/parsers/kernel"
@@ -27,13 +28,14 @@ const (
 
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS" -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS" -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags $BPF_CFLAGS -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets TracerNoEbpf ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets TracerNoEbpf ../../bpf/tracer.c
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets Tracer46 ../../bpf/tracer.c
-
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6" -type tls_chunk -type goid_offsets Tracer46 ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6 -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets Tracer46 ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "${BPF_CFLAGS} -DKERNEL_BEFORE_4_6 -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets Tracer46 ../../bpf/tracer.c
 
 type BpfObjectsImpl struct {
 	bpfObjs interface{}
@@ -154,6 +156,10 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 			bpfObjs: &TracerObjects{},
 		}
 
+		objectsNoEbpf := &BpfObjectsImpl{
+			bpfObjs: &TracerNoEbpfObjects{},
+		}
+
 		disableCapture := uint64(0)
 		if disableEbpfCapture {
 			disableCapture = 1
@@ -174,12 +180,14 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 			"DISABLE_EBPF_CAPTURE":                      disableCapture,
 		}
 
-		pktsBuffer, err := ebpf.LoadPinnedMap(plainPath, nil)
-		if err == nil {
-			mapReplacements["pkts_buffer"] = pktsBuffer
-			log.Info().Str("path", tlsPath).Msg("loaded plain packets buffer")
-		} else if !errors.Is(err, os.ErrNotExist) {
-			log.Error().Msg(fmt.Sprintf("load plain packets map failed: %v", err))
+		if !disableEbpfCapture {
+			pktsBuffer, err := ebpf.LoadPinnedMap(plainPath, nil)
+			if err == nil {
+				mapReplacements["pkts_buffer"] = pktsBuffer
+				log.Info().Str("path", tlsPath).Msg("loaded plain packets buffer")
+			} else if !errors.Is(err, os.ErrNotExist) {
+				log.Error().Msg(fmt.Sprintf("load plain packets map failed: %v", err))
+			}
 		}
 
 		chunksBuffer, err := ebpf.LoadPinnedMap(tlsPath, nil)
@@ -190,12 +198,27 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 			log.Error().Msg(fmt.Sprintf("load tls packets map failed: %v", err))
 		}
 
-		err = objects.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerBytes))
-		if err == nil {
+		if disableEbpfCapture {
+			if err = objectsNoEbpf.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
+				log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
+				return nil, err
+			}
+
+			o := objectsNoEbpf.bpfObjs.(*TracerNoEbpfObjects)
+			if err = copier.Copy(&objs.BpfObjs.TracerPrograms, &o.TracerNoEbpfPrograms); err != nil {
+				log.Error().Msg(fmt.Sprintf("copy program objects failed: %v", err))
+				return nil, err
+			}
+			if err = copier.Copy(&objs.BpfObjs.TracerMaps, &o.TracerNoEbpfMaps); err != nil {
+				log.Error().Msg(fmt.Sprintf("copy map objects failed: %v", err))
+				return nil, err
+			}
+		} else {
+			if err = objects.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerBytes)); err != nil {
+				log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
+				return nil, err
+			}
 			objs.BpfObjs = *objects.bpfObjs.(*TracerObjects)
-		} else if err != nil {
-			log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
-			return nil, err
 		}
 	}
 
