@@ -16,6 +16,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.7
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/hashicorp/golang-lru/v2 v2.0.2
+	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/api v1.1.32
 	github.com/kubeshark/gopacket v1.1.30

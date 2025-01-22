@@ -33,7 +33,7 @@ type ResolverImpl struct {
 	udpMap     connectionsMap
 }
 
-func NewResolver(procfs string, locked chan struct{}) Resolver {
+func NewResolver(procfs string) Resolver {
 	isCgroupV2, err := utils.IsCgroupV2()
 	if err != nil {
 		log.Error().Err(err).Msg("get cgroupv2 failed")
@@ -46,6 +46,8 @@ func NewResolver(procfs string, locked chan struct{}) Resolver {
 		tcpMap:     make(connectionsMap),
 		udpMap:     make(connectionsMap),
 	}
+
+	locked := make(chan struct{})
 
 	go func(res *ResolverImpl, locked chan struct{}) {
 		runtime.LockOSThread()
@@ -60,6 +62,8 @@ func NewResolver(procfs string, locked chan struct{}) Resolver {
 		res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp")
 		res.udpMap = getAllFlows(procfs, isCgroupV2, "udp")
 	}(res, locked)
+
+	<-locked
 
 	return res
 }

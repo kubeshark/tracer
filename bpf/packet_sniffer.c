@@ -44,6 +44,39 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 
 #include "packet_sniffer_v1.c"
 
+struct pkt {
+    __u64 timestamp;
+    __u64 cgroup_id;
+    __u64 id;
+    __u32 len;
+    __u32 tot_len;
+    __u32 counter;
+    __u16 num;
+    __u16 last;
+    __u8 direction;
+    unsigned char buf[PKT_PART_LEN];
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, struct pkt);
+} pkt_heap SEC(".maps");
+
+struct pkt_id_t {
+    __u64 id;
+    struct bpf_spin_lock lock;
+};
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, struct pkt_id_t);
+} pkt_id SEC(".maps");
+
+BPF_PERF_OUTPUT_LARGE(pkts_buffer);
+
 /*
     defining ENABLE_TRACE_PACKETS enables tracing into kernel cyclic buffer
     which can be fetched on a host system with `cat /sys/kernel/debug/tracing/trace_pipe`

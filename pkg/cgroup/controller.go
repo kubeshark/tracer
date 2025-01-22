@@ -137,6 +137,9 @@ func (e *CgroupsControllerImpl) GetCgroupV2MountPoint() string {
 }
 
 func (e *CgroupsControllerImpl) PopulateSocketsInodes(isCgroupV2 bool, inodeMap *ebpf.Map) error {
+	if inodeMap == nil {
+		return nil
+	}
 	getContId := func(pid string) string {
 		path := filepath.Join(e.procfs, pid, "cgroup")
 		file, err := os.Open(path)

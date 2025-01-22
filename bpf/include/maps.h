@@ -94,36 +94,6 @@ struct {
 #define PKT_MAX_LEN (64 * 1024)
 #define PACKET_DIRECTION_RECEIVED 0
 #define PACKET_DIRECTION_SENT 1
-struct pkt {
-    __u64 timestamp;
-    __u64 cgroup_id;
-    __u64 id;
-    __u32 len;
-    __u32 tot_len;
-    __u32 counter;
-    __u16 num;
-    __u16 last;
-    __u8 direction;
-    unsigned char buf[PKT_PART_LEN];
-};
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, int);
-    __type(value, struct pkt);
-} pkt_heap SEC(".maps");
-
-struct pkt_id_t {
-    __u64 id;
-    struct bpf_spin_lock lock;
-};
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, int);
-    __type(value, struct pkt_id_t);
-} pkt_id SEC(".maps");
 
 struct socket_cookie_data {
     __u64 cgroup_id;
@@ -169,7 +139,6 @@ struct configuration {
 BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
 BPF_PERF_OUTPUT(chunks_buffer);
-BPF_PERF_OUTPUT_LARGE(pkts_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 BPF_ARRAY(settings, __u32, struct configuration, 1);
 BPF_LRU_HASH(cgroup_ids, __u64, __u32);

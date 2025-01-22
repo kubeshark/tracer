@@ -13,6 +13,9 @@ type syscallHooks struct {
 }
 
 func (s *syscallHooks) addTracepoint(group, name string, program *ebpf.Program) error {
+	if program == nil {
+		return nil
+	}
 	l, err := link.Tracepoint(group, name, program, nil)
 
 	if err != nil {
@@ -24,6 +27,9 @@ func (s *syscallHooks) addTracepoint(group, name string, program *ebpf.Program) 
 }
 
 func (s *syscallHooks) addRawTracepoint(name string, program *ebpf.Program) error {
+	if program == nil {
+		return nil
+	}
 	l, err := link.AttachRawTracepoint(link.RawTracepointOptions{
 		Name:    name,
 		Program: program,
@@ -38,6 +44,9 @@ func (s *syscallHooks) addRawTracepoint(name string, program *ebpf.Program) erro
 }
 
 func (s *syscallHooks) addKprobe(name string, program *ebpf.Program) error {
+	if program == nil {
+		return nil
+	}
 	l, err := link.Kprobe(name, program, nil)
 
 	if err != nil {
@@ -49,6 +58,9 @@ func (s *syscallHooks) addKprobe(name string, program *ebpf.Program) error {
 }
 
 func (s *syscallHooks) addKretprobe(name string, program *ebpf.Program) error {
+	if program == nil {
+		return nil
+	}
 	l, err := link.Kretprobe(name, program, nil)
 
 	if err != nil {

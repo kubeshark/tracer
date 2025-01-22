@@ -19,7 +19,7 @@ Copyright (C) Kubeshark
 #include "fd_tracepoints.c"
 #include "fd_to_address_tracepoints.c"
 
-#ifndef DISABLE_EBPF_CAPTURE
+#ifndef DISABLE_EBPF_CAPTURE_BACKEND
 #include "packet_sniffer.c"
 #endif
 

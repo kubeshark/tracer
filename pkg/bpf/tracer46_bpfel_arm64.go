@@ -34,8 +34,6 @@ type Tracer46ConnectInfo struct {
 	_       [4]byte
 }
 
-type Tracer46Entry struct{ Args [6]uint64 }
-
 type Tracer46FilePath struct {
 	Path     [4096]int8
 	DeviceId uint32
@@ -55,15 +53,6 @@ type Tracer46GoidOffsets struct {
 	GoidOffset   uint64
 }
 
-type Tracer46IndexerT struct {
-	Ts     uint64
-	IpCsum uint16
-	_      [2]byte
-	Src    struct{ In6U struct{ U6Addr8 [16]uint8 } }
-	Dst    struct{ In6U struct{ U6Addr8 [16]uint8 } }
-	_      [4]byte
-}
-
 type Tracer46PidInfo struct {
 	SysFdOffset int64
 	IsInterface uint64
@@ -72,26 +61,6 @@ type Tracer46PidInfo struct {
 type Tracer46PidOffset struct {
 	Pid          uint64
 	SymbolOffset uint64
-}
-
-type Tracer46Pkt struct {
-	Timestamp uint64
-	CgroupId  uint64
-	Id        uint64
-	Len       uint32
-	TotLen    uint32
-	Counter   uint32
-	Num       uint16
-	Last      uint16
-	Direction uint8
-	Buf       [4096]uint8
-	_         [7]byte
-}
-
-type Tracer46PktIdT struct {
-	Id   uint64
-	Lock struct{ Val uint32 }
-	_    [4]byte
 }
 
 type Tracer46SslInfo struct {
@@ -160,12 +129,9 @@ type Tracer46Specs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type Tracer46ProgramSpecs struct {
-	CgroupBpfRunFilterSkb         *ebpf.ProgramSpec `ebpf:"cgroup_bpf_run_filter_skb"`
 	DoAccept                      *ebpf.ProgramSpec `ebpf:"do_accept"`
 	DoMkdirat                     *ebpf.ProgramSpec `ebpf:"do_mkdirat"`
 	DoMkdiratRet                  *ebpf.ProgramSpec `ebpf:"do_mkdirat_ret"`
-	FilterEgressPackets           *ebpf.ProgramSpec `ebpf:"filter_egress_packets"`
-	FilterIngressPackets          *ebpf.ProgramSpec `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.ProgramSpec `ebpf:"go_crypto_tls_abi0_write"`
@@ -179,11 +145,6 @@ type Tracer46ProgramSpecs struct {
 	SecurityInodeRename           *ebpf.ProgramSpec `ebpf:"security_inode_rename"`
 	SecurityInodeUnlink           *ebpf.ProgramSpec `ebpf:"security_inode_unlink"`
 	SecurityPathMkdir             *ebpf.ProgramSpec `ebpf:"security_path_mkdir"`
-	SecuritySkClone               *ebpf.ProgramSpec `ebpf:"security_sk_clone"`
-	SecuritySocketRecvmsg         *ebpf.ProgramSpec `ebpf:"security_socket_recvmsg"`
-	SecuritySocketSendmsg         *ebpf.ProgramSpec `ebpf:"security_socket_sendmsg"`
-	SockAllocFile                 *ebpf.ProgramSpec `ebpf:"sock_alloc_file"`
-	SockAllocFileRet              *ebpf.ProgramSpec `ebpf:"sock_alloc_file_ret"`
 	SslPending                    *ebpf.ProgramSpec `ebpf:"ssl_pending"`
 	SslRead                       *ebpf.ProgramSpec `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.ProgramSpec `ebpf:"ssl_read_ex"`
@@ -222,13 +183,10 @@ type Tracer46MapSpecs struct {
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
 	Bufs                     *ebpf.MapSpec `ebpf:"bufs"`
 	CgroupIds                *ebpf.MapSpec `ebpf:"cgroup_ids"`
-	CgrpctxmapEg             *ebpf.MapSpec `ebpf:"cgrpctxmap_eg"`
-	CgrpctxmapIn             *ebpf.MapSpec `ebpf:"cgrpctxmap_in"`
 	ChunksBuffer             *ebpf.MapSpec `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.MapSpec `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.MapSpec `ebpf:"do_mkdir_context"`
-	Entrymap                 *ebpf.MapSpec `ebpf:"entrymap"`
 	FileProbeHeap            *ebpf.MapSpec `ebpf:"file_probe_heap"`
 	ForkInfo                 *ebpf.MapSpec `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.MapSpec `ebpf:"go_kernel_read_context"`
@@ -239,7 +197,6 @@ type Tracer46MapSpecs struct {
 	GoWriteContext           *ebpf.MapSpec `ebpf:"go_write_context"`
 	GoidOffsetsMap           *ebpf.MapSpec `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.MapSpec `ebpf:"heap"`
-	Inodemap                 *ebpf.MapSpec `ebpf:"inodemap"`
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.MapSpec `ebpf:"openssl_write_context"`
@@ -247,11 +204,7 @@ type Tracer46MapSpecs struct {
 	PerfFoundOpenssl         *ebpf.MapSpec `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.MapSpec `ebpf:"pids_info"`
-	PktHeap                  *ebpf.MapSpec `ebpf:"pkt_heap"`
-	PktId                    *ebpf.MapSpec `ebpf:"pkt_id"`
-	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
-	Sockmap                  *ebpf.MapSpec `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.MapSpec `ebpf:"tcp_accept_context"`
 	TcpConnectContext        *ebpf.MapSpec `ebpf:"tcp_connect_context"`
@@ -280,13 +233,10 @@ type Tracer46Maps struct {
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
 	Bufs                     *ebpf.Map `ebpf:"bufs"`
 	CgroupIds                *ebpf.Map `ebpf:"cgroup_ids"`
-	CgrpctxmapEg             *ebpf.Map `ebpf:"cgrpctxmap_eg"`
-	CgrpctxmapIn             *ebpf.Map `ebpf:"cgrpctxmap_in"`
 	ChunksBuffer             *ebpf.Map `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.Map `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.Map `ebpf:"do_mkdir_context"`
-	Entrymap                 *ebpf.Map `ebpf:"entrymap"`
 	FileProbeHeap            *ebpf.Map `ebpf:"file_probe_heap"`
 	ForkInfo                 *ebpf.Map `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.Map `ebpf:"go_kernel_read_context"`
@@ -297,7 +247,6 @@ type Tracer46Maps struct {
 	GoWriteContext           *ebpf.Map `ebpf:"go_write_context"`
 	GoidOffsetsMap           *ebpf.Map `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.Map `ebpf:"heap"`
-	Inodemap                 *ebpf.Map `ebpf:"inodemap"`
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.Map `ebpf:"openssl_write_context"`
@@ -305,11 +254,7 @@ type Tracer46Maps struct {
 	PerfFoundOpenssl         *ebpf.Map `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.Map `ebpf:"pids_info"`
-	PktHeap                  *ebpf.Map `ebpf:"pkt_heap"`
-	PktId                    *ebpf.Map `ebpf:"pkt_id"`
-	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
 	Settings                 *ebpf.Map `ebpf:"settings"`
-	Sockmap                  *ebpf.Map `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.Map `ebpf:"tcp_accept_context"`
 	TcpConnectContext        *ebpf.Map `ebpf:"tcp_connect_context"`
@@ -321,13 +266,10 @@ func (m *Tracer46Maps) Close() error {
 		m.AcceptSyscallContext,
 		m.Bufs,
 		m.CgroupIds,
-		m.CgrpctxmapEg,
-		m.CgrpctxmapIn,
 		m.ChunksBuffer,
 		m.ConnectSyscallInfo,
 		m.ConnectionContext,
 		m.DoMkdirContext,
-		m.Entrymap,
 		m.FileProbeHeap,
 		m.ForkInfo,
 		m.GoKernelReadContext,
@@ -338,7 +280,6 @@ func (m *Tracer46Maps) Close() error {
 		m.GoWriteContext,
 		m.GoidOffsetsMap,
 		m.Heap,
-		m.Inodemap,
 		m.LogBuffer,
 		m.OpensslReadContext,
 		m.OpensslWriteContext,
@@ -346,11 +287,7 @@ func (m *Tracer46Maps) Close() error {
 		m.PerfFoundOpenssl,
 		m.PerfFoundPid,
 		m.PidsInfo,
-		m.PktHeap,
-		m.PktId,
-		m.PktsBuffer,
 		m.Settings,
-		m.Sockmap,
 		m.SyscallEvents,
 		m.TcpAcceptContext,
 		m.TcpConnectContext,
@@ -361,12 +298,9 @@ func (m *Tracer46Maps) Close() error {
 //
 // It can be passed to LoadTracer46Objects or ebpf.CollectionSpec.LoadAndAssign.
 type Tracer46Programs struct {
-	CgroupBpfRunFilterSkb         *ebpf.Program `ebpf:"cgroup_bpf_run_filter_skb"`
 	DoAccept                      *ebpf.Program `ebpf:"do_accept"`
 	DoMkdirat                     *ebpf.Program `ebpf:"do_mkdirat"`
 	DoMkdiratRet                  *ebpf.Program `ebpf:"do_mkdirat_ret"`
-	FilterEgressPackets           *ebpf.Program `ebpf:"filter_egress_packets"`
-	FilterIngressPackets          *ebpf.Program `ebpf:"filter_ingress_packets"`
 	GoCryptoTlsAbi0Read           *ebpf.Program `ebpf:"go_crypto_tls_abi0_read"`
 	GoCryptoTlsAbi0ReadEx         *ebpf.Program `ebpf:"go_crypto_tls_abi0_read_ex"`
 	GoCryptoTlsAbi0Write          *ebpf.Program `ebpf:"go_crypto_tls_abi0_write"`
@@ -380,11 +314,6 @@ type Tracer46Programs struct {
 	SecurityInodeRename           *ebpf.Program `ebpf:"security_inode_rename"`
 	SecurityInodeUnlink           *ebpf.Program `ebpf:"security_inode_unlink"`
 	SecurityPathMkdir             *ebpf.Program `ebpf:"security_path_mkdir"`
-	SecuritySkClone               *ebpf.Program `ebpf:"security_sk_clone"`
-	SecuritySocketRecvmsg         *ebpf.Program `ebpf:"security_socket_recvmsg"`
-	SecuritySocketSendmsg         *ebpf.Program `ebpf:"security_socket_sendmsg"`
-	SockAllocFile                 *ebpf.Program `ebpf:"sock_alloc_file"`
-	SockAllocFileRet              *ebpf.Program `ebpf:"sock_alloc_file_ret"`
 	SslPending                    *ebpf.Program `ebpf:"ssl_pending"`
 	SslRead                       *ebpf.Program `ebpf:"ssl_read"`
 	SslReadEx                     *ebpf.Program `ebpf:"ssl_read_ex"`
@@ -417,12 +346,9 @@ type Tracer46Programs struct {
 
 func (p *Tracer46Programs) Close() error {
 	return _Tracer46Close(
-		p.CgroupBpfRunFilterSkb,
 		p.DoAccept,
 		p.DoMkdirat,
 		p.DoMkdiratRet,
-		p.FilterEgressPackets,
-		p.FilterIngressPackets,
 		p.GoCryptoTlsAbi0Read,
 		p.GoCryptoTlsAbi0ReadEx,
 		p.GoCryptoTlsAbi0Write,
@@ -436,11 +362,6 @@ func (p *Tracer46Programs) Close() error {
 		p.SecurityInodeRename,
 		p.SecurityInodeUnlink,
 		p.SecurityPathMkdir,
-		p.SecuritySkClone,
-		p.SecuritySocketRecvmsg,
-		p.SecuritySocketSendmsg,
-		p.SockAllocFile,
-		p.SockAllocFileRet,
 		p.SslPending,
 		p.SslRead,
 		p.SslReadEx,
