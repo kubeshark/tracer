@@ -44,7 +44,8 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 
 #include "packet_sniffer_v1.c"
 
-struct pkt {
+struct pkt
+{
     __u64 timestamp;
     __u64 cgroup_id;
     __u64 id;
@@ -57,18 +58,21 @@ struct pkt {
     unsigned char buf[PKT_PART_LEN];
 };
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
     __type(value, struct pkt);
 } pkt_heap SEC(".maps");
 
-struct pkt_id_t {
+struct pkt_id_t
+{
     __u64 id;
     struct bpf_spin_lock lock;
 };
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
@@ -151,12 +155,12 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     if (side == PACKET_DIRECTION_RECEIVED)
     {
         TRACE_PACKET("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-        save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), cgroup_id, side);
+        save_packet(skb, src_ip, skb->remote_port >> 16, dst_ip, bpf_htons(skb->local_port), cgroup_id, side);
     }
     else
     {
         TRACE_PACKET("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-        save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, cgroup_id, side);
+        save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port >> 16, cgroup_id, side);
     }
 
     return 1;
@@ -245,7 +249,8 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
     bpf_spin_unlock(&pkt_id_ptr->lock);
 
     // send initial chunk before the first packet
-    if (unlikely(packet_id == 0)) {
+    if (unlikely(packet_id == 0))
+    {
         if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, 0))
         {
             log_error(skb, LOG_ERROR_PKT_SNIFFER, 11, 0l, 0l);
