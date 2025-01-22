@@ -87,7 +87,7 @@ func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
 	return 0
 }
 
-func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error) {
+func NewBpfObjects(disableEbpfCapture *bool, preferCgroupV1 bool) (*BpfObjects, error) {
 	var err error
 
 	objs := BpfObjects{}
@@ -112,7 +112,7 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 	tlsPath := filepath.Join(PinPath, PinNameTLSPackets)
 
 	if !kernel.CheckKernelVersion(5, 4, 0) {
-		disableEbpfCapture = true
+		*disableEbpfCapture = true
 	}
 
 	markDisabledEBPF := func() error {
@@ -126,7 +126,7 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 	}
 
 	ebpfBackendStatus := "enabled"
-	if disableEbpfCapture {
+	if *disableEbpfCapture {
 		ebpfBackendStatus = "disabled"
 		if err = markDisabledEBPF(); err != nil {
 			return nil, err
@@ -161,7 +161,7 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 		}
 
 		disableCapture := uint64(0)
-		if disableEbpfCapture {
+		if *disableEbpfCapture {
 			disableCapture = 1
 		}
 
@@ -180,7 +180,7 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 			"DISABLE_EBPF_CAPTURE":                      disableCapture,
 		}
 
-		if !disableEbpfCapture {
+		if !*disableEbpfCapture {
 			pktsBuffer, err := ebpf.LoadPinnedMap(plainPath, nil)
 			if err == nil {
 				mapReplacements["pkts_buffer"] = pktsBuffer
@@ -198,27 +198,50 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 			log.Error().Msg(fmt.Sprintf("load tls packets map failed: %v", err))
 		}
 
-		if disableEbpfCapture {
+		loadTracer := func(obj *TracerObjects) (err error) {
+			if err = objects.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerBytes)); err != nil {
+				err = fmt.Errorf("load tracer objects failed: %v", err)
+				return
+			}
+			*obj = *objects.bpfObjs.(*TracerObjects)
+			return
+		}
+
+		loadTracerNoEbpf := func(obj *TracerObjects) (err error) {
 			if err = objectsNoEbpf.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
-				log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
-				return nil, err
+				err = fmt.Errorf("load tracer noBpf objects failed: %v", err)
+				return
 			}
 
 			o := objectsNoEbpf.bpfObjs.(*TracerNoEbpfObjects)
-			if err = copier.Copy(&objs.BpfObjs.TracerPrograms, &o.TracerNoEbpfPrograms); err != nil {
-				log.Error().Msg(fmt.Sprintf("copy program objects failed: %v", err))
-				return nil, err
+			if err = copier.Copy(&obj.TracerPrograms, &o.TracerNoEbpfPrograms); err != nil {
+				err = fmt.Errorf("copy program objects failed: %v", err)
+				return
 			}
-			if err = copier.Copy(&objs.BpfObjs.TracerMaps, &o.TracerNoEbpfMaps); err != nil {
-				log.Error().Msg(fmt.Sprintf("copy map objects failed: %v", err))
-				return nil, err
+			if err = copier.Copy(&obj.TracerMaps, &o.TracerNoEbpfMaps); err != nil {
+				err = fmt.Errorf("copy map objects failed: %v", err)
+				return
 			}
-		} else {
-			if err = objects.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerBytes)); err != nil {
-				log.Error().Msg(fmt.Sprintf("load bpf objects failed: %v", err))
-				return nil, err
+			return
+		}
+
+		if !*disableEbpfCapture {
+			err = loadTracer(&objs.BpfObjs)
+			if err != nil {
+				log.Warn().Msg(fmt.Sprintf("load tracer objects failed, trying load without ebpf packet capture backend. Error: %v", err))
+				if err = markDisabledEBPF(); err != nil {
+					return nil, err
+				}
+				objs = BpfObjects{}
+				*disableEbpfCapture = true
 			}
-			objs.BpfObjs = *objects.bpfObjs.(*TracerObjects)
+		}
+
+		if *disableEbpfCapture {
+			err = loadTracerNoEbpf(&objs.BpfObjs)
+			if err != nil {
+				log.Warn().Msg(fmt.Sprintf("load tracer noEbpf objects failed. Error: %v", err))
+			}
 		}
 	}
 
@@ -252,7 +275,7 @@ func NewBpfObjects(disableEbpfCapture, preferCgroupV1 bool) (*BpfObjects, error)
 		return nil
 	}
 
-	if !disableEbpfCapture {
+	if !*disableEbpfCapture {
 		if err = pinMap("pkts_buffer", plainPath, objs.BpfObjs.PktsBuffer); err != nil {
 			return nil, err
 		}

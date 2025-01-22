@@ -63,7 +63,7 @@ func (t *Tracer) Init(
 		return fmt.Errorf("cgroups controller create failed")
 	}
 
-	t.bpfObjects, err = bpf.NewBpfObjects(*disableEbpfCapture, *preferCgroupV1Capture)
+	t.bpfObjects, err = bpf.NewBpfObjects(disableEbpfCapture, *preferCgroupV1Capture)
 	if err != nil {
 		return fmt.Errorf("creating bpf failed: %v", err)
 	}
@@ -221,7 +221,8 @@ func initBPFSubsystem() {
 		}
 	}
 
-	_, err := bpf.NewBpfObjects(false, false)
+	disableEbpf := false
+	_, err := bpf.NewBpfObjects(&disableEbpf, false)
 	if err != nil {
 		log.Error().Err(err).Msg("create objects failed")
 	}

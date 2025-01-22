@@ -243,7 +243,6 @@ type TracerMapSpecs struct {
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.MapSpec `ebpf:"openssl_write_context"`
-	PacketContext            *ebpf.MapSpec `ebpf:"packet_context"`
 	PerfFoundCgroup          *ebpf.MapSpec `ebpf:"perf_found_cgroup"`
 	PerfFoundOpenssl         *ebpf.MapSpec `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
@@ -302,7 +301,6 @@ type TracerMaps struct {
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.Map `ebpf:"openssl_write_context"`
-	PacketContext            *ebpf.Map `ebpf:"packet_context"`
 	PerfFoundCgroup          *ebpf.Map `ebpf:"perf_found_cgroup"`
 	PerfFoundOpenssl         *ebpf.Map `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
@@ -344,7 +342,6 @@ func (m *TracerMaps) Close() error {
 		m.LogBuffer,
 		m.OpensslReadContext,
 		m.OpensslWriteContext,
-		m.PacketContext,
 		m.PerfFoundCgroup,
 		m.PerfFoundOpenssl,
 		m.PerfFoundPid,
