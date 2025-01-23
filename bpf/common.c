@@ -11,7 +11,6 @@ Copyright (C) Kubeshark
 #include "include/common.h"
 #include "include/probes.h"
 
-
 static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info) {
     __u32 pid = id >> 32;
     __u64 key = (__u64)pid << 32 | fd;

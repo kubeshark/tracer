@@ -52,7 +52,7 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 // #define ENABLE_TRACE_PACKETS
 
 #ifdef ENABLE_TRACE_PACKETS
-#define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)              \
+#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)              \
     bpf_printk("PKT " NAME " skb: %p len: %d ret: %d", skb, (IS_CGROUP ? (skb->len + 14) : skb->len), ret); \
     bpf_printk("PKT " NAME " cgroup: %d cookie:0x%x", CGROUP_ID, bpf_get_socket_cookie(skb));               \
     bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP));                   \
@@ -67,21 +67,85 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
         __u32 __dst_port = bpf_ntohl(dst_port);                                                             \
         bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port);                   \
     }
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)              \
+    bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb, (IS_CGROUP ? (skb->len + 14) : skb->len));        \
+    bpf_printk("PKT " NAME " [IPv6] cgroup: %d cookie:0x%x", CGROUP_ID, bpf_get_socket_cookie(skb));         \
+    bpf_printk("PKT " NAME " [IPv6] ip_local: %x:%x:%x:%x:%x:%x:%x:%x",                                     \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[0]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[1]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[2]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[3]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[4]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[5]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[6]),                                                                  \
+        bpf_ntohs(LOCAL_IP6.s6_addr16[7]));                                                                 \
+    bpf_printk("PKT " NAME " [IPv6] ip_remote: %x:%x:%x:%x:%x:%x:%x:%x",                                    \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[0]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[1]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[2]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[3]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[4]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[5]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[6]),                                                                 \
+        bpf_ntohs(REMOTE_IP6.s6_addr16[7]));  
+    {                                                                                                       \
+        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                                         \
+        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                                                       \
+        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);         \
+    }                                                                                                       \
+        bpf_printk("PKT " NAME " [IPv6] ip_src: %x:%x:%x:%x:%x:%x:%x:%x",                                     \
+        bpf_ntohs(src_ip6.s6_addr16[0]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[1]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[2]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[3]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[4]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[5]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[6]),                                                                  \
+        bpf_ntohs(src_ip6.s6_addr16[7]));                                                                 \
+    bpf_printk("PKT " NAME " [IPv6] ip_remote: %x:%x:%x:%x:%x:%x:%x:%x",                                    \
+        bpf_ntohs(dst_ip6.s6_addr16[0]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[1]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[2]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[3]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[4]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[5]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[6]),                                                                 \
+        bpf_ntohs(dst_ip6.s6_addr16[7])); 
+    {                                                                                                       \
+        __u32 __src_port = bpf_ntohl(src_port);                                                             \
+        __u32 __dst_port = bpf_ntohl(dst_port);                                                             \
+        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port);                   \
+    }
 #define TRACE_PACKET_SENT(NAME) \
     bpf_printk("PKT " NAME " sent");
 #else
-#define TRACE_PACKET(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID) \
-    src_ip;                                                                                    \
-    dst_ip;                                                                                    \
-    src_port;                                                                                  \
-    dst_port;
+#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)
 #define TRACE_PACKET_SENT(NAME)
 #endif
 
 #define ETH_P_IP 0x0800
+#define ETH_P_IPV6 0x86DD
+#define IPV6_EXT_MAX_CHAIN 4
 
-static __always_inline void save_packet(struct __sk_buff *skb, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction);
-static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc, __u32 *src_ip4, __u16 *src_port, __u32 *dst_ip4, __u16 *dst_port, __u8 *ipp);
+static __always_inline void save_packet(struct __sk_buff *skb, 
+                                        __u32 rewrite_ip_src, 
+                                        __u16 rewrite_port_src, 
+                                        __u32 rewrite_ip_dst, 
+                                        __u16 rewrite_port_dst, 
+                                        struct in6_addr *rewrite_ip6_src, 
+                                        struct in6_addr *rewrite_ip6_dst, 
+                                        __u64 cgroup_id, 
+                                        __u8 direction, 
+                                        __u8 transportHdr, 
+                                        __u8 transportOffset, 
+                                        bool is_ipv6);
+static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc,
+                                        __u32 *, __u16 *src_port,
+                                        __u32 *dst_ip4, __u16 *dst_port,
+                                        __u8 *ipp, struct in6_addr *src_ip6,
+                                        struct in6_addr *dst_ip6,
+                                        __u32 *transportOffset);
 
 static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxmap, __u8 side)
 {
@@ -109,7 +173,16 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     __u16 src_port = 0;
     __u32 dst_ip = 0;
     __u16 dst_port = 0;
-    int ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, NULL);
+    struct in6_addr src_ip6 = {0};
+    struct in6_addr dst_ip6 = {0};
+    __u8 transportHdr = 0;
+    __u32 transportOffset = 0;
+    int ret = -1;
+    if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
+        ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip, &transportOffset);
+    } else {
+        ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip, NULL);
+    }
     if (!ret)
     {
         return 1;
@@ -117,13 +190,27 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
 
     if (side == PACKET_DIRECTION_RECEIVED)
     {
-        TRACE_PACKET("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-        save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), cgroup_id, side);
+        if (src_ip) {
+            // IPv4
+            TRACE_PACKET_IPV4("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+            save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), &src_ip6, &dst_ip6,  cgroup_id, side, transportHdr, transportOffset, false);
+        } else {
+            // IPv6
+            TRACE_PACKET_IPV6("cg/in", true, skb->local_ip6, skb->remote_ip6, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+            save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), &src_ip6, &dst_ip6, cgroup_id, side, transportHdr, transportOffset, true);
+        }
     }
     else
     {
-        TRACE_PACKET("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-        save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, cgroup_id, side);
+        if (src_ip) {
+            // IPv4
+            TRACE_PACKET_IPV4("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+            save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, &src_ip6, &dst_ip6, cgroup_id, side, transportHdr, transportOffset, false);
+        } else {
+            // IPv6
+            TRACE_PACKET_IPV6("cg/out", true, skb->local_ip6, skb->remote_ip6, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+            save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, &src_ip6, &dst_ip6, cgroup_id, side, transportHdr, transportOffset, true);
+        }
     }
 
     return 1;
@@ -141,29 +228,55 @@ int filter_egress_packets(struct __sk_buff *skb)
     return filter_packets(skb, &cgrpctxmap_eg, PACKET_DIRECTION_SENT);
 }
 
-struct pkt_sniffer_ctx
-{
-    struct __sk_buff *skb;
-    __u32 rewrite_ip_src;
-    __u16 rewrite_port_src;
-    __u32 rewrite_ip_dst;
-    __u16 rewrite_port_dst;
-    __u64 cgroup_id;
-    __u8 direction;
+struct pkt_sniffer_ctx {
+    struct __sk_buff *skb;       
+    __u32 rewrite_ip_src;          
+    __u16 rewrite_port_src;       
+    __u32 rewrite_ip_dst;         
+    __u16 rewrite_port_dst;        
+    struct in6_addr rewrite_ip6_src; 
+    struct in6_addr rewrite_ip6_dst; 
+    __u64 cgroup_id;               
+    __u8 direction;      
+    __u8 transportHdrType;          
+    __u32 transportOffset;
+    bool is_ipv6;                  
 };
 
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx);
-static __always_inline void save_packet(struct __sk_buff *skb, __u32 rewrite_ip_src, __u16 rewrite_port_src, __u32 rewrite_ip_dst, __u16 rewrite_port_dst, __u64 cgroup_id, __u8 direction)
+static __always_inline void save_packet(struct __sk_buff *skb, 
+                                        __u32 rewrite_ip_src, 
+                                        __u16 rewrite_port_src, 
+                                        __u32 rewrite_ip_dst, 
+                                        __u16 rewrite_port_dst, 
+                                        struct in6_addr *rewrite_ip6_src, 
+                                        struct in6_addr *rewrite_ip6_dst, 
+                                        __u64 cgroup_id, 
+                                        __u8 direction,
+                                        __u8 transportHdr, 
+                                        __u8 transportOffset, 
+                                        bool is_ipv6)
 {
     struct pkt_sniffer_ctx ctx = {
         .skb = skb,
-        .rewrite_ip_src = rewrite_ip_src,
         .rewrite_port_src = rewrite_port_src,
-        .rewrite_ip_dst = rewrite_ip_dst,
         .rewrite_port_dst = rewrite_port_dst,
         .cgroup_id = cgroup_id,
         .direction = direction,
+        .transportHdrType = transportHdr,
+        .transportOffset = transportOffset,
     };
+
+    if (is_ipv6) {
+        __builtin_memcpy(&ctx.rewrite_ip6_src, rewrite_ip6_src, sizeof(struct in6_addr));
+        __builtin_memcpy(&ctx.rewrite_ip6_dst, rewrite_ip6_dst, sizeof(struct in6_addr));
+        ctx.is_ipv6 = true;
+    } else {
+        ctx.rewrite_ip_src = rewrite_ip_src;
+        ctx.rewrite_ip_dst = rewrite_ip_dst;
+        ctx.is_ipv6 = false;
+    }
+
     return _save_packet(&ctx);
 }
 
@@ -174,6 +287,8 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
     __u16 rewrite_port_src = ctx->rewrite_port_src;
     __u32 rewrite_ip_dst = ctx->rewrite_ip_dst;
     __u16 rewrite_port_dst = ctx->rewrite_port_dst;
+    struct in6_addr *rewrite_ip6_src = &ctx->rewrite_ip6_src;
+    struct in6_addr *rewrite_ip6_dst = &ctx->rewrite_ip6_dst;
     __u64 cgroup_id = ctx->cgroup_id;
     __u8 direction = ctx->direction;
     int zero = 0;
@@ -280,21 +395,50 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
                 goto save_end;
             }
         }
+        if (ctx->is_ipv6) {
+            struct ipv6hdr *ip6 = (struct ipv6hdr *)p->buf;
+            if (rewrite_ip6_src)
+                __builtin_memcpy(&ip6->saddr, rewrite_ip6_src, sizeof(struct in6_addr));
+            if (rewrite_ip6_dst)
+                __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst, sizeof(struct in6_addr));
 
-        struct iphdr *ip = (struct iphdr *)p->buf;
-        if (rewrite_ip_src)
-            ip->saddr = rewrite_ip_src;
-        if (rewrite_ip_dst)
-            ip->daddr = rewrite_ip_dst;
-        if (ip->protocol == IPPROTO_TCP || ip->protocol == IPPROTO_UDP)
-        {
-            int hdrsize = ip->ihl * 4;
-            __u16 *src_dst = (__u16 *)(&p->buf[0] + hdrsize);
-            if (rewrite_port_src)
-                *src_dst = rewrite_port_src;
-            if (rewrite_port_dst)
-                *(src_dst + 1) = rewrite_port_dst;
+            if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
+                if (ctx->transportOffset >= PKT_PART_LEN) {
+                    log_error(skb, LOG_ERROR_PKT_SNIFFER, 12, ctx->transportOffset, 0l);
+                    goto save_end;
+                }
+
+                void *transport_hdr = (void *)(&p->buf[ctx->transportOffset]);
+
+                if ((void *)transport_hdr + sizeof(struct tcphdr) > (void *)&p->buf[PKT_PART_LEN]) {
+                    log_error(skb, LOG_ERROR_PKT_SNIFFER, 13, ctx->transportOffset, 0l);
+                    goto save_end;
+                }
+
+                __u16 *src_dst = (__u16 *)transport_hdr;
+                if (rewrite_port_src)
+                    *src_dst = rewrite_port_src;
+                if (rewrite_port_dst)
+                    *(src_dst + 1) = rewrite_port_dst;
+            }
+        } else {
+            struct iphdr *ip = (struct iphdr *)p->buf;
+            if (rewrite_ip_src)
+                ip->saddr = rewrite_ip_src;
+            if (rewrite_ip_dst)
+                ip->daddr = rewrite_ip_dst;
+            if (ip->protocol == IPPROTO_TCP || ip->protocol == IPPROTO_UDP)
+            {
+                int hdrsize = ip->ihl * 4;
+                __u16 *src_dst = (__u16 *)(&p->buf[0] + hdrsize);
+                if (rewrite_port_src)
+                    *src_dst = rewrite_port_src;
+                if (rewrite_port_dst)
+                    *(src_dst + 1) = rewrite_port_dst;
+            }
         }
+
+
 
         if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, sizeof(struct pkt)))
         {
@@ -313,89 +457,142 @@ save_end:
   0 in case packet has TCP source or destination port equal to 443 - in this case packet is treated as TLS and not going to be processed
   not 0 in other cases
 */
-static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc, __u32 *src_ip4, __u16 *src_port, __u32 *dst_ip4, __u16 *dst_port, __u8 *ipp)
-{
-    void *data = (void *)(long)skb->data;
-    void *data_end = (void *)(long)skb->data_end;
-    void *cursor = data;
+static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc,
+                                        __u32 *, __u16 *src_port,
+                                        __u32 *dst_ip4, __u16 *dst_port,
+                                        __u8 *ipp, struct in6_addr *src_ip6,
+                                        struct in6_addr *dst_ip6,
+                                        __u32 *transportOffset) {
+  void *data = (void *)(long)skb->data;
+  void *data_end = (void *)(long)skb->data_end;
+  void *cursor = data;
 
-    if (is_tc)
-    {
-        struct ethhdr *eth = (struct ethhdr *)cursor;
-        if (eth + 1 > (struct ethhdr *)data_end)
-            return 1;
+  if (is_tc) {
+    struct ethhdr *eth = (struct ethhdr *)cursor;
+    if (eth + 1 > (struct ethhdr *)data_end)
+      return 1;
 
-        cursor += sizeof(struct ethhdr);
+    cursor += sizeof(struct ethhdr);
+  }
+
+  __u8 ip_proto = 0;
+  if (skb->protocol == bpf_htons(ETH_P_IP)) {
+
+    struct iphdr *ip = (struct iphdr *)cursor;
+    if (ip + 1 > (struct iphdr *)data_end)
+      return 2;
+
+    if (src_ip4) {
+      *src_ip4 = ip->saddr;
+    }
+    if (dst_ip4) {
+      *dst_ip4 = ip->daddr;
     }
 
-    __u8 ip_proto = 0;
-    if (skb->protocol == bpf_htons(ETH_P_IP))
-    {
+    int hdrsize = ip->ihl * 4;
+    if (hdrsize < sizeof(struct iphdr))
+      return 3;
 
-        struct iphdr *ip = (struct iphdr *)cursor;
-        if (ip + 1 > (struct iphdr *)data_end)
-            return 2;
+    if ((void *)ip + hdrsize > data_end)
+      return 4;
 
-        if (src_ip4)
-        {
-            *src_ip4 = ip->saddr;
-        }
-        if (dst_ip4)
-        {
-            *dst_ip4 = ip->daddr;
-        }
+    cursor += hdrsize;
+    ip_proto = ip->protocol;
+    if (ipp) {
+      *ipp = ip_proto;
+    }
+  }
 
-        int hdrsize = ip->ihl * 4;
-        if (hdrsize < sizeof(struct iphdr))
-            return 3;
-
-        if ((void *)ip + hdrsize > data_end)
-            return 4;
-
-        cursor += hdrsize;
-        ip_proto = ip->protocol;
-        if (ipp)
-        {
-            *ipp = ip_proto;
-        }
-
-        if (ip_proto == IPPROTO_TCP)
-        {
-            struct tcphdr *tcp = (struct tcphdr *)cursor;
-            if (tcp + 1 > (struct tcphdr *)data_end)
-                return 5;
-            if (src_port)
-            {
-                *src_port = tcp->source;
-            }
-            if (dst_port)
-            {
-                *dst_port = tcp->dest;
-            }
-
-            cursor += tcp->doff * 4;
-            if (tcp->dest == bpf_htons(443) || tcp->source == bpf_htons(443))
-            {
-                // skip only packets with tcp port 443 to support previous bpf filter
-                return 0;
-            }
-        }
-
-        if (ip_proto == IPPROTO_UDP)
-        {
-            struct udphdr *udp = (struct udphdr *)cursor;
-            if (udp + 1 > (struct udphdr *)data_end)
-                return 5;
-            if (src_port)
-            {
-                *src_port = udp->source;
-            }
-            if (dst_port)
-            {
-                *dst_port = udp->dest;
-            }
-        }
+  if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
+    struct ipv6hdr *ip6 = (struct ipv6hdr *)cursor;
+    if ((ip6 + 1 > (struct ipv6hdr *)data_end)) {
+      return 6;
     }
 
-    return 6;
+    if (src_ip6) {
+      __builtin_memcpy(src_ip6, &ip6->saddr, sizeof(struct in6_addr));
+    }
+
+    if (dst_ip6) {
+      __builtin_memcpy(dst_ip6, &ip6->daddr, sizeof(struct in6_addr));
+    }
+
+    ip_proto = ip6->nexthdr;
+    cursor += sizeof(struct ipv6hdr);
+
+#pragma unroll
+    for (int i = 0; i < IPV6_EXT_MAX_CHAIN; i++) {
+      struct ipv6_opt_hdr *hdr = (struct ipv6_opt_hdr *)cursor;
+
+      if (hdr + 1 > (struct ipv6_opt_hdr *)data_end)
+        return 7;
+
+      if (ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP ||
+          ip_proto == IPPROTO_ICMPV6) {
+        break; // Reached the transport layer
+      }
+
+      switch (ip_proto) {
+      case IPPROTO_HOPOPTS:
+      case IPPROTO_ROUTING:
+      case IPPROTO_DSTOPTS:
+      case IPPROTO_MH:
+        cursor += (hdr->hdrlen + 1) * 8;
+        break;
+      case IPPROTO_AH:
+        cursor += hdr->hdrlen * 4;
+        break;
+      case IPPROTO_FRAGMENT:
+        cursor += 8;
+        break;
+      default:
+        return 7;
+      }
+
+      if (cursor > data_end)
+        return 7;
+
+      ip_proto = hdr->nexthdr;
+    }
+
+    if (transportOffset) {
+        *transportOffset = cursor - data;
+    }
+
+    if (ipp) {
+      *ipp = ip_proto;
+    }
+  }
+
+  if (ip_proto == IPPROTO_TCP) {
+    struct tcphdr *tcp = (struct tcphdr *)cursor;
+    if (tcp + 1 > (struct tcphdr *)data_end)
+      return 5;
+    if (src_port) {
+      *src_port = tcp->source;
+    }
+    if (dst_port) {
+      *dst_port = tcp->dest;
+    }
+
+    cursor += tcp->doff * 4;
+    if (tcp->dest == bpf_htons(443) || tcp->source == bpf_htons(443)) {
+      // skip only packets with tcp port 443 to support previous bpf filter
+      return 0;
+    }
+  }
+
+  if (ip_proto == IPPROTO_UDP) {
+    struct udphdr *udp = (struct udphdr *)cursor;
+    if (udp + 1 > (struct udphdr *)data_end)
+      return 5;
+    if (src_port) {
+      *src_port = udp->source;
+    }
+    if (dst_port) {
+      *dst_port = udp->dest;
+    }
+  }
+
+  return 6;
 }
