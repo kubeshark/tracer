@@ -12,7 +12,7 @@ Copyright (C) Kubeshark
 
 SEC("kprobe/tcp_connect")
 void BPF_KPROBE(tcp_connect) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_SYSTEM))
         return;
 
     long err;
@@ -70,7 +70,7 @@ void BPF_KPROBE(tcp_connect) {
 
 SEC("kretprobe/accept4")
 void BPF_KRETPROBE(syscall__accept4_ret) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_SYSTEM))
         return;
 
     long err;
@@ -132,7 +132,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
 
 SEC("kretprobe/do_accept")
 void BPF_KRETPROBE(do_accept) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_SYSTEM))
         return;
 
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
@@ -155,7 +155,7 @@ void BPF_KRETPROBE(do_accept) {
 
 SEC("cgroup/connect4")
 int trace_cgroup_connect4(struct bpf_sock_addr* ctx) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_SYSTEM))
         return 1;
 
     return 1;
@@ -163,7 +163,7 @@ int trace_cgroup_connect4(struct bpf_sock_addr* ctx) {
 
 SEC("kprobe/tcp_close")
 void BPF_KPROBE(tcp_close) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_SYSTEM))
         return;
 
     long err;

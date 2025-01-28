@@ -11,7 +11,6 @@ Copyright (C) Kubeshark
 
 const __s32 invalid_fd = -1;
 
-const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
 const volatile __u64 TRACER_NS_INO = 0;
 const volatile __u64 KERNEL_VERSION = 0;
 const volatile __u64 CGROUP_V1 = 0;

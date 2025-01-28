@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
@@ -29,6 +30,7 @@ import (
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
 
+	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/moby/sys/mount"
 	"github.com/moby/sys/mountinfo"
 )
@@ -40,9 +42,10 @@ var procfs = flag.String("procfs", "/proc", "The procfs directory, used when map
 
 var logLevel = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
 
-var initBPF = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers.")
+var initBPFDeprecated = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
 
-var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
+var disableEbpfCaptureDeprecated = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
+
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
 
 var preferCgroupV1Capture = flag.Bool("ebpf1", false, "On systems with Cgroup V2 use Cgroup V1 method for packet capturing")
@@ -116,10 +119,6 @@ func main() {
 		}
 	}()
 
-	if *initBPF {
-		initBPFSubsystem()
-		return
-	}
 	run()
 }
 
@@ -177,7 +176,9 @@ func run() {
 
 	err = createTracer(isCgroupsV2)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Couldn't initialize the tracer:")
+		log.Error().Err(err).Msg("Couldn't initialize the tracer. To disable tracer permanently, pass 'tap.tls=false' in command line")
+		// Stop here to prevent pod respawning
+		select {}
 	}
 	watcher.Start(ctx, clusterMode)
 
@@ -215,7 +216,17 @@ func createTracer(isCgroupsV2 bool) (err error) {
 		*procfs,
 		isCgroupsV2,
 	); err != nil {
-		return
+		log.Error().Err(err).Msg("Initialize tracer failed.")
+		if errors.Is(err, bpf.ErrBpfMountFailed) {
+			//TODO: helm change:
+			log.Error().Msg("To mount bpf filesystem, pass 'tap.mountbpf=true' in command line.")
+		}
+		if errors.Is(err, bpf.ErrBpfOperationFailed) {
+			log.Error().Err(err).Msg("In case of permission issue, security profiles can be aligned accordingly.")
+		}
+		log.Error().Msg("To disable tracer permanently, pass 'tap.tls=false' in command line.")
+		// Stop here to prevent pod respawning
+		select {}
 	}
 
 	return

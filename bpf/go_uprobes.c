@@ -176,7 +176,7 @@ static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ct
 }
 
 static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, void* go_context, enum ABI abi) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_TLS))
         return;
 
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
@@ -257,7 +257,7 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, void* go_c
 }
 
 static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* go_context, void* go_user_kernel_context, __u32 flags, enum ABI abi) {
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_TLS))
         return;
 
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
