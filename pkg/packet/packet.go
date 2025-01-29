@@ -12,7 +12,6 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/poller/packets"
-	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -108,11 +107,11 @@ func newPacketSource(perfName string, enableCaptureName string, createPoller cre
 	return &p, nil
 }
 
-// #define PROGRAM_DOMAIN_CAPTURE_TLS (1 << 1)
-// #define PROGRAM_DOMAIN_CAPTURE_PLAIN (1 << 2)
+// #define PROGRAM_DOMAIN_CAPTURE_TLS (1 << 0)
+// #define PROGRAM_DOMAIN_CAPTURE_PLAIN (1 << 1)
 const (
-	programCaptureTls   = (1 << 1)
-	programCapturePlain = (1 << 2)
+	programCaptureTls   = (1 << 0)
+	programCapturePlain = (1 << 1)
 )
 
 var captureMtx sync.Mutex

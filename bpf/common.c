@@ -139,10 +139,6 @@ static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, void
     return info;
 }
 
-#define PROGRAM_DOMAIN_SYSTEM (1 << 0)
-#define PROGRAM_DOMAIN_CAPTURE_TLS (1 << 1)
-#define PROGRAM_DOMAIN_CAPTURE_PLAIN (1 << 2)
-
 static __always_inline int program_disabled(int program_domain) {
     __u32 zero = 0;
     struct configuration* s = bpf_map_lookup_elem(&settings, &zero);

@@ -149,7 +149,7 @@ func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.Versio
 		if errLoadTls = LoadTracer46Objects(&objs.BpfObjs, nil); errLoadTls == nil {
 			tlsEnabled = true
 		} else {
-			err = fmt.Errorf("load 46 objects failed")
+			err = fmt.Errorf("%w: load tracer 4.6 objects failed", ErrBpfOperationFailed)
 			return
 		}
 	} else {
@@ -222,7 +222,7 @@ func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.Versio
 			if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
 				tlsEnabled = true
 			} else {
-				err = fmt.Errorf("load objects failed")
+				err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
 				return
 			}
 		} else {

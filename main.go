@@ -36,19 +36,13 @@ import (
 )
 
 var port = flag.Int("port", 80, "Port number of the HTTP server")
-
-// capture
 var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
-
 var logLevel = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
-
-var initBPFDeprecated = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
-
-var disableEbpfCaptureDeprecated = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
-
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
-
 var preferCgroupV1Capture = flag.Bool("ebpf1", false, "On systems with Cgroup V2 use Cgroup V1 method for packet capturing")
+
+var initBPFDEPRECATED = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
+var disableEbpfCaptureDEPRECATED = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
 
 var tracer *Tracer
 
@@ -69,6 +63,13 @@ func main() {
 		log.Warn().Msgf("Invalid log level '%s'. Defaulting to 'warning'.", *logLevel)
 	}
 	zerolog.SetGlobalLevel(level)
+
+	if *initBPFDEPRECATED {
+		log.Warn().Msg("-init-bpf option is deprecated")
+	}
+	if *disableEbpfCaptureDEPRECATED {
+		log.Warn().Msg("disable-ebpf option is deprecated")
+	}
 
 	var sentryDSN string
 	if sentrypkg.IsSentryEnabled() {
@@ -219,12 +220,12 @@ func createTracer(isCgroupsV2 bool) (err error) {
 		log.Error().Err(err).Msg("Initialize tracer failed.")
 		if errors.Is(err, bpf.ErrBpfMountFailed) {
 			//TODO: helm change:
-			log.Error().Msg("To mount bpf filesystem, pass 'tap.mountbpf=true' in command line.")
+			log.Info().Msg("To mount bpf filesystem, pass 'tap.mountbpf=true' in command line.")
 		}
 		if errors.Is(err, bpf.ErrBpfOperationFailed) {
-			log.Error().Err(err).Msg("In case of permission issue, security profiles can be aligned accordingly.")
+			log.Info().Msg("In case of permission issue, security profiles can be aligned accordingly.")
 		}
-		log.Error().Msg("To disable tracer permanently, pass 'tap.tls=false' in command line.")
+		log.Info().Msg("To disable tracer permanently, pass 'tap.tls=false' in command line.")
 		// Stop here to prevent pod respawning
 		select {}
 	}

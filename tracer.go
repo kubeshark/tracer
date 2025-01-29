@@ -77,7 +77,7 @@ func (t *Tracer) Init(
 
 	t.bpfObjects, tlsEnabled, plainEnabled, err = bpf.NewBpfObjects(*preferCgroupV1Capture, isCgroupsV2, kernelVersion)
 	if err != nil {
-		return fmt.Errorf("creating bpf failed: %v", err)
+		return fmt.Errorf("creating bpf failed: %w", err)
 	}
 
 	if t.eventsDiscoverer, err = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects, t.cgroupsController); err != nil {
