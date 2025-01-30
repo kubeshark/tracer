@@ -250,6 +250,7 @@ type TracerMapSpecs struct {
 	PktHeap                  *ebpf.MapSpec `ebpf:"pkt_heap"`
 	PktId                    *ebpf.MapSpec `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
+	ProgramsConfiguration    *ebpf.MapSpec `ebpf:"programs_configuration"`
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
 	Sockmap                  *ebpf.MapSpec `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
@@ -308,6 +309,7 @@ type TracerMaps struct {
 	PktHeap                  *ebpf.Map `ebpf:"pkt_heap"`
 	PktId                    *ebpf.Map `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
+	ProgramsConfiguration    *ebpf.Map `ebpf:"programs_configuration"`
 	Settings                 *ebpf.Map `ebpf:"settings"`
 	Sockmap                  *ebpf.Map `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
@@ -349,6 +351,7 @@ func (m *TracerMaps) Close() error {
 		m.PktHeap,
 		m.PktId,
 		m.PktsBuffer,
+		m.ProgramsConfiguration,
 		m.Settings,
 		m.Sockmap,
 		m.SyscallEvents,

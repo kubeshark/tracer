@@ -204,6 +204,7 @@ type TracerNoEbpfMapSpecs struct {
 	PerfFoundOpenssl         *ebpf.MapSpec `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.MapSpec `ebpf:"pids_info"`
+	ProgramsConfiguration    *ebpf.MapSpec `ebpf:"programs_configuration"`
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
 	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.MapSpec `ebpf:"tcp_accept_context"`
@@ -254,6 +255,7 @@ type TracerNoEbpfMaps struct {
 	PerfFoundOpenssl         *ebpf.Map `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.Map `ebpf:"pids_info"`
+	ProgramsConfiguration    *ebpf.Map `ebpf:"programs_configuration"`
 	Settings                 *ebpf.Map `ebpf:"settings"`
 	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.Map `ebpf:"tcp_accept_context"`
@@ -287,6 +289,7 @@ func (m *TracerNoEbpfMaps) Close() error {
 		m.PerfFoundOpenssl,
 		m.PerfFoundPid,
 		m.PidsInfo,
+		m.ProgramsConfiguration,
 		m.Settings,
 		m.SyscallEvents,
 		m.TcpAcceptContext,

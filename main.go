@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	_ "net/http/pprof" // Blank import to pprof
@@ -29,23 +30,17 @@ import (
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
 
-	"github.com/moby/sys/mount"
-	"github.com/moby/sys/mountinfo"
+	"github.com/kubeshark/tracer/pkg/bpf"
 )
 
 var port = flag.Int("port", 80, "Port number of the HTTP server")
-
-// capture
 var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
-
 var logLevel = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
-
-var initBPF = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers.")
-
-var disableEbpfCapture = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF")
 var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
-
 var preferCgroupV1Capture = flag.Bool("ebpf1", false, "On systems with Cgroup V2 use Cgroup V1 method for packet capturing")
+
+var initBPFDEPRECATED = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
+var disableEbpfCaptureDEPRECATED = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
 
 var tracer *Tracer
 
@@ -66,6 +61,13 @@ func main() {
 		log.Warn().Msgf("Invalid log level '%s'. Defaulting to 'warning'.", *logLevel)
 	}
 	zerolog.SetGlobalLevel(level)
+
+	if *initBPFDEPRECATED {
+		log.Warn().Msg("-init-bpf option is deprecated")
+	}
+	if *disableEbpfCaptureDEPRECATED {
+		log.Warn().Msg("disable-ebpf option is deprecated")
+	}
 
 	var sentryDSN string
 	if sentrypkg.IsSentryEnabled() {
@@ -116,20 +118,11 @@ func main() {
 		}
 	}()
 
-	if *initBPF {
-		initBPFSubsystem()
-		return
-	}
 	run()
 }
 
 func run() {
 	log.Info().Msg("Starting tracer...")
-
-	if err := checkMountedTracerInfo(); err != nil {
-		log.Error().Msg("bpffs or debugfs is not available. Tracer is disabled")
-		select {}
-	}
 
 	isCgroupsV2, err := utils.IsCgroupV2()
 	if err != nil {
@@ -177,7 +170,9 @@ func run() {
 
 	err = createTracer(isCgroupsV2)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Couldn't initialize the tracer:")
+		log.Error().Err(err).Msg("Couldn't initialize the tracer. To disable tracer permanently, pass 'tap.tls=false' in command line")
+		// Stop here to prevent pod respawning
+		select {}
 	}
 	watcher.Start(ctx, clusterMode)
 
@@ -215,7 +210,16 @@ func createTracer(isCgroupsV2 bool) (err error) {
 		*procfs,
 		isCgroupsV2,
 	); err != nil {
-		return
+		log.Error().Err(err).Msg("Initialize tracer failed.")
+		if errors.Is(err, bpf.ErrBpfMountFailed) {
+			log.Info().Msg("\n\nBPF filesystem is not mounted on /sys/bs/bpf.\nRun `mount -t bpf bpf /sys/fs/bpf` on the host\nOr pass 'tap.mountBpf=true' parameter in command line to mount bpf filesytem in privileged init container.\n")
+		}
+		if errors.Is(err, bpf.ErrBpfOperationFailed) {
+			log.Info().Msg("In case of permission issue, security profiles can be aligned accordingly.")
+		}
+		log.Info().Msg("To disable tracer permanently, pass 'tap.tls=false' in command line.")
+		// Stop here to prevent pod respawning
+		select {}
 	}
 
 	return
@@ -232,38 +236,6 @@ func enrichSentryContext(watcher *kubernetes.Watcher) {
 	}
 
 	sentrypkg.AddTags(tags)
-}
-
-const bpfMountPath = "/sys/fs/bpf"
-const debugMountPath = "/sys/kernel/debug"
-
-func checkMountedTracerInfo() error {
-	var mounted bool
-	var err error
-	if mounted, err = mountinfo.Mounted(bpfMountPath); err != nil {
-		log.Error().Err(err).Msg("Unable to get mountinfo")
-		return err
-	}
-	if !mounted {
-		if err = mount.Mount("bpf", bpfMountPath, "bpf", ""); err != nil {
-			log.Error().Err(err).Msg("Unable to mount bpf filesystem")
-			return err
-		}
-		log.Print("bpf filesystem has been mounted")
-	}
-
-	if mounted, err = mountinfo.Mounted(debugMountPath); err != nil {
-		log.Error().Err(err).Msg("Unable to get mountinfo for debugfs")
-		return err
-	}
-	if !mounted {
-		if err = mount.Mount("debugfs", debugMountPath, "debugfs", ""); err != nil {
-			log.Error().Err(err).Msg("Unable to mount debugfs filesystem")
-			return err
-		}
-	}
-
-	return nil
 }
 
 func signalHandler(stopChan chan os.Signal) {

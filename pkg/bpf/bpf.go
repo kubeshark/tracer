@@ -1,6 +1,7 @@
 package bpf
 
 import (
+	"bufio"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -14,16 +15,26 @@ import (
 	"github.com/cilium/ebpf/features"
 	"github.com/go-errors/errors"
 	"github.com/jinzhu/copier"
-	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	PinPath             = "/sys/fs/bpf/kubeshark"
-	PinNamePlainPackets = "packets_plain"
-	PinNameTLSPackets   = "packets_tls"
+	PinPath                      = "/sys/fs/bpf/kubeshark"
+	PinNamePlainPackets          = "packets_plain"
+	PinNameTLSPackets            = "packets_tls"
+	PinNameProgramsConfiguration = "progs_config"
+
+	TlsBackendSupportedFile      = "tracer_tls_supported"
+	TlsBackendNotSupportedFile   = "tracer_tls_not_supported"
+	PlainBackendSupportedFile    = "tracer_plain_supported"
+	PlainBackendNotSupportedFile = "tracer_plain_not_supported"
+)
+
+var (
+	ErrBpfMountFailed     = errors.New("bpf fs mount failed")
+	ErrBpfOperationFailed = errors.New("bpf fs operation failed")
 )
 
 // TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
@@ -87,63 +98,70 @@ func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
 	return 0
 }
 
-func NewBpfObjects(disableEbpfCapture *bool, preferCgroupV1 bool) (*BpfObjects, error) {
-	var err error
+func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.VersionInfo) (pObjs *BpfObjects, tlsEnabled, plainEnabled bool, err error) {
+	var mounted bool
+	mounted, err = isMounted("/sys/fs/bpf")
+	if err != nil {
+		err = fmt.Errorf("%w: mount check failed: %v", ErrBpfMountFailed, err)
+		return
+	}
+	if !mounted {
+		err = fmt.Errorf("%w: /sys/fs/bpf is not mounted", ErrBpfMountFailed)
+		return
+	}
+
+	if err = os.MkdirAll(PinPath, 0700); err != nil {
+		err = fmt.Errorf("%w: mkdir pin path failed: %v", ErrBpfOperationFailed, err)
+		return
+	}
+
+	var files []string
+	if files, err = utils.RemoveAllFilesInDir(PinPath); err != nil {
+		err = fmt.Errorf("%w: bpf fs directory cleanup failed: %v", ErrBpfOperationFailed, err)
+		return
+	} else {
+		for _, file := range files {
+			log.Debug().Str("path", file).Msg("removed bpf entry")
+		}
+	}
 
 	objs := BpfObjects{}
 
-	var kernelVersion *kernel.VersionInfo
-	kernelVersion, err = kernel.GetKernelVersion()
-	if err != nil {
-		return nil, err
-	}
+	var errLoadPlain error
+	var errLoadTls error
 
-	cgroupV1 := uint64(1)
-	isCgroupV2, err := utils.IsCgroupV2()
-	if err != nil {
-		log.Error().Err(err).Msg("read cgroups information failed:")
-	}
-	if isCgroupV2 {
-		cgroupV1 = 0
-	}
-
-	mapReplacements := make(map[string]*ebpf.Map)
-	plainPath := filepath.Join(PinPath, PinNamePlainPackets)
-	tlsPath := filepath.Join(PinPath, PinNameTLSPackets)
-
-	if !kernel.CheckKernelVersion(5, 4, 0) {
-		*disableEbpfCapture = true
-	}
-
-	markDisabledEBPF := func() error {
-		pathNoEbpf := filepath.Join(misc.GetDataDir(), "noebpf")
-		file, err := os.Create(pathNoEbpf)
-		if err != nil {
+	pinMap := func(mapName string, mapObj *ebpf.Map) error {
+		if err = mapObj.Pin(filepath.Join(PinPath, mapName)); err != nil {
 			return err
 		}
-		file.Close()
 		return nil
 	}
 
-	ebpfBackendStatus := "enabled"
-	if *disableEbpfCapture {
-		ebpfBackendStatus = "disabled"
-		if err = markDisabledEBPF(); err != nil {
-			return nil, err
-		}
-	}
+	defer func() {
 
-	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v, eBPF backend %v", kernelVersion, isCgroupV2, ebpfBackendStatus))
+		if errLoadPlain != nil {
+			log.Warn().Msg(fmt.Sprintf("eBPF plain load error: %v", errLoadPlain))
+		}
+
+		if errLoadTls != nil {
+			log.Warn().Msg(fmt.Sprintf("eBPF tls load error: %v", errLoadTls))
+		}
+	}()
+
 	kernelVersionInt := uint64(1_000_000)*uint64(kernelVersion.Kernel) + uint64(1_000)*uint64(kernelVersion.Major) + uint64(kernelVersion.Minor)
 
 	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
 	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
-		if err := LoadTracer46Objects(&objs.BpfObjs, nil); err != nil {
-			return nil, errors.Wrap(err, 0)
+		if errLoadTls = LoadTracer46Objects(&objs.BpfObjs, nil); errLoadTls == nil {
+			tlsEnabled = true
+		} else {
+			err = fmt.Errorf("%w: load tracer 4.6 objects failed", ErrBpfOperationFailed)
+			return
 		}
 	} else {
 		var hostProcIno uint64
-		fileInfo, err := os.Stat("/hostproc/1/ns/pid")
+		var fileInfo os.FileInfo
+		fileInfo, err = os.Stat("/hostproc/1/ns/pid")
 		if err != nil {
 			// services like "apparmor" on EKS can reject access to system pid information
 			log.Warn().Err(err).Msg("Get host netns failed")
@@ -160,16 +178,15 @@ func NewBpfObjects(disableEbpfCapture *bool, preferCgroupV1 bool) (*BpfObjects, 
 			bpfObjs: &TracerNoEbpfObjects{},
 		}
 
-		disableCapture := uint64(0)
-		if *disableEbpfCapture {
-			disableCapture = 1
-		}
-
 		preferCgroupV1Capture := uint64(0)
 		if preferCgroupV1 {
 			preferCgroupV1Capture = 1
 		}
 
+		cgroupV1 := uint64(1)
+		if isCgroupV2 {
+			cgroupV1 = 0
+		}
 		bpfConsts := map[string]uint64{
 			"KERNEL_VERSION": kernelVersionInt,
 			"TRACER_NS_INO":  hostProcIno,
@@ -177,29 +194,10 @@ func NewBpfObjects(disableEbpfCapture *bool, preferCgroupV1 bool) (*BpfObjects, 
 			"CGROUP_V1":                                 cgroupV1,
 			"PREFER_CGROUP_V1_EBPF_CAPTURE":             preferCgroupV1Capture,
 			"HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns": programHelperExists(ebpf.TracePoint, asm.FnKtimeGetTaiNs),
-			"DISABLE_EBPF_CAPTURE":                      disableCapture,
-		}
-
-		if !*disableEbpfCapture {
-			pktsBuffer, err := ebpf.LoadPinnedMap(plainPath, nil)
-			if err == nil {
-				mapReplacements["pkts_buffer"] = pktsBuffer
-				log.Info().Str("path", tlsPath).Msg("loaded plain packets buffer")
-			} else if !errors.Is(err, os.ErrNotExist) {
-				log.Error().Msg(fmt.Sprintf("load plain packets map failed: %v", err))
-			}
-		}
-
-		chunksBuffer, err := ebpf.LoadPinnedMap(tlsPath, nil)
-		if err == nil {
-			mapReplacements["chunks_buffer"] = chunksBuffer
-			log.Info().Str("path", tlsPath).Msg("loaded tls packets buffer")
-		} else if !errors.Is(err, os.ErrNotExist) {
-			log.Error().Msg(fmt.Sprintf("load tls packets map failed: %v", err))
 		}
 
 		loadTracer := func(obj *TracerObjects) (err error) {
-			if err = objects.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerBytes)); err != nil {
+			if err = objects.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerBytes)); err != nil {
 				err = fmt.Errorf("load tracer objects failed: %v", err)
 				return
 			}
@@ -208,7 +206,7 @@ func NewBpfObjects(disableEbpfCapture *bool, preferCgroupV1 bool) (*BpfObjects, 
 		}
 
 		loadTracerNoEbpf := func(obj *TracerObjects) (err error) {
-			if err = objectsNoEbpf.loadBpfObjects(bpfConsts, mapReplacements, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
+			if err = objectsNoEbpf.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
 				err = fmt.Errorf("load tracer noBpf objects failed: %v", err)
 				return
 			}
@@ -225,65 +223,62 @@ func NewBpfObjects(disableEbpfCapture *bool, preferCgroupV1 bool) (*BpfObjects, 
 			return
 		}
 
-		if !*disableEbpfCapture {
-			err = loadTracer(&objs.BpfObjs)
-			if err != nil {
-				log.Warn().Msg(fmt.Sprintf("load tracer objects failed, trying load without ebpf packet capture backend. Error: %v", err))
-				if err = markDisabledEBPF(); err != nil {
-					return nil, err
-				}
-				objs = BpfObjects{}
-				*disableEbpfCapture = true
-			}
-		}
-
-		if *disableEbpfCapture {
-			err = loadTracerNoEbpf(&objs.BpfObjs)
-			if err != nil {
-				log.Warn().Msg(fmt.Sprintf("load tracer noEbpf objects failed. Error: %v", err))
-			}
-		}
-	}
-
-	// Pin packet perf maps:
-
-	defer func() {
-		if os.IsPermission(err) || strings.Contains(fmt.Sprintf("%v", err), "permission") {
-			log.Warn().Msg(fmt.Sprintf("There are no enough permissions to activate eBPF. Error: %v", err))
-			if err = markDisabledEBPF(); err != nil {
-				log.Error().Err(err).Msg("disable ebpf failed")
+		if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
+			objs = BpfObjects{}
+			if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
+				tlsEnabled = true
 			} else {
-				err = nil
+				err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
+				return
 			}
-		}
-	}()
-
-	if err = os.MkdirAll(PinPath, 0700); err != nil {
-		log.Error().Msg(fmt.Sprintf("mkdir pin path failed: %v", err))
-		return nil, err
-	}
-
-	pinMap := func(mapName, path string, mapObj *ebpf.Map) error {
-		if _, ok := mapReplacements[mapName]; !ok {
-			if err = mapObj.Pin(path); err != nil {
-				log.Error().Err(err).Str("path", path).Msg("pin perf buffer failed")
-				return err
-			} else {
-				log.Info().Str("path", path).Msg("pinned perf buffer")
-			}
-		}
-		return nil
-	}
-
-	if !*disableEbpfCapture {
-		if err = pinMap("pkts_buffer", plainPath, objs.BpfObjs.PktsBuffer); err != nil {
-			return nil, err
+		} else {
+			plainEnabled = true
+			tlsEnabled = true
 		}
 	}
 
-	if err = pinMap("chunks_buffer", tlsPath, objs.BpfObjs.ChunksBuffer); err != nil {
-		return nil, err
+	if plainEnabled {
+		if err = pinMap(PinNamePlainPackets, objs.BpfObjs.PktsBuffer); err != nil {
+			err = fmt.Errorf("%w: pin packets buffer failed: %v", ErrBpfOperationFailed, err)
+			return
+		}
 	}
 
-	return &objs, nil
+	if tlsEnabled {
+		if err = pinMap(PinNameTLSPackets, objs.BpfObjs.ChunksBuffer); err != nil {
+			err = fmt.Errorf("%w: pin tls buffer failed: %v", ErrBpfOperationFailed, err)
+			return
+		}
+	}
+
+	if plainEnabled || tlsEnabled {
+		if err = pinMap(PinNameProgramsConfiguration, objs.BpfObjs.ProgramsConfiguration); err != nil {
+			err = fmt.Errorf("%w: pin programs configuration failed: %v", ErrBpfOperationFailed, err)
+			return
+		}
+	}
+
+	pObjs = &objs
+	return
+}
+
+func isMounted(target string) (bool, error) {
+	file, err := os.Open("/hostproc/mounts")
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		mountPoint := fields[1]
+		if mountPoint == target {
+			return true, nil
+		}
+	}
+	return false, scanner.Err()
 }

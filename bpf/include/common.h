@@ -9,9 +9,12 @@ Copyright (C) Kubeshark
 #define AF_INET	2	/* IPv4 Protocol */
 #define AF_INET6 10	/* IPv6 Protocol */
 
+#define PROGRAM_DOMAIN_CAPTURE_SYSTEM (0)
+#define PROGRAM_DOMAIN_CAPTURE_TLS (1 << 0)
+#define PROGRAM_DOMAIN_CAPTURE_PLAIN (1 << 1)
+
 const __s32 invalid_fd = -1;
 
-const volatile __u64 DISABLE_EBPF_CAPTURE = 0;
 const volatile __u64 TRACER_NS_INO = 0;
 const volatile __u64 KERNEL_VERSION = 0;
 const volatile __u64 CGROUP_V1 = 0;

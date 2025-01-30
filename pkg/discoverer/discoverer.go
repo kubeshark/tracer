@@ -38,7 +38,7 @@ type InternalEventsDiscovererImpl struct {
 	pids              *pids
 }
 
-func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgroupsController cgroup.CgroupsController) InternalEventsDiscoverer {
+func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgroupsController cgroup.CgroupsController) (InternalEventsDiscoverer, error) {
 	impl := InternalEventsDiscovererImpl{
 		bpfObjects:        bpfObjects,
 		perfFoundOpenssl:  bpfObjects.BpfObjs.PerfFoundOpenssl,
@@ -49,12 +49,12 @@ func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgro
 	var err error
 	impl.pids, err = newPids(procfs, bpfObjects, impl.cgroupsController)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	if impl.pids == nil {
-		return nil
+		return nil, fmt.Errorf("no pids created: %v", err)
 	}
-	return &impl
+	return &impl, nil
 }
 
 //TODO: Stop method

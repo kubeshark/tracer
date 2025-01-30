@@ -139,8 +139,24 @@ static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, void
     return info;
 }
 
-static __always_inline int capture_disabled() {
+static __always_inline int program_disabled(int program_domain) {
     __u32 zero = 0;
     struct configuration* s = bpf_map_lookup_elem(&settings, &zero);
-    return s && (s->flags & CONFIGURATION_FLAG_CAPTURE_STOPPED);
+    if (s && (s->flags & CONFIGURATION_FLAG_CAPTURE_STOPPED)) {
+        return 1;
+    }
+
+    if (program_domain == PROGRAM_DOMAIN_CAPTURE_SYSTEM)
+        return 0; // system always enabled
+
+    __u32* p = bpf_map_lookup_elem(&programs_configuration, &zero);
+    if (!p) {
+        return 1;
+    }
+
+    if (*p & program_domain) {
+        return 0;
+    }
+
+    return 1;
 }

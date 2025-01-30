@@ -2,21 +2,24 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/cgroup"
 	"github.com/kubeshark/tracer/pkg/discoverer"
 	packetHooks "github.com/kubeshark/tracer/pkg/hooks/packet"
 	syscallHooks "github.com/kubeshark/tracer/pkg/hooks/syscall"
 	"github.com/kubeshark/tracer/pkg/poller"
-	"github.com/kubeshark/tracer/pkg/utils"
+	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"path/filepath"
 )
 
 const GlobalWorkerPid = 0
@@ -50,33 +53,53 @@ func (t *Tracer) Init(
 	procfs string,
 	isCgroupsV2 bool,
 ) error {
+	var err error
+
 	log.Info().Msg(fmt.Sprintf("Initializing tracer (chunksSize: %d) (logSize: %d)", chunksBufferSize, logBufferSize))
 
-	var err error
 	err = setupRLimit()
 	if err != nil {
-		return err
+		return fmt.Errorf("setup rlimit failed: %v", err)
 	}
 
-	t.cgroupsController = cgroup.NewCgroupsController(procfs)
-	if t.cgroupsController == nil {
-		return fmt.Errorf("cgroups controller create failed")
+	if t.cgroupsController, err = cgroup.NewCgroupsController(procfs); err != nil {
+		return fmt.Errorf("cgroups controller create failed: %v", err)
 	}
 
-	t.bpfObjects, err = bpf.NewBpfObjects(disableEbpfCapture, *preferCgroupV1Capture)
+	var tlsEnabled, plainEnabled bool
+	defer func() {
+		if err := markPlain(plainEnabled); err != nil {
+			log.Warn().Msg(fmt.Sprintf("mark plain failed: %v", err))
+			return
+		}
+		if err := markTls(tlsEnabled); err != nil {
+			log.Warn().Msg(fmt.Sprintf("mark tls failed: %v", err))
+			return
+		}
+	}()
+
+	var kernelVersion *kernel.VersionInfo
+	kernelVersion, err = kernel.GetKernelVersion()
 	if err != nil {
-		return fmt.Errorf("creating bpf failed: %v", err)
+		return fmt.Errorf("kernel version detection failed: %v", err)
+	}
+	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v", kernelVersion, isCgroupsV2))
+
+	t.bpfObjects, tlsEnabled, plainEnabled, err = bpf.NewBpfObjects(*preferCgroupV1Capture, isCgroupsV2, kernelVersion)
+	if err != nil {
+		return fmt.Errorf("creating bpf failed: %w", err)
 	}
 
-	t.eventsDiscoverer = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects, t.cgroupsController)
+	if t.eventsDiscoverer, err = discoverer.NewInternalEventsDiscoverer(procfs, t.bpfObjects, t.cgroupsController); err != nil {
+		return fmt.Errorf("create internal discovery failed: %v", err)
+	}
 	if err := t.eventsDiscoverer.Start(); err != nil {
-		log.Error().Msg(fmt.Sprintf("start internal discovery failed: %v", err))
-		return err
+		return fmt.Errorf("start internal discovery failed: %v", err)
 	}
 
 	t.syscallHooks = syscallHooks.NewSyscallHooks(t.bpfObjects)
 	if err = t.syscallHooks.Install(); err != nil {
-		return err
+		return fmt.Errorf("install sycall hooks failed: %v", err)
 	}
 	for pidFd, isClient := range t.tcpMap {
 		var isCli uint8
@@ -87,20 +110,22 @@ func (t *Tracer) Init(
 		if err == ebpf.ErrKeyExist {
 			log.Warn().Uint64("pid fd", pidFd).Uint8("client", isCli).Msg("connection context key already exist")
 		} else if err != nil {
-			log.Error().Err(err).Uint64("pid fd", pidFd).Uint8("client", isCli).Msg("update connection context failed")
-			return err
+			return fmt.Errorf("update connection context failed. pid fd: %v client: %v err: %v", pidFd, isCli, err)
 		}
 	}
 
 	allPollers, err := poller.NewBpfPoller(t.bpfObjects, t.cgroupsController, *disableTlsLog)
 	if err != nil {
-		return err
+		return fmt.Errorf("create eBPF poler failed failed: %v", err)
 	}
+
+	if t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs, t.cgroupsController, plainEnabled, isCgroupsV2); err != nil {
+		return fmt.Errorf("create packet filter failed: %v", err)
+	}
+
 	allPollers.Start()
 
-	if t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs, t.cgroupsController, !*disableEbpfCapture, isCgroupsV2); err != nil {
-		return err
-	}
+	log.Info().Msg(fmt.Sprintf("eBPF plain backend: %v, eBPF TLS backend: %v", plainEnabled, tlsEnabled))
 
 	return nil
 }
@@ -211,20 +236,26 @@ func getContainerIDs(pod *v1.Pod) []string {
 	return containerIDs
 }
 
-func initBPFSubsystem() {
-	// Cleanup is required in case map set or format is changed in the new tracer version
-	if files, err := utils.RemoveAllFilesInDir(bpf.PinPath); err != nil {
-		log.Error().Str("path", bpf.PinPath).Err(err).Msg("directory cleanup failed")
-	} else {
-		for _, file := range files {
-			log.Info().Str("path", file).Msg("removed bpf entry")
-		}
+func markPlain(enabled bool) error {
+	if enabled {
+		return createFeatureFile(bpf.PlainBackendSupportedFile)
 	}
+	return createFeatureFile(bpf.PlainBackendNotSupportedFile)
+}
 
-	disableEbpf := false
-	_, err := bpf.NewBpfObjects(&disableEbpf, false)
+func markTls(enabled bool) error {
+	if enabled {
+		return createFeatureFile(bpf.TlsBackendSupportedFile)
+	}
+	return createFeatureFile(bpf.TlsBackendNotSupportedFile)
+}
+
+func createFeatureFile(fileName string) error {
+	filePath := filepath.Join(misc.GetDataDir(), fileName)
+	file, err := os.Create(filePath)
 	if err != nil {
-		log.Error().Err(err).Msg("create objects failed")
+		return err
 	}
-
+	file.Close()
+	return nil
 }

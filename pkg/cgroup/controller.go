@@ -48,11 +48,11 @@ type CgroupsControllerImpl struct {
 	cgroup *CgroupV2
 
 	actualCgroupVersion CgroupVersion
-	cgroupV2Supported   bool
+	cgroupSupported     bool
 }
 
 func (e *CgroupsControllerImpl) EbpfCapturePossible() bool {
-	return e.cgroupV2Supported
+	return e.cgroupSupported
 }
 
 func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint64, containerID string, ok bool) {
@@ -244,53 +244,47 @@ func (e *CgroupsControllerImpl) Close() error {
 	return nil
 }
 
-func NewCgroupsController(procfs string) CgroupsController {
+func NewCgroupsController(procfs string) (CgroupsController, error) {
 	var err error
 	cgroupToContainer, err := lru.New[uint64, string](16384)
 	if err != nil {
-		log.Error().Err(err).Msg("create cgroup to container failed")
-		return nil
+		return nil, fmt.Errorf("create cgroup to container failed")
 	}
 
 	containerToCgroup, err := lru.New[string, []CgroupInfo](16384)
 	if err != nil {
-		log.Error().Err(err).Msg("create container to cgroup failed")
-		return nil
+		return nil, fmt.Errorf("create container to cgroup failed")
 	}
 
 	actualCgroupVersion := CgroupVersion1
 	ok, err := utils.IsCgroupV2()
 	if err != nil {
-		log.Error().Err(err).Msg("check cgroup version failed")
-		return nil
+		return nil, fmt.Errorf("check cgroup version failed")
 	}
 	if ok {
 		actualCgroupVersion = CgroupVersion2
 	}
-	cgroupV2Supported := true
+	cgroupSupported := true
 	cgroupV2, err := NewCgroup(CgroupVersion2)
 	if err != nil {
 		if _, ok := err.(*VersionNotSupported); !ok {
-			log.Error().Err(err).Msg("new cgroup2 create failed")
-			return nil
+			return nil, fmt.Errorf("new cgroup2 create failed")
 		} else {
-			cgroupV2Supported = false
+			cgroupSupported = false
 		}
 	}
 
 	// add write permissions to user:
 	info, err := os.Stat(cgroupV2.GetMountPoint())
 	if err != nil {
-		log.Error().Err(err).Msg("get stat cgroup2 failed")
-		return nil
+		return nil, fmt.Errorf("get stat cgroup2 failed")
 	}
 
 	mode := info.Mode()
 	newMode := mode | 0200
 
 	if err := os.Chmod(cgroupV2.GetMountPoint(), newMode); err != nil {
-		log.Error().Err(err).Msg("chmod cgroup2 failed")
-		return nil
+		return nil, fmt.Errorf("chmod cgroup2 failed")
 	}
 
 	return &CgroupsControllerImpl{
@@ -299,6 +293,6 @@ func NewCgroupsController(procfs string) CgroupsController {
 		containerToCgroup:   containerToCgroup,
 		cgroup:              cgroupV2.(*CgroupV2),
 		actualCgroupVersion: actualCgroupVersion,
-		cgroupV2Supported:   cgroupV2Supported,
-	}
+		cgroupSupported:     cgroupSupported,
+	}, nil
 }

@@ -122,9 +122,7 @@ static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc, __u32 
 
 static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxmap, __u8 side)
 {
-    if (DISABLE_EBPF_CAPTURE)
-        return 1;
-    if (capture_disabled())
+    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_PLAIN))
         return 1;
 
     __u64 cgroup_id = 0;
