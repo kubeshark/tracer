@@ -146,6 +146,9 @@ static __always_inline int program_disabled(int program_domain) {
         return 1;
     }
 
+    if (program_domain == PROGRAM_DOMAIN_CAPTURE_SYSTEM)
+        return 0; // system always enabled
+
     __u32* p = bpf_map_lookup_elem(&programs_configuration, &zero);
     if (!p) {
         return 1;

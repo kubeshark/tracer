@@ -67,6 +67,16 @@ func (t *Tracer) Init(
 	}
 
 	var tlsEnabled, plainEnabled bool
+	defer func() {
+		if err := markPlain(plainEnabled); err != nil {
+			log.Warn().Msg(fmt.Sprintf("mark plain failed: %v", err))
+			return
+		}
+		if err := markTls(tlsEnabled); err != nil {
+			log.Warn().Msg(fmt.Sprintf("mark tls failed: %v", err))
+			return
+		}
+	}()
 
 	var kernelVersion *kernel.VersionInfo
 	kernelVersion, err = kernel.GetKernelVersion()
@@ -111,13 +121,6 @@ func (t *Tracer) Init(
 
 	if t.packetFilter, err = packetHooks.NewPacketFilter(procfs, t.bpfObjects.BpfObjs, t.cgroupsController, plainEnabled, isCgroupsV2); err != nil {
 		return fmt.Errorf("create packet filter failed: %v", err)
-	}
-
-	if err := markPlain(plainEnabled); err != nil {
-		return fmt.Errorf("mark plain failed: %v", err)
-	}
-	if err := markTls(tlsEnabled); err != nil {
-		return fmt.Errorf("mark tls failed: %v", err)
 	}
 
 	allPollers.Start()

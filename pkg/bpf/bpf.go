@@ -1,8 +1,10 @@
 package bpf
 
 import (
+	"bufio"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"bytes"
 	"os"
@@ -99,8 +101,14 @@ func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
 }
 
 func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.VersionInfo) (pObjs *BpfObjects, tlsEnabled, plainEnabled bool, err error) {
-	if err = mountBpfFs(); err != nil {
-		err = fmt.Errorf("%w: %v", ErrBpfMountFailed, err)
+	var mounted bool
+	mounted, err = isMounted("/sys/fs/bpf")
+	if err != nil {
+		err = fmt.Errorf("%w: mount check failed: %v", ErrBpfMountFailed, err)
+		return
+	}
+	if !mounted {
+		err = fmt.Errorf("%w: /sys/fs/bpf is not mounted", ErrBpfMountFailed)
 		return
 	}
 
@@ -256,28 +264,23 @@ func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.Versio
 	return
 }
 
-func mountBpfFs() error {
-	const bpfFsPath = "/sys/fs/bpf"
-	const bpfFsType = "bpf"
-	const bpfFsMagic = 0xcafe4a11
+func isMounted(target string) (bool, error) {
+	file, err := os.Open("/hostproc/mounts")
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
 
-	if _, err := os.Stat(bpfFsPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(bpfFsPath, 0755); err != nil {
-			return fmt.Errorf("failed to create BPF filesystem directory: %v", err)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		mountPoint := fields[1]
+		if mountPoint == target {
+			return true, nil
 		}
 	}
-
-	var statfs syscall.Statfs_t
-	if err := syscall.Statfs(bpfFsPath, &statfs); err == nil {
-		if statfs.Type == bpfFsMagic {
-			// bpf filesystem is already mounted
-			return nil
-		}
-	}
-
-	if err := syscall.Mount("bpffs", bpfFsPath, bpfFsType, 0, ""); err != nil {
-		return fmt.Errorf("failed to mount BPF filesystem: %v", err)
-	}
-
-	return nil
+	return false, scanner.Err()
 }

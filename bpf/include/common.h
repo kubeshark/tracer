@@ -9,6 +9,7 @@ Copyright (C) Kubeshark
 #define AF_INET	2	/* IPv4 Protocol */
 #define AF_INET6 10	/* IPv6 Protocol */
 
+#define PROGRAM_DOMAIN_CAPTURE_SYSTEM (0)
 #define PROGRAM_DOMAIN_CAPTURE_TLS (1 << 0)
 #define PROGRAM_DOMAIN_CAPTURE_PLAIN (1 << 1)
 
