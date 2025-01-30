@@ -88,9 +88,7 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, mapRe
 }
 
 type BpfObjects struct {
-	BpfObjs              TracerObjects
-	DisabledPlainBackend bool
-	DisabledTlsBackend   bool
+	BpfObjs TracerObjects
 }
 
 func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
