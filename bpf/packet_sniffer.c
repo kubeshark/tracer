@@ -52,75 +52,64 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 // #define ENABLE_TRACE_PACKETS
 
 #ifdef ENABLE_TRACE_PACKETS
-#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)              \
-    bpf_printk("PKT " NAME " skb: %p len: %d ret: %d", skb, (IS_CGROUP ? (skb->len + 14) : skb->len), ret); \
-    bpf_printk("PKT " NAME " cgroup: %d cookie:0x%x", CGROUP_ID, bpf_get_socket_cookie(skb));               \
-    bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP), &(REMOTE_IP));                   \
-    {                                                                                                       \
-        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                                         \
-        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                                                       \
-        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);         \
-    }                                                                                                       \
-    bpf_printk("PKT " NAME " ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip));                              \
-    {                                                                                                       \
-        __u32 __src_port = bpf_ntohl(src_port);                                                             \
-        __u32 __dst_port = bpf_ntohl(dst_port);                                                             \
-        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port);                   \
-    }
-#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)              \
-    bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb, (IS_CGROUP ? (skb->len + 14) : skb->len));        \
-    bpf_printk("PKT " NAME " [IPv6] cgroup: %d cookie:0x%x", CGROUP_ID, bpf_get_socket_cookie(skb));         \
-    bpf_printk("PKT " NAME " [IPv6] ip_local: %x:%x:%x:%x:%x:%x:%x:%x",                                     \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[0]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[1]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[2]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[3]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[4]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[5]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[6]),                                                                  \
-        bpf_ntohs(LOCAL_IP6.s6_addr16[7]));                                                                 \
-    bpf_printk("PKT " NAME " [IPv6] ip_remote: %x:%x:%x:%x:%x:%x:%x:%x",                                    \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[0]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[1]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[2]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[3]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[4]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[5]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[6]),                                                                 \
-        bpf_ntohs(REMOTE_IP6.s6_addr16[7]));  
-    {                                                                                                       \
-        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                                         \
-        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                                                       \
-        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x", __port_local, __port_remote);         \
-    }                                                                                                       \
-        bpf_printk("PKT " NAME " [IPv6] ip_src: %x:%x:%x:%x:%x:%x:%x:%x",                                     \
-        bpf_ntohs(src_ip6.s6_addr16[0]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[1]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[2]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[3]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[4]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[5]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[6]),                                                                  \
-        bpf_ntohs(src_ip6.s6_addr16[7]));                                                                 \
-    bpf_printk("PKT " NAME " [IPv6] ip_remote: %x:%x:%x:%x:%x:%x:%x:%x",                                    \
-        bpf_ntohs(dst_ip6.s6_addr16[0]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[1]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[2]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[3]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[4]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[5]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[6]),                                                                 \
-        bpf_ntohs(dst_ip6.s6_addr16[7])); 
-    {                                                                                                       \
-        __u32 __src_port = bpf_ntohl(src_port);                                                             \
-        __u32 __dst_port = bpf_ntohl(dst_port);                                                             \
-        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port, __dst_port);                   \
-    }
-#define TRACE_PACKET_SENT(NAME) \
-    bpf_printk("PKT " NAME " sent");
+#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
+                          REMOTE_PORT, CGROUP_ID)                              \
+  bpf_printk("PKT " NAME " skb: %p len: %d ret: %d", skb,                      \
+             (IS_CGROUP ? (skb->len + 14) : skb->len), ret);                   \
+  bpf_printk("PKT " NAME " cgroup: %d cookie:0x%x", CGROUP_ID,                 \
+             bpf_get_socket_cookie(skb));                                      \
+  bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP),       \
+             &(REMOTE_IP));                                                    \
+  {                                                                            \
+    __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                \
+    __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                              \
+    bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",              \
+               __port_local, __port_remote);                                   \
+  }                                                                            \
+  bpf_printk("PKT " NAME " ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip));   \
+  {                                                                            \
+    __u32 __src_port = bpf_ntohl(src_port);                                    \
+    __u32 __dst_port = bpf_ntohl(dst_port);                                    \
+    bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port,       \
+               __dst_port);                                                    \
+  }
+
+#define PRINT_IPV6_ADDR(NAME, ADDR)                                            \
+  bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohs(ADDR.s6_addr16[0]),               \
+             bpf_ntohs(ADDR.s6_addr16[1]), bpf_ntohs(ADDR.s6_addr16[2]),       \
+             bpf_ntohs(ADDR.s6_addr16[3]));                                    \
+  bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohs(ADDR.s6_addr16[4]),               \
+             bpf_ntohs(ADDR.s6_addr16[5]), bpf_ntohs(ADDR.s6_addr16[6]),       \
+             bpf_ntohs(ADDR.s6_addr16[7]));
+
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
+                          REMOTE_PORT, CGROUP_ID)                              \
+  bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb,                       \
+             (IS_CGROUP ? (skb->len + 14) : skb->len));                        \
+  bpf_printk("PKT " NAME " [IPv6] cgroup: %d cookie:0x%x", CGROUP_ID,          \
+             bpf_get_socket_cookie(skb));                                      \
+  PRINT_IPV6_ADDR("ip_local", LOCAL_IP6);                                      \
+  PRINT_IPV6_ADDR("ip_remote", REMOTE_IP6);                                    \
+  {                                                                            \
+    __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                \
+    __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                              \
+    bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",              \
+               __port_local, __port_remote);                                   \
+  }                                                                            \
+  PRINT_IPV6_ADDR("ip_src", src_ip6);                                          \
+  PRINT_IPV6_ADDR("ip_dst", dst_ip6);                                          \
+  {                                                                            \
+    __u32 __src_port = bpf_ntohl(src_port);                                    \
+    __u32 __dst_port = bpf_ntohl(dst_port);                                    \
+    bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port,       \
+               __dst_port);                                                    \
+  }
+#define TRACE_PACKET_SENT(NAME) bpf_printk("PKT " NAME " sent");
 #else
-#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)
-#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT, REMOTE_PORT, CGROUP_ID)
+#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
+                          REMOTE_PORT, CGROUP_ID)
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT,  \
+                          REMOTE_PORT, CGROUP_ID)
 #define TRACE_PACKET_SENT(NAME)
 #endif
 
@@ -128,20 +117,32 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 #define ETH_P_IPV6 0x86DD
 #define IPV6_EXT_MAX_CHAIN 4
 
-static __always_inline void save_packet(struct __sk_buff *skb, 
-                                        __u32 rewrite_ip_src, 
-                                        __u16 rewrite_port_src, 
-                                        __u32 rewrite_ip_dst, 
-                                        __u16 rewrite_port_dst, 
-                                        struct in6_addr *rewrite_ip6_src, 
-                                        struct in6_addr *rewrite_ip6_dst, 
-                                        __u64 cgroup_id, 
-                                        __u8 direction, 
-                                        __u8 transportHdr, 
-                                        __u8 transportOffset, 
-                                        bool is_ipv6);
-static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc,
-                                        __u32 *, __u16 *src_port,
+struct save_packet_args {
+    struct __sk_buf *skb;
+    __u64 cgroup_id;
+    __u8 direction;
+    __u8 transportHdr;
+    __u8 transportOffset;
+    bool is_ipv6;
+    __u16 src_port;
+    __u16 dst_port;
+
+    union {
+        struct {
+            __u32 src_ip;
+            __u32 dst_ip;
+        } ipv4;
+
+        struct {
+            struct in6_addr src_ip6;
+            struct in6_addr dst_ip6;
+        } ipv6;
+    };
+};
+
+static __always_inline void save_packet(struct save_packet_args *args);
+static __always_inline int parse_packet(struct __sk_buff *skb,
+                                        __u32 *src_ip4, __u16 *src_port,
                                         __u32 *dst_ip4, __u16 *dst_port,
                                         __u8 *ipp, struct in6_addr *src_ip6,
                                         struct in6_addr *dst_ip6,
@@ -179,25 +180,42 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     __u32 transportOffset = 0;
     int ret = -1;
     if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
-        ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip, &transportOffset);
+        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip, &transportOffset);
     } else {
-        ret = parse_packet(skb, 0, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip, NULL);
+        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip, NULL);
     }
     if (!ret)
     {
         return 1;
     }
 
+    struct save_packet_args save_args = {
+        .skb = skb,
+        .cgroup_id = cgroup_id,
+        .direction = side,
+        .src_port = ( side == PACKET_DIRECTION_RECEIVED ? skb->remote_port>>16 : bpf_htons(skb->local_port)),
+        .dst_port = ( side == PACKET_DIRECTION_RECEIVED ? bpf_htons(skb->local_port) : skb->remote_port>>16),
+        .transportHdr = transportHdr,
+        .transportOffset = transportOffset,
+        .is_ipv6 = (skb->protocol == bpf_htons(ETH_P_IPV6))
+    };
+
+    TRACE_PACKET_IPV4("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
+
     if (side == PACKET_DIRECTION_RECEIVED)
     {
         if (src_ip) {
             // IPv4
             TRACE_PACKET_IPV4("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), &src_ip6, &dst_ip6,  cgroup_id, side, transportHdr, transportOffset, false);
+            save_args.ipv4.src_ip = src_ip;
+            save_args.ipv4.dst_ip = dst_ip;
+            save_packet(&save_args);
         } else {
             // IPv6
             TRACE_PACKET_IPV6("cg/in", true, skb->local_ip6, skb->remote_ip6, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_packet(skb, src_ip, skb->remote_port>>16, dst_ip, bpf_htons(skb->local_port), &src_ip6, &dst_ip6, cgroup_id, side, transportHdr, transportOffset, true);
+            save_args.ipv6.src_ip6 = src_ip6;
+            save_args.ipv6.dst_ip6 = dst_ip6;
+            save_packet(&save_args);    
         }
     }
     else
@@ -205,11 +223,15 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
         if (src_ip) {
             // IPv4
             TRACE_PACKET_IPV4("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, &src_ip6, &dst_ip6, cgroup_id, side, transportHdr, transportOffset, false);
+            save_args.ipv4.src_ip = src_ip;
+            save_args.ipv4.dst_ip = dst_ip;
+            save_packet(&save_args);
         } else {
             // IPv6
             TRACE_PACKET_IPV6("cg/out", true, skb->local_ip6, skb->remote_ip6, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_packet(skb, src_ip, bpf_htons(skb->local_port), dst_ip, skb->remote_port>>16, &src_ip6, &dst_ip6, cgroup_id, side, transportHdr, transportOffset, true);
+            save_args.ipv6.src_ip6 = src_ip6;
+            save_args.ipv6.dst_ip6 = dst_ip6;
+            save_packet(&save_args);    
         }
     }
 
@@ -244,37 +266,25 @@ struct pkt_sniffer_ctx {
 };
 
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx);
-static __always_inline void save_packet(struct __sk_buff *skb, 
-                                        __u32 rewrite_ip_src, 
-                                        __u16 rewrite_port_src, 
-                                        __u32 rewrite_ip_dst, 
-                                        __u16 rewrite_port_dst, 
-                                        struct in6_addr *rewrite_ip6_src, 
-                                        struct in6_addr *rewrite_ip6_dst, 
-                                        __u64 cgroup_id, 
-                                        __u8 direction,
-                                        __u8 transportHdr, 
-                                        __u8 transportOffset, 
-                                        bool is_ipv6)
+static __always_inline void save_packet(struct save_packet_args *args)
 {
     struct pkt_sniffer_ctx ctx = {
-        .skb = skb,
-        .rewrite_port_src = rewrite_port_src,
-        .rewrite_port_dst = rewrite_port_dst,
-        .cgroup_id = cgroup_id,
-        .direction = direction,
-        .transportHdrType = transportHdr,
-        .transportOffset = transportOffset,
+        .skb = args->skb,
+        .cgroup_id = args->cgroup_id,
+        .direction = args->direction,
+        .transportHdrType = args->transportHdr,
+        .transportOffset = args->transportOffset,
+        .rewrite_port_src = args->src_port,
+        .rewrite_port_dst = args->dst_port,
+        .is_ipv6 = args->is_ipv6,
     };
 
-    if (is_ipv6) {
-        __builtin_memcpy(&ctx.rewrite_ip6_src, rewrite_ip6_src, sizeof(struct in6_addr));
-        __builtin_memcpy(&ctx.rewrite_ip6_dst, rewrite_ip6_dst, sizeof(struct in6_addr));
-        ctx.is_ipv6 = true;
+    if (args->is_ipv6) {
+        __builtin_memcpy(&ctx.rewrite_ip6_src, &args->ipv6.src_ip6, sizeof(struct in6_addr));
+        __builtin_memcpy(&ctx.rewrite_ip6_dst, &args->ipv6.dst_ip6, sizeof(struct in6_addr));
     } else {
-        ctx.rewrite_ip_src = rewrite_ip_src;
-        ctx.rewrite_ip_dst = rewrite_ip_dst;
-        ctx.is_ipv6 = false;
+        ctx.rewrite_ip_src = args->ipv4.src_ip;
+        ctx.rewrite_ip_dst = args->ipv4.dst_ip;
     }
 
     return _save_packet(&ctx);
@@ -457,8 +467,8 @@ save_end:
   0 in case packet has TCP source or destination port equal to 443 - in this case packet is treated as TLS and not going to be processed
   not 0 in other cases
 */
-static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc,
-                                        __u32 *, __u16 *src_port,
+static __always_inline int parse_packet(struct __sk_buff *skb,
+                                        __u32 *src_ip4, __u16 *src_port,
                                         __u32 *dst_ip4, __u16 *dst_port,
                                         __u8 *ipp, struct in6_addr *src_ip6,
                                         struct in6_addr *dst_ip6,
@@ -466,14 +476,6 @@ static __always_inline int parse_packet(struct __sk_buff *skb, int is_tc,
   void *data = (void *)(long)skb->data;
   void *data_end = (void *)(long)skb->data_end;
   void *cursor = data;
-
-  if (is_tc) {
-    struct ethhdr *eth = (struct ethhdr *)cursor;
-    if (eth + 1 > (struct ethhdr *)data_end)
-      return 1;
-
-    cursor += sizeof(struct ethhdr);
-  }
 
   __u8 ip_proto = 0;
   if (skb->protocol == bpf_htons(ETH_P_IP)) {
