@@ -116,9 +116,28 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 #define ETH_P_IP 0x0800
 #define ETH_P_IPV6 0x86DD
 #define IPV6_EXT_MAX_CHAIN 4
+#ifndef IPPROTO_HOPOPTS
+#define IPPROTO_HOPOPTS   0
+#endif
+
+#ifndef IPPROTO_ROUTING
+#define IPPROTO_ROUTING   43
+#endif
+
+#ifndef IPPROTO_FRAGMENT
+#define IPPROTO_FRAGMENT  44
+#endif
+
+#ifndef IPPROTO_DSTOPTS
+#define IPPROTO_DSTOPTS   60
+#endif
+
+#ifndef IPPROTO_MH
+#define IPPROTO_MH        135
+#endif
 
 struct save_packet_args {
-    struct __sk_buf *skb;
+    struct __sk_buff *skb;
     __u64 cgroup_id;
     __u8 direction;
     __u8 transportHdr;
@@ -180,9 +199,9 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     __u32 transportOffset = 0;
     int ret = -1;
     if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
-        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip, &transportOffset);
+        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
     } else {
-        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip, NULL);
+        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip6, NULL);
     }
     if (!ret)
     {
