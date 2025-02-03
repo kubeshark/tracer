@@ -156,6 +156,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 			ethType = layers.EthernetTypeIPv4
 		} else if firstByte>>4 == 6 {
 			ethType = layers.EthernetTypeIPv6
+			log.Warn().Msgf("Got IPv6 %v", p.rawWriter)
 		} else {
 			log.Warn().Uint8("firstByte", firstByte).Msg("Unknown IP version, skipping packet")
 			return nil
@@ -163,9 +164,10 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 
 		ethhdrContent := make([]byte, 14)
 		binary.BigEndian.PutUint16(ethhdrContent[12:14], uint16(ethType))
+		ethhdr := ethernet.NewEthernetLayer(ethType)
 
 		if p.rawWriter != nil {
-			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
+			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 			if err != nil {
 				return err
 			}
