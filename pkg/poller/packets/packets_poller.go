@@ -2,6 +2,7 @@ package packets
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -149,6 +150,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	if ptr.Last != 0 {
 		p.receivedPackets++
 
+		log.Warn().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
 		// Check first byte of packet data to determine IP version
 		firstByte := pkts.buf[0]
 		var ethType layers.EthernetType
