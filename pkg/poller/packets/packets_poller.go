@@ -147,10 +147,11 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
 	pkts.len += uint32(ptr.Len)
 
+	log.Warn().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
+
 	if ptr.Last != 0 {
 		p.receivedPackets++
 
-		log.Warn().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
 		// Check first byte of packet data to determine IP version
 		firstByte := pkts.buf[0]
 		var ethType layers.EthernetType
