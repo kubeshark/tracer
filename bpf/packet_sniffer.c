@@ -49,7 +49,7 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
     which can be fetched on a host system with `cat /sys/kernel/debug/tracing/trace_pipe`
 */
 
-// #define ENABLE_TRACE_PACKETS
+#define ENABLE_TRACE_PACKETS
 
 #ifdef ENABLE_TRACE_PACKETS
 #define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
@@ -74,15 +74,22 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
                __dst_port);                                                    \
   }
 
-#define PRINT_IPV6_ADDR(NAME, ADDR)                                            \
-  bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohs(ADDR.s6_addr16[0]),               \
-             bpf_ntohs(ADDR.s6_addr16[1]), bpf_ntohs(ADDR.s6_addr16[2]),       \
-             bpf_ntohs(ADDR.s6_addr16[3]));                                    \
-  bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohs(ADDR.s6_addr16[4]),               \
-             bpf_ntohs(ADDR.s6_addr16[5]), bpf_ntohs(ADDR.s6_addr16[6]),       \
-             bpf_ntohs(ADDR.s6_addr16[7]));
-
-#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
+#define PRINT_IPV6_ADDR(NAME, ADDR)                                           \
+  bpf_printk(NAME ": %x:%x:%x:%x",                                           \
+             bpf_ntohl(ADDR[0]), bpf_ntohl(ADDR[1]),                          \
+             bpf_ntohl(ADDR[2]), bpf_ntohl(ADDR[3]));
+#define PRINT_IPV6_ADDR_STRUCT(NAME, ADDR)                                      \
+    bpf_printk(NAME ": %x:%x:%x:%x",                                           \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[0]),                                   \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[1]),                                   \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[2]),                                   \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[3]));                                  \
+    bpf_printk(NAME ": %x:%x:%x:%x",                                           \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[4]),                                   \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[5]),                                   \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[6]),                                   \
+               bpf_ntohs(ADDR.in6_u.s6_addr16[7]));                                  
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT,    \
                           REMOTE_PORT, CGROUP_ID)                              \
   bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb,                       \
              (IS_CGROUP ? (skb->len + 14) : skb->len));                        \
@@ -96,8 +103,8 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
     bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",              \
                __port_local, __port_remote);                                   \
   }                                                                            \
-  PRINT_IPV6_ADDR("ip_src", src_ip6);                                          \
-  PRINT_IPV6_ADDR("ip_dst", dst_ip6);                                          \
+  PRINT_IPV6_ADDR_STRUCT("ip_src", src_ip6);                                          \
+  PRINT_IPV6_ADDR_STRUCT("ip_dst", dst_ip6);                                          \
   {                                                                            \
     __u32 __src_port = bpf_ntohl(src_port);                                    \
     __u32 __dst_port = bpf_ntohl(dst_port);                                    \
