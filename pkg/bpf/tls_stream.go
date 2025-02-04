@@ -1,6 +1,7 @@
 package bpf
 
 import (
+	"encoding/hex"
 	"net"
 	"strconv"
 	"sync"
@@ -110,6 +111,7 @@ func (t *TlsStream) writeData(timestamp uint64, cgroupId uint64, direction uint8
 }
 
 func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uint8, data []byte, isClient bool, sentLen uint32) {
+	log.Info().Msgf("Writing data %v", hex.Dump(data))
 	t.poller.receivedPackets++
 	if t.poller.rawWriter != nil {
 		err := t.poller.rawWriter(
