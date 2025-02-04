@@ -224,6 +224,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 
 	for {
 		record, err := p.chunksReader.Read()
+		log.Info().Msgf("Processing Record %v", hex.Dump(record.RawSample))
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				return

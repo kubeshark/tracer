@@ -49,7 +49,7 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
     which can be fetched on a host system with `cat /sys/kernel/debug/tracing/trace_pipe`
 */
 
-#define ENABLE_TRACE_PACKETS
+// #define ENABLE_TRACE_PACKETS
 
 #ifdef ENABLE_TRACE_PACKETS
 #define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
