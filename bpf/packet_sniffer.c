@@ -79,16 +79,18 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
              bpf_ntohl(ADDR[0]), bpf_ntohl(ADDR[1]),                          \
              bpf_ntohl(ADDR[2]), bpf_ntohl(ADDR[3]));
 #define PRINT_IPV6_ADDR_STRUCT(NAME, ADDR)                                      \
+   __u16 addr_parts[8];                                                        \
+    __builtin_memcpy(addr_parts, &ADDR, sizeof(addr_parts));                    \
     bpf_printk(NAME ": %x:%x:%x:%x",                                           \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[0]),                                   \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[1]),                                   \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[2]),                                   \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[3]));                                  \
+               bpf_ntohs(addr_parts[0]),                                        \
+               bpf_ntohs(addr_parts[1]),                                        \
+               bpf_ntohs(addr_parts[2]),                                        \
+               bpf_ntohs(addr_parts[3]));                                       \
     bpf_printk(NAME ": %x:%x:%x:%x",                                           \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[4]),                                   \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[5]),                                   \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[6]),                                   \
-               bpf_ntohs(ADDR.in6_u.u6_addr16[7]));                                  
+               bpf_ntohs(addr_parts[4]),                                        \
+               bpf_ntohs(addr_parts[5]),                                        \
+               bpf_ntohs(addr_parts[6]),                                        \
+               bpf_ntohs(addr_parts[7]));                                       
 #define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT,    \
                           REMOTE_PORT, CGROUP_ID)                              \
   bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb,                       \
