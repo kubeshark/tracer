@@ -178,25 +178,38 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
 
 static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxmap, __u8 side)
 {
-    if (DISABLE_EBPF_CAPTURE)
+     bpf_printk("filter_packets: Function invoked. side=%d", side);
+
+    if (DISABLE_EBPF_CAPTURE) {
+        bpf_printk("filter_packets: EBPF capture disabled via DISABLE_EBPF_CAPTURE.");
         return 1;
-    if (capture_disabled())
+    }
+    if (capture_disabled()) {
+        bpf_printk("filter_packets: EBPF capture disabled via capture_disabled().");
         return 1;
+    }
 
     __u64 cgroup_id = 0;
     if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE)
     {
+        bpf_printk("filter_packets: Attempting to get cgroup_id using get_packet_cgroup.");
         cgroup_id = get_packet_cgroup(skb, cgrpctxmap);
+        bpf_printk("filter_packets: cgroup_id from get_packet_cgroup: %llu", cgroup_id);
     }
     else
     {
+        bpf_printk("filter_packets: Attempting to get cgroup_id using bpf_skb_cgroup_id.");
         cgroup_id = bpf_skb_cgroup_id(skb);
+        bpf_printk("filter_packets: cgroup_id from bpf_skb_cgroup_id: %llu", cgroup_id);
     }
 
     if (cgroup_id == 0 || !should_target_cgroup(cgroup_id))
     {
+        bpf_printk("filter_packets: cgroup_id is 0 or not targeted. cgroup_id=%llu", cgroup_id);
         return 1;
     }
+
+    bpf_printk("filter_packets: cgroup_id is valid and targeted: %llu", cgroup_id);
 
     __u32 src_ip = 0;
     __u16 src_port = 0;
@@ -207,9 +220,12 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     __u8 transportHdr = 0;
     __u32 transportOffset = 0;
     int ret = -1;
+    bpf_printk("filter_packets: Checking skb protocol. protocol=%d, ETH_P_IPV6=%d", skb->protocol, bpf_htons(ETH_P_IPV6));
     if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
+        bpf_printk("filter_packets: Parsing IPv6 packet.");
         ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
     } else {
+        bpf_printk("filter_packets: Parsing non-IPv6 packet (likely IPv4).");
         ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip6, NULL);
     }
     if (!ret)
@@ -227,8 +243,6 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
         .transportOffset = transportOffset,
         .is_ipv6 = (skb->protocol == bpf_htons(ETH_P_IPV6))
     };
-
-    TRACE_PACKET_IPV4("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
 
     if (side == PACKET_DIRECTION_RECEIVED)
     {
