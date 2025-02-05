@@ -220,7 +220,15 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     __u8 transportHdr = 0;
     __u32 transportOffset = 0;
     int ret = -1;
-    if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
+
+       __u16 protocol;
+    if (bpf_skb_load_bytes(skb, offsetof(struct ethhdr, h_proto), &protocol, sizeof(protocol)) < 0) {
+        bpf_printk("filter_packets: Failed to load protocol.");
+        return 1;
+    }
+    protocol = bpf_ntohs(protocol);
+
+    if (protocol == bpf_htons(ETH_P_IPV6)) {
         bpf_printk("filter_packets: Parsing IPv6 packet.");
         ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
     } else {
@@ -518,8 +526,15 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
   void *data_end = (void *)(long)skb->data_end;
   void *cursor = data;
 
+    __u16 protocol;
+
+    if (bpf_skb_load_bytes(skb, offsetof(struct ethhdr, h_proto), &protocol, sizeof(protocol)) < 0) {
+        return 0;
+    }
+    protocol = bpf_ntohs(protocol);
+
   __u8 ip_proto = 0;
-  if (skb->protocol == bpf_htons(ETH_P_IP)) {
+  if (protocol == bpf_htons(ETH_P_IP)) {
 
     struct iphdr *ip = (struct iphdr *)cursor;
     if (ip + 1 > (struct iphdr *)data_end)
@@ -546,7 +561,7 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
     }
   }
 
-  if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
+  if (protocol == bpf_htons(ETH_P_IPV6)) {
     struct ipv6hdr *ip6 = (struct ipv6hdr *)cursor;
     if ((ip6 + 1 > (struct ipv6hdr *)data_end)) {
       return 6;
