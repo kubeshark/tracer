@@ -220,7 +220,6 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
     __u8 transportHdr = 0;
     __u32 transportOffset = 0;
     int ret = -1;
-    bpf_printk("filter_packets: Checking skb protocol. protocol=%d, ETH_P_IPV6=%d", skb->protocol, bpf_htons(ETH_P_IPV6));
     if (skb->protocol == bpf_htons(ETH_P_IPV6)) {
         bpf_printk("filter_packets: Parsing IPv6 packet.");
         ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
