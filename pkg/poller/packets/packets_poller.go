@@ -50,7 +50,6 @@ type pktBuffer struct {
 type PacketsPoller struct {
 	ethernetDecoder gopacket.Decoder
 	ethhdr          *layers.Ethernet
-	// ethhdrContent   []byte
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
 	rawWriter       bpf.RawWriter
@@ -78,12 +77,11 @@ func NewPacketsPoller(
 
 	poller := &PacketsPoller{
 		ethernetDecoder: ethernetDecoder,
-		ethhdr:          ethernet.NewEthernetLayer(layers.EthernetTypeIPv4),
-		// ethhdrContent:   ethhdrContent,
-		rawWriter:      rawWriter,
-		gopacketWriter: gopacketWriter,
-		pktsMap:        make(map[uint64]*pktBuffer),
-		tai:            tai.NewTaiInfo(),
+		ethhdr:          &layers.Ethernet{},
+		rawWriter:       rawWriter,
+		gopacketWriter:  gopacketWriter,
+		pktsMap:         make(map[uint64]*pktBuffer),
+		tai:             tai.NewTaiInfo(),
 	}
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
@@ -147,7 +145,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
 	pkts.len += uint32(ptr.Len)
 
-	log.Warn().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
+	log.Info().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
 
 	if ptr.Last != 0 {
 		p.receivedPackets++
@@ -155,26 +153,28 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		// Check first byte of packet data to determine IP version
 		firstByte := pkts.buf[0]
 		var ethType layers.EthernetType
+
 		if firstByte>>4 == 4 {
 			ethType = layers.EthernetTypeIPv4
 		} else if firstByte>>4 == 6 {
 			ethType = layers.EthernetTypeIPv6
-			log.Warn().Msgf("Got IPv6 %v", p.rawWriter)
 		} else {
 			log.Warn().Uint8("firstByte", firstByte).Msg("Unknown IP version, skipping packet")
+			delete(p.pktsMap, ptr.ID)
 			return nil
 		}
 
-		ethhdrContent := make([]byte, 14)
-		binary.BigEndian.PutUint16(ethhdrContent[12:14], uint16(ethType))
-		ethhdr := ethernet.NewEthernetLayer(ethType)
+		p.ethhdr = ethernet.NewEthernetLayer(ethType)
 
 		if p.rawWriter != nil {
-			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
+			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 			if err != nil {
 				return err
 			}
 		}
+
+		ethhdrContent := make([]byte, 14)
+		binary.BigEndian.PutUint16(ethhdrContent[12:14], uint16(ethType))
 
 		if p.gopacketWriter != nil {
 			pktBuf := append(ethhdrContent, pkts.buf[:pkts.len]...)
