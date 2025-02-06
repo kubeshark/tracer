@@ -119,6 +119,8 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
+	log.Info().Msgf("Processing %v", hex.Dump(chunk.buf))
+
 	data := chunk.buf
 	if len(data) == 4 {
 		// zero packet to reset

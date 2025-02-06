@@ -11,11 +11,10 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/poller/packets"
+	"github.com/rs/zerolog/log"
 )
 
-var (
-	ErrNotSupported = errors.New("source is not supported")
-)
+var ErrNotSupported = errors.New("source is not supported")
 
 type PacketData struct {
 	Timestamp uint64
@@ -94,6 +93,7 @@ func NewPlainPacketSource(dataDir string) (PacketSource, error) {
 }
 
 func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) error {
+	log.Warn().Msgf("Write packet %v", pkt)
 	p.pktCh <- pkt
 	return nil
 }
@@ -116,5 +116,6 @@ func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost uint64) {
 
 func (p *PacketSourceImpl) NextPacket() (gopacket.Packet, error) {
 	pkt := <-p.pktCh
+	log.Warn().Msgf("Got request for next packet returning %v", pkt)
 	return pkt, nil
 }
