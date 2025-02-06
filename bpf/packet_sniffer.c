@@ -499,7 +499,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
         }
 
 
-
+        bpf_printk("saving packet");
         if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, sizeof(struct pkt)))
         {
             log_error(skb, LOG_ERROR_PKT_SNIFFER, 10, 0l, 0l);
@@ -647,6 +647,7 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
       *dst_port = tcp->dest;
     }
 
+    bpf_printk("Seq %d", tcp->seq);
     cursor += tcp->doff * 4;
     if (tcp->dest == bpf_htons(443) || tcp->source == bpf_htons(443)) {
       // skip only packets with tcp port 443 to support previous bpf filter
