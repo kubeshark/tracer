@@ -578,20 +578,20 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
     }
 
         bpf_printk("Parsing IPv6 packet: Src: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
-                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16), bpf_ntohs(ip6->saddr.in6_u.u6_addr16),
-                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16), bpf_ntohs(ip6->saddr.in6_u.u6_addr16),
-                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16), bpf_ntohs(ip6->saddr.in6_u.u6_addr16),
-                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16), bpf_ntohs(ip6->saddr.in6_u.u6_addr16));
+                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16[0]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[1]),
+                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16[2]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[3]),
+                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16[4]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[5]),
+                  bpf_ntohs(ip6->saddr.in6_u.u6_addr16[6]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[7]));
 
         bpf_printk("Parsing IPv6 packet: Dst: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
-                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16), bpf_ntohs(ip6->daddr.in6_u.u6_addr16),
-                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16), bpf_ntohs(ip6->daddr.in6_u.u6_addr16),
-                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16), bpf_ntohs(ip6->daddr.in6_u.u6_addr16),
-                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16), bpf_ntohs(ip6->daddr.in6_u.u6_addr16));
-
+                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16[0]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[1]),
+                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16[2]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[3]),
+                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16[4]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[5]),
+                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16[6]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[7]));
+          
     ip_proto = ip6->nexthdr;
     cursor += sizeof(struct ipv6hdr);
-
+    bpf_printk("Next header %d", ip_proto);
 #pragma unroll
     for (int i = 0; i < IPV6_EXT_MAX_CHAIN; i++) {
       struct ipv6_opt_hdr *hdr = (struct ipv6_opt_hdr *)cursor;
