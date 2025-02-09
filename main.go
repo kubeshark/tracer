@@ -25,10 +25,10 @@ import (
 	runtimeDebug "runtime/debug"
 
 	"github.com/getsentry/sentry-go"
+	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
 	"github.com/kubeshark/tracer/pkg/telemetry"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
-	"github.com/kubeshark/utils/sentry"
 	sentrypkg "github.com/kubeshark/utils/sentry"
 
 	"github.com/kubeshark/tracer/pkg/bpf"

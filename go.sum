@@ -131,6 +131,8 @@ github.com/kubeshark/utils v0.0.0-20250209170240-88608c0602fa h1:nBw0ds9Wvurt/fv
 github.com/kubeshark/utils v0.0.0-20250209170240-88608c0602fa/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
 github.com/kubeshark/utils v0.0.0-20250209204610-3ac993bd9351 h1:GhooctJv53/Di5jXva2HbCNqsEMiNAUSRHGxONd0snI=
 github.com/kubeshark/utils v0.0.0-20250209204610-3ac993bd9351/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
+github.com/kubeshark/utils v0.0.0-20250209205559-697c2151c3f8 h1:BgY8BX6jWWAZLjOfFJc14C9vZq7JA8WHVsdfnsgcV8Q=
+github.com/kubeshark/utils v0.0.0-20250209205559-697c2151c3f8/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
 github.com/leodido/go-urn v1.2.1/go.mod h1:zt4jvISO2HfUBqxjfIshjdMTYS56ZS/qv49ictyFfxY=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
 github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
