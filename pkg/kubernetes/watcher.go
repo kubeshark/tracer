@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/dlclark/regexp2"
-	"github.com/kubeshark/tracer/pkg/telemetry"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -65,7 +64,7 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 			}
 
 			cm := event.Object.(*v1.ConfigMap)
-			telemetry.EnsureSentry(cm)
+			ensureSentry(cm)
 
 			var settings uint32
 			watcher.regex, watcher.namespaces, settings = SyncConfig(cm)

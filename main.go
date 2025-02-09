@@ -26,7 +26,6 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
-	"github.com/kubeshark/tracer/pkg/telemetry"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
@@ -99,9 +98,9 @@ func main() {
 	}
 	defer w.Close()
 
-	telemetry.SentryWriter := sentrypkg.NewWriter(w, zerolog.ErrorLevel)
+	kubernetes.SentryWriter := sentrypkg.NewWriter(w, zerolog.ErrorLevel)
 
-	multi := zerolog.MultiLevelWriter(telemetry.SentryWriter,
+	multi := zerolog.MultiLevelWriter(kubernetes.SentryWriter,
 		zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},
 	)
 	log.Logger = zerolog.New(multi).
