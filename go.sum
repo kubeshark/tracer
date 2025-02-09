@@ -1,9 +1,5 @@
 github.com/Masterminds/semver v1.5.0 h1:H65muMkzWKEuNDnfl9d70GUjFniHKHRbFPGBuZ3QEww=
 github.com/Masterminds/semver v1.5.0/go.mod h1:MB6lktGJrhw8PrUyiEoblNEGEQ+RzHPF078ddwwvV3Y=
-github.com/archdx/zerolog-sentry v1.8.4 h1:Thxb8Crm+JaV1kcAF2KEcpKwkMtQaj+GazhktFgGTUc=
-github.com/archdx/zerolog-sentry v1.8.4/go.mod h1:XrFHGe1CH5DQk/XSySu/IJSi5C9XR6+zpc97zVf/c4c=
-github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=
-github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
 github.com/bytedance/sonic v1.11.6 h1:oUp34TzMlL+OY1OUWxHqsdkgC/Zfc85zGqw9siXjrc0=
 github.com/bytedance/sonic v1.11.6/go.mod h1:LysEHSvpvDySVdC2f87zGWf6CIKJcAvqab1ZaiQtds4=
 github.com/bytedance/sonic/loader v0.1.1 h1:c+e5Pt1k/cy5wMveRDyk2X4B9hF4g7an8N3zCYjJFNM=
@@ -131,8 +127,10 @@ github.com/kubeshark/gopacket v1.1.30/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj
 github.com/kubeshark/tracerproto v1.0.0/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c h1:Km6Wm+AwCRO/6aK60PqGpW6bVuXNw+bbZRjX837N/rU=
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
-github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11 h1:g+f7OCI1onHRqEqE5dMlhLfwfdxFI9wmeOvlUaxNzPQ=
-github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
+github.com/kubeshark/utils v0.0.0-20250209170240-88608c0602fa h1:nBw0ds9Wvurt/fv4IFwT3Ku/IpcBHF+1q3FndNFuthA=
+github.com/kubeshark/utils v0.0.0-20250209170240-88608c0602fa/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
+github.com/kubeshark/utils v0.0.0-20250209204610-3ac993bd9351 h1:GhooctJv53/Di5jXva2HbCNqsEMiNAUSRHGxONd0snI=
+github.com/kubeshark/utils v0.0.0-20250209204610-3ac993bd9351/go.mod h1:vrL5XTDuLYGhVv/UGEsx+fwbAHcvTUJoP8ApHG11JcQ=
 github.com/leodido/go-urn v1.2.1/go.mod h1:zt4jvISO2HfUBqxjfIshjdMTYS56ZS/qv49ictyFfxY=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
 github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
@@ -151,10 +149,6 @@ github.com/mdlayher/socket v0.4.1 h1:eM9y2/jlbs1M615oshPQOHZzj6R6wMT7bX5NPiQvn2U
 github.com/mdlayher/socket v0.4.1/go.mod h1:cAqeGjoufqdxWkD7DkpyS+wcefOtmu5OQ8KuoJGIReA=
 github.com/moby/moby v25.0.4+incompatible h1:vea1J80wDM5x5geaZSaywFkfFxLABJIQ3mmR4ewZGbU=
 github.com/moby/moby v25.0.4+incompatible/go.mod h1:fDXVQ6+S340veQPv35CzDahGBmHsiclFwfEygB/TWMc=
-github.com/moby/sys/mount v0.3.4 h1:yn5jq4STPztkkzSKpZkLcmjue+bZJ0u2AuQY1iNI1Ww=
-github.com/moby/sys/mount v0.3.4/go.mod h1:KcQJMbQdJHPlq5lcYT+/CjatWM4PuxKe+XLSVS4J6Os=
-github.com/moby/sys/mountinfo v0.7.2 h1:1shs6aH5s4o5H2zQLn796ADW1wMrIwHsyJ2v9KouLrg=
-github.com/moby/sys/mountinfo v0.7.2/go.mod h1:1YOa8w8Ih7uW0wALDUgT1dTTSBrZ+HiBLGws92L2RU4=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

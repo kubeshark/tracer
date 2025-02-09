@@ -24,10 +24,11 @@ import (
 	stdlog "log"
 	runtimeDebug "runtime/debug"
 
-	zlogsentry "github.com/archdx/zerolog-sentry"
 	"github.com/getsentry/sentry-go"
+	"github.com/kubeshark/tracer/pkg/telemetry"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
+	"github.com/kubeshark/utils/sentry"
 	sentrypkg "github.com/kubeshark/utils/sentry"
 
 	"github.com/kubeshark/tracer/pkg/bpf"
@@ -69,7 +70,6 @@ func main() {
 		log.Warn().Msg("disable-ebpf option is deprecated")
 	}
 
-	var sentryDSN string
 	if sentrypkg.IsSentryEnabled() {
 		sentryDSN, err := sentrypkg.GetDSN(context.Background(), "tracer", version.Ver)
 		if err != nil {
@@ -92,19 +92,23 @@ func main() {
 			defer sentry.Flush(2 * time.Second)
 		}
 	}
-	w, err := zlogsentry.New(
-		sentryDSN,
-	)
+
+	w, err := sentryzerolog.NewWithHub(sentry.CurrentHub(), sentryzerolog.Options{})
 	if err != nil {
 		stdlog.Fatal(err)
 	}
-
 	defer w.Close()
 
-	multi := zerolog.MultiLevelWriter(w, zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
-	log.Logger = zerolog.New(multi).With().Timestamp().Caller().Logger()
+	telemetry.SentryWriter := sentrypkg.NewWriter(w, zerolog.ErrorLevel)
 
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).With().Caller().Logger()
+	multi := zerolog.MultiLevelWriter(telemetry.SentryWriter,
+		zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},
+	)
+	log.Logger = zerolog.New(multi).
+		With().
+		Timestamp().
+		Caller().
+		Logger()
 
 	runtimeDebug.SetPanicOnFault(true)
 	defer func() {
