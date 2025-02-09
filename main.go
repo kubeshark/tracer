@@ -98,7 +98,7 @@ func main() {
 	}
 	defer w.Close()
 
-	kubernetes.SentryWriter := sentrypkg.NewWriter(w, zerolog.ErrorLevel)
+	kubernetes.SentryWriter = sentrypkg.NewWriter(w, zerolog.ErrorLevel)
 
 	multi := zerolog.MultiLevelWriter(kubernetes.SentryWriter,
 		zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339},
