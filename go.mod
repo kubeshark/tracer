@@ -22,7 +22,7 @@ require (
 	github.com/kubeshark/api v1.1.32
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
-	github.com/kubeshark/utils v0.0.0-20250209205559-697c2151c3f8
+	github.com/kubeshark/utils v0.0.0-20250210221556-322c90ef9b16
 	github.com/moby/moby v25.0.4+incompatible
 	github.com/prometheus/procfs v0.15.1
 	github.com/rs/zerolog v1.33.0
