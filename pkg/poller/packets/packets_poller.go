@@ -66,6 +66,7 @@ func NewPacketsPoller(
 	gopacketWriter bpf.GopacketWriter,
 ) (*PacketsPoller, error) {
 	var err error
+	log.Info().Msgf("Creating NewPacketsPoller")
 
 	ethernetDecoder := gopacket.DecodersByLayerName["Ethernet"]
 	if ethernetDecoder == nil {

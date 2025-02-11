@@ -80,6 +80,7 @@ func NewTLSPacketSource(dataDir string) (PacketSource, error) {
 	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
 		return bpf.NewTlsPoller(m, wr, goWr)
 	}
+	log.Info().Msg("Returning NewTLSPacketSource")
 
 	return newPacketSource(bpf.PinNameTLSPackets, poller, "")
 }
@@ -88,6 +89,7 @@ func NewPlainPacketSource(dataDir string) (PacketSource, error) {
 	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
 		return packets.NewPacketsPoller(m, wr, goWr)
 	}
+	log.Info().Msg("Returning NewPlainPacketSource")
 
 	return newPacketSource(bpf.PinNamePlainPackets, poller, filepath.Join(dataDir, "noebpf"))
 }

@@ -13,10 +13,10 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/hashicorp/golang-lru/simplelru"
 	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
-	"github.com/kubeshark/tracer/internal/tai"
 )
 
 const (
@@ -24,8 +24,10 @@ const (
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
 
-type RawWriter func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
-type GopacketWriter func(packet gopacket.Packet) (err error)
+type (
+	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
+	GopacketWriter func(packet gopacket.Packet) (err error)
+)
 
 type TlsPoller struct {
 	streams         map[string]*TlsStream
@@ -37,7 +39,7 @@ type TlsPoller struct {
 	gopacketWriter  GopacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
-	tai tai.TaiInfo
+	tai             tai.TaiInfo
 }
 
 func NewTlsPoller(
@@ -51,8 +53,10 @@ func NewTlsPoller(
 		chunksReader:   nil,
 		rawWriter:      rawWriter,
 		gopacketWriter: gopacketWriter,
-		tai: tai.NewTaiInfo(),
+		tai:            tai.NewTaiInfo(),
 	}
+
+	log.Info().Msgf("Creating NewTlsPoller")
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
 	if err != nil {
@@ -61,7 +65,6 @@ func NewTlsPoller(
 	poller.fdCache = fdCache
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
-
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
@@ -124,7 +127,6 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 
 	for {
 		record, err := p.chunksReader.Read()
-
 		if err != nil {
 			close(chunks)
 
