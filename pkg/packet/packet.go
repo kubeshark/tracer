@@ -1,6 +1,7 @@
 package packet
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,7 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/poller/packets"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 )
 
 var ErrNotSupported = errors.New("source is not supported")
@@ -36,6 +37,7 @@ type PacketsPoller interface {
 }
 
 type PacketSourceImpl struct {
+	logger     *zerolog.Logger
 	perfBuffer *ebpf.Map
 	poller     PacketsPoller
 	pktCh      chan gopacket.Packet
@@ -43,7 +45,7 @@ type PacketSourceImpl struct {
 
 type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter) (PacketsPoller, error)
 
-func newPacketSource(perfName string, createPoller createPollerFunc, pathNotSupported string) (PacketSource, error) {
+func newPacketSource(logger *zerolog.Logger, perfName string, createPoller createPollerFunc, pathNotSupported string) (PacketSource, error) {
 	path := filepath.Join(bpf.PinPath, perfName)
 
 	var err error
@@ -65,6 +67,7 @@ func newPacketSource(perfName string, createPoller createPollerFunc, pathNotSupp
 	}
 
 	p := PacketSourceImpl{
+		logger:     logger,
 		perfBuffer: perfBuffer,
 		pktCh:      make(chan gopacket.Packet),
 	}
@@ -76,27 +79,28 @@ func newPacketSource(perfName string, createPoller createPollerFunc, pathNotSupp
 	return &p, nil
 }
 
-func NewTLSPacketSource(dataDir string) (PacketSource, error) {
+func NewTLSPacketSource(logger *zerolog.Logger, dataDir string) (PacketSource, error) {
 	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
 		return bpf.NewTlsPoller(m, wr, goWr)
 	}
-	log.Info().Msg("Returning NewTLSPacketSource")
 
-	return newPacketSource(bpf.PinNameTLSPackets, poller, "")
+	logger.Info().Msg("Returning newPacketSource")
+	return newPacketSource(logger, bpf.PinNameTLSPackets, poller, "")
 }
 
-func NewPlainPacketSource(dataDir string) (PacketSource, error) {
+func NewPlainPacketSource(logger *zerolog.Logger, dataDir string) (PacketSource, error) {
 	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
 		return packets.NewPacketsPoller(m, wr, goWr)
 	}
-	log.Info().Msg("Returning NewPlainPacketSource")
 
-	return newPacketSource(bpf.PinNamePlainPackets, poller, filepath.Join(dataDir, "noebpf"))
+	logger.Info().Msg("Returning newPacketSource")
+
+	return newPacketSource(logger, bpf.PinNamePlainPackets, poller, filepath.Join(dataDir, "noebpf"))
 }
 
 func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) error {
-	log.Warn().Msgf("Write packet %v", pkt)
 	p.pktCh <- pkt
+	p.logger.Info().Msgf("WritePacket %v", hex.Dump(pkt.Data()))
 	return nil
 }
 
@@ -118,6 +122,7 @@ func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost uint64) {
 
 func (p *PacketSourceImpl) NextPacket() (gopacket.Packet, error) {
 	pkt := <-p.pktCh
-	log.Warn().Msgf("Got request for next packet returning %v", pkt)
+	p.logger.Info().Msgf("NextPacket %v", hex.Dump(pkt.Data()))
+
 	return pkt, nil
 }
