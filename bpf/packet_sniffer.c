@@ -577,7 +577,7 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
       __builtin_memcpy(dst_ip6, &ip6->daddr, sizeof(struct in6_addr));
     }
 
-        bpf_printk("Parsing IPv6 packet: Src: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
+        /*bpf_printk("Parsing IPv6 packet: Src: %04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x",
                   bpf_ntohs(ip6->saddr.in6_u.u6_addr16[0]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[1]),
                   bpf_ntohs(ip6->saddr.in6_u.u6_addr16[2]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[3]),
                   bpf_ntohs(ip6->saddr.in6_u.u6_addr16[4]), bpf_ntohs(ip6->saddr.in6_u.u6_addr16[5]),
@@ -587,7 +587,7 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
                   bpf_ntohs(ip6->daddr.in6_u.u6_addr16[0]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[1]),
                   bpf_ntohs(ip6->daddr.in6_u.u6_addr16[2]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[3]),
                   bpf_ntohs(ip6->daddr.in6_u.u6_addr16[4]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[5]),
-                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16[6]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[7]));
+                  bpf_ntohs(ip6->daddr.in6_u.u6_addr16[6]), bpf_ntohs(ip6->daddr.in6_u.u6_addr16[7]));*/
           
     ip_proto = ip6->nexthdr;
     cursor += sizeof(struct ipv6hdr);
