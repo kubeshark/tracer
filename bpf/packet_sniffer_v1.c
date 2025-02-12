@@ -504,6 +504,7 @@ int BPF_KPROBE(security_sk_clone)
 // implementation ogriginally borrowd from tracee
 static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrpctxmap)
 {
+    bpf_printk("get_packet_cgroup");
     __u64 cgroup_id = 0;
     switch (ctx->family)
     {
