@@ -1,7 +1,6 @@
 package packet
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -100,7 +99,7 @@ func NewPlainPacketSource(logger *zerolog.Logger, dataDir string) (PacketSource,
 
 func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) error {
 	p.pktCh <- pkt
-	p.logger.Info().Msgf("WritePacket %v", hex.Dump(pkt.Data()))
+	// p.logger.Info().Msgf("WritePacket %v", hex.Dump(pkt.Data()))
 	return nil
 }
 
@@ -122,7 +121,7 @@ func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost uint64) {
 
 func (p *PacketSourceImpl) NextPacket() (gopacket.Packet, error) {
 	pkt := <-p.pktCh
-	p.logger.Info().Msgf("NextPacket %v", hex.Dump(pkt.Data()))
+	// p.logger.Info().Msgf("NextPacket %v", hex.Dump(pkt.Data()))
 
 	return pkt, nil
 }

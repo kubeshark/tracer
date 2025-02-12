@@ -509,7 +509,10 @@ static __always_inline __u64 get_packet_cgroup(struct __sk_buff *ctx, void *cgrp
     switch (ctx->family)
     {
     case PF_INET:
+        bpf_printk("ipv4");
+        break;
     case PF_INET6:
+        bpf_printk("ipv6");
         break;
     default:
         return cgroup_id;

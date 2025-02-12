@@ -2,7 +2,6 @@ package packets
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -120,7 +119,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
-	log.Info().Msgf("Processing %v", hex.Dump(chunk.buf))
+	// log.Info().Msgf("Processing %v", hex.Dump(chunk.buf))
 
 	data := chunk.buf
 	if len(data) == 4 {
@@ -148,7 +147,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
 	pkts.len += uint32(ptr.Len)
 
-	log.Info().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
+	// log.Info().Msgf("Processing %v", hex.Dump(pkts.buf[:]))
 
 	if ptr.Last != 0 {
 		p.receivedPackets++
@@ -227,7 +226,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 
 	for {
 		record, err := p.chunksReader.Read()
-		log.Info().Msgf("Processing Record %v", hex.Dump(record.RawSample))
+		// log.Info().Msgf("Processing Record %v", hex.Dump(record.RawSample))
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				return
