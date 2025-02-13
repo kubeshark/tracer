@@ -151,7 +151,6 @@ struct save_packet_args {
     __u8 direction;
     __u8 transportHdr;
     __u8 transportOffset;
-    bool is_ipv6;
     __u16 src_port;
     __u16 dst_port;
 
@@ -249,7 +248,6 @@ static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxma
         .dst_port = ( side == PACKET_DIRECTION_RECEIVED ? bpf_htons(skb->local_port) : skb->remote_port>>16),
         .transportHdr = transportHdr,
         .transportOffset = transportOffset,
-        .is_ipv6 = (skb->protocol == bpf_htons(ETH_P_IPV6))
     };
 
     if (side == PACKET_DIRECTION_RECEIVED)
@@ -312,7 +310,6 @@ struct pkt_sniffer_ctx {
     __u8 direction;      
     __u8 transportHdrType;          
     __u32 transportOffset;
-    bool is_ipv6;                  
 };
 
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx);
@@ -326,10 +323,10 @@ static __always_inline void save_packet(struct save_packet_args *args)
         .transportOffset = args->transportOffset,
         .rewrite_port_src = args->src_port,
         .rewrite_port_dst = args->dst_port,
-        .is_ipv6 = args->is_ipv6,
     };
 
-    if (args->is_ipv6) {
+
+    if (args->skb->protocol == bpf_htons(ETH_P_IPV6)) {
         __builtin_memcpy(&ctx.rewrite_ip6_src, &args->ipv6.src_ip6, sizeof(struct in6_addr));
         __builtin_memcpy(&ctx.rewrite_ip6_dst, &args->ipv6.dst_ip6, sizeof(struct in6_addr));
     } else {
@@ -413,6 +410,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
     p->num = 0;
     p->len = 0;
     p->last = 0;
+    p->ip_hdr_type = bpf_ntohs(ctx->skb->protocol);
 
 #pragma unroll
     for (__u32 i = 0; (i < PKT_MAX_LEN / PKT_PART_LEN) && p->counter; i++)
@@ -455,7 +453,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
                 goto save_end;
             }
         }
-        if (ctx->is_ipv6) {
+        if (ctx->skb->protocol == bpf_htons(ETH_P_IPV6)) {
             struct ipv6hdr *ip6 = (struct ipv6hdr *)p->buf;
             if (rewrite_ip6_src)
                 __builtin_memcpy(&ip6->saddr, rewrite_ip6_src, sizeof(struct in6_addr));
@@ -527,16 +525,8 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
   void *data_end = (void *)(long)skb->data_end;
   void *cursor = data;
 
-    __u8 ip_version = 0;
-
-    if (bpf_skb_load_bytes(skb, 0, &ip_version, 1) < 0) {
-        return 1;
-    }
-
-    ip_version = (ip_version >> 4) & 0xF;
-
   __u8 ip_proto = 0;
-  if (ip_version == 4) {
+  if (skb->protocol == bpf_htons(ETH_P_IP)) {
 
     struct iphdr *ip = (struct iphdr *)cursor;
     if (ip + 1 > (struct iphdr *)data_end)
@@ -561,9 +551,7 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
     if (ipp) {
       *ipp = ip_proto;
     }
-  }
-
-  if (ip_version == 6) {
+  } else {
     struct ipv6hdr *ip6 = (struct ipv6hdr *)cursor;
     if ((ip6 + 1 > (struct ipv6hdr *)data_end)) {
       return 6;

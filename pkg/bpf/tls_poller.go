@@ -56,8 +56,6 @@ func NewTlsPoller(
 		tai:            tai.NewTaiInfo(),
 	}
 
-	log.Info().Msgf("Creating NewTlsPoller")
-
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)

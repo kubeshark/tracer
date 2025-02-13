@@ -102,6 +102,7 @@ struct pkt {
     __u32 counter;
     __u16 num;
     __u16 last;
+    __u16 ip_hdr_type;
     __u8 direction;
     unsigned char buf[PKT_PART_LEN];
 };

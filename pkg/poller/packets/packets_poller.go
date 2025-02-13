@@ -30,6 +30,7 @@ type tracerPacketsData struct {
 	Counter   uint32
 	Num       uint16
 	Last      uint16
+	IPHdrType uint16
 	Direction uint8
 	Data      [4096]uint8
 }
@@ -153,20 +154,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		p.receivedPackets++
 
 		// Check first byte of packet data to determine IP version
-		firstByte := pkts.buf[0]
-		var ethType layers.EthernetType
-
-		if firstByte>>4 == 4 {
-			ethType = layers.EthernetTypeIPv4
-		} else if firstByte>>4 == 6 {
-			ethType = layers.EthernetTypeIPv6
-		} else {
-			log.Warn().Uint8("firstByte", firstByte).Msg("Unknown IP version, skipping packet")
-			delete(p.pktsMap, ptr.ID)
-			return nil
-		}
-
-		p.ethhdr = ethernet.NewEthernetLayer(ethType)
+		p.ethhdr = ethernet.NewEthernetLayer(layers.EthernetType(ptr.IPHdrType))
 
 		if p.rawWriter != nil {
 			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
@@ -176,7 +164,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		}
 
 		ethhdrContent := make([]byte, 14)
-		binary.BigEndian.PutUint16(ethhdrContent[12:14], uint16(ethType))
+		binary.BigEndian.PutUint16(ethhdrContent[12:14], ptr.IPHdrType)
 
 		if p.gopacketWriter != nil {
 			pktBuf := append(ethhdrContent, pkts.buf[:pkts.len]...)
