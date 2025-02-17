@@ -183,29 +183,32 @@ BPF_PERF_OUTPUT_LARGE(pkts_buffer);
 #define IPPROTO_MH        135
 #endif
 
-struct save_packet_args {
-    struct __sk_buff *skb;
-    __u64 cgroup_id;
-    __u8 direction;
-    __u8 transportHdr;
-    __u8 transportOffset;
-    __u16 src_port;
-    __u16 dst_port;
+struct pkt_sniffer_ctx {
+  struct __sk_buff *skb;
 
-    union {
-        struct {
-            __u32 src_ip;
-            __u32 dst_ip;
-        } ipv4;
+  union {
+      struct {
+          __u32 src;    // IPv4 source
+          __u32 dst;    // IPv4 destination
+      } v4;
+      struct {
+          struct in6_addr src; // IPv6 source
+          struct in6_addr dst; // IPv6 destination
+      } v6;
+  } ip;
 
-        struct {
-            struct in6_addr src_ip6;
-            struct in6_addr dst_ip6;
-        } ipv6;
-    };
+  __u16 rewrite_port_src;
+  __u16 rewrite_port_dst;
+
+  __u64 cgroup_id;
+  __u8 direction;
+  __u8 transportHdrType;
+  __u32 transportOffset;
+  bool is_ipv6;
 };
 
-static __always_inline void save_packet(struct save_packet_args *args);
+
+static __always_inline void save_packet(struct pkt_sniffer_ctx *args);
 static __always_inline int parse_packet(struct __sk_buff *skb,
                                         __u32 *src_ip4, __u16 *src_port,
                                         __u32 *dst_ip4, __u16 *dst_port,
@@ -213,99 +216,99 @@ static __always_inline int parse_packet(struct __sk_buff *skb,
                                         struct in6_addr *dst_ip6,
                                         __u32 *transportOffset);
 
-static __always_inline int filter_packets(struct __sk_buff *skb, void *cgrpctxmap, __u8 side)
-{
-    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_PLAIN)) {
-        return 1;
-    }
-
-    __u64 cgroup_id = 0;
-    if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE)
-    {
-        cgroup_id = get_packet_cgroup(skb, cgrpctxmap);
-    }
-    else
-    {
-        cgroup_id = bpf_skb_cgroup_id(skb);
-    }
-
-    if (cgroup_id == 0 || !should_target_cgroup(cgroup_id))
-    {
-        return 1;
-    }
-
-    __u32 src_ip = 0;
-    __u16 src_port = 0;
-    __u32 dst_ip = 0;
-    __u16 dst_port = 0;
-    struct in6_addr src_ip6 = {0};
-    struct in6_addr dst_ip6 = {0};
-    __u8 transportHdr = 0;
-    __u32 transportOffset = 0;
-    int ret = -1;
-
-    __u8 ip_version = 0;
-
-    if (bpf_skb_load_bytes(skb, 0, &ip_version, 1) < 0) {
-        return 1;
-    }
-
-    ip_version = (ip_version >> 4) & 0xF;
-
-    if (ip_version == 6) {
-        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
-    } else {
-        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL, &src_ip6, &dst_ip6, NULL);
-    }
-    if (!ret)
-    {
-        return 1;
-    }
-
-    struct save_packet_args save_args = {
-        .skb = skb,
-        .cgroup_id = cgroup_id,
-        .direction = side,
-        .src_port = ( side == PACKET_DIRECTION_RECEIVED ? skb->remote_port>>16 : bpf_htons(skb->local_port)),
-        .dst_port = ( side == PACKET_DIRECTION_RECEIVED ? bpf_htons(skb->local_port) : skb->remote_port>>16),
-        .transportHdr = transportHdr,
-        .transportOffset = transportOffset,
-    };
-
-    if (side == PACKET_DIRECTION_RECEIVED)
-    {
-        if (src_ip) {
-            // IPv4
-            TRACE_PACKET_IPV4("cg/in", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_args.ipv4.src_ip = src_ip;
-            save_args.ipv4.dst_ip = dst_ip;
-            save_packet(&save_args);
-        } else {
-            // IPv6
-            TRACE_PACKET_IPV6("cg/in", true, skb->local_ip6, skb->remote_ip6, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_args.ipv6.src_ip6 = src_ip6;
-            save_args.ipv6.dst_ip6 = dst_ip6;
-            save_packet(&save_args);    
-        }
-    }
-    else
-    {
-        if (src_ip) {
-            // IPv4
-            TRACE_PACKET_IPV4("cg/out", true, skb->local_ip4, skb->remote_ip4, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_args.ipv4.src_ip = src_ip;
-            save_args.ipv4.dst_ip = dst_ip;
-            save_packet(&save_args);
-        } else {
-            // IPv6
-            TRACE_PACKET_IPV6("cg/out", true, skb->local_ip6, skb->remote_ip6, skb->local_port & 0xffff, skb->remote_port & 0xffff, cgroup_id);
-            save_args.ipv6.src_ip6 = src_ip6;
-            save_args.ipv6.dst_ip6 = dst_ip6;
-            save_packet(&save_args);    
-        }
-    }
-
+static __always_inline int filter_packets(struct __sk_buff *skb,
+                                          void *cgrpctxmap, __u8 side) {
+  if (program_disabled(PROGRAM_DOMAIN_CAPTURE_PLAIN)) {
     return 1;
+  }
+
+  __u64 cgroup_id = 0;
+  if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE) {
+    cgroup_id = get_packet_cgroup(skb, cgrpctxmap);
+  } else {
+    cgroup_id = bpf_skb_cgroup_id(skb);
+  }
+
+  if (cgroup_id == 0 || !should_target_cgroup(cgroup_id)) {
+    return 1;
+  }
+
+  __u32 src_ip = 0;
+  __u16 src_port = 0;
+  __u32 dst_ip = 0;
+  __u16 dst_port = 0;
+  struct in6_addr src_ip6 = {0};
+  struct in6_addr dst_ip6 = {0};
+  __u8 transportHdr = 0;
+  __u32 transportOffset = 0;
+  int ret = -1;
+
+  __u8 ip_version = 0;
+
+  if (bpf_skb_load_bytes(skb, 0, &ip_version, 1) < 0) {
+    return 1;
+  }
+
+  ip_version = (ip_version >> 4) & 0xF;
+
+  if (ip_version == 6) {
+    ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port,
+                       &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
+  } else {
+    ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL,
+                       &src_ip6, &dst_ip6, NULL);
+  }
+  if (!ret) {
+    return 1;
+  }
+
+  struct save_packet_args save_args = {
+      .skb = skb,
+      .cgroup_id = cgroup_id,
+      .direction = side,
+      .src_port =
+          (side == PACKET_DIRECTION_RECEIVED ? skb->remote_port >> 16
+                                             : bpf_htons(skb->local_port)),
+      .dst_port =
+          (side == PACKET_DIRECTION_RECEIVED ? bpf_htons(skb->local_port)
+                                             : skb->remote_port >> 16),
+      .transportHdr = transportHdr,
+      .transportOffset = transportOffset,
+  };
+
+  struct pkt_sniffer_ctx ctx = {
+      .skb = skb,
+      .cgroup_id = cgroup_id,
+      .direction = side,
+      .transportHdrType = transportHdr,
+      .transportOffset = transportOffset,
+      .rewrite_port_src =
+          (side == PACKET_DIRECTION_RECEIVED ? skb->remote_port >> 16
+                                             : bpf_htons(skb->local_port)),
+      .rewrite_port_dst =
+          (side == PACKET_DIRECTION_RECEIVED ? bpf_htons(skb->local_port)
+                                             : skb->remote_port >> 16),
+  };
+
+  const char *flow_label =
+      (side == PACKET_DIRECTION_RECEIVED) ? "cg/in" : "cg/out";
+  if (ip_version == 4) {
+    ctx.ip.v4.src = src_ip;
+    ctx.ip.v4.dst = dst_ip;
+    TRACE_PACKET_IPV4(flow_label, true, skb->local_ip4, skb->remote_ip4,
+                      skb->local_port & 0xffff, skb->remote_port & 0xffff,
+                      cgroup_id);
+  } else {
+    __builtin_memcpy(&ctx.ip.v6.src, &src_ip6, sizeof(struct in6_addr));
+    __builtin_memcpy(&ctx.ip.v6.dst, &dst_ip6, sizeof(struct in6_addr));
+    TRACE_PACKET_IPV6(flow_label, true, skb->local_ip6, skb->remote_ip6,
+                      skb->local_port & 0xffff, skb->remote_port & 0xffff,
+                      cgroup_id);
+  }
+
+  save_packet(&ctx);
+
+  return 1;
 }
 
 SEC("cgroup_skb/ingress")
@@ -320,54 +323,38 @@ int filter_egress_packets(struct __sk_buff *skb)
     return filter_packets(skb, &cgrpctxmap_eg, PACKET_DIRECTION_SENT);
 }
 
-struct pkt_sniffer_ctx {
-    struct __sk_buff *skb;       
-    __u32 rewrite_ip_src;          
-    __u16 rewrite_port_src;       
-    __u32 rewrite_ip_dst;         
-    __u16 rewrite_port_dst;        
-    struct in6_addr rewrite_ip6_src; 
-    struct in6_addr rewrite_ip6_dst; 
-    __u64 cgroup_id;               
-    __u8 direction;      
-    __u8 transportHdrType;          
-    __u32 transportOffset;
-};
-
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx);
-static __always_inline void save_packet(struct save_packet_args *args)
+static __always_inline void save_packet(struct pkt_sniffer_ctx *args)
 {
-    struct pkt_sniffer_ctx ctx = {
-        .skb = args->skb,
-        .cgroup_id = args->cgroup_id,
-        .direction = args->direction,
-        .transportHdrType = args->transportHdr,
-        .transportOffset = args->transportOffset,
-        .rewrite_port_src = args->src_port,
-        .rewrite_port_dst = args->dst_port,
-    };
-
-
-    if (args->skb->protocol == bpf_htons(ETH_P_IPV6)) {
-        __builtin_memcpy(&ctx.rewrite_ip6_src, &args->ipv6.src_ip6, sizeof(struct in6_addr));
-        __builtin_memcpy(&ctx.rewrite_ip6_dst, &args->ipv6.dst_ip6, sizeof(struct in6_addr));
-    } else {
-        ctx.rewrite_ip_src = args->ipv4.src_ip;
-        ctx.rewrite_ip_dst = args->ipv4.dst_ip;
-    }
-
-    return _save_packet(&ctx);
+    return _save_packet(args);
 }
 
 static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
 {
     struct __sk_buff *skb = ctx->skb;
-    __u32 rewrite_ip_src = ctx->rewrite_ip_src;
+
+    __u8 ip_version = 0;
+
+    if (bpf_skb_load_bytes(skb, 0, &ip_version, 1) < 0) {
+        return 1;
+    }
+
+    ip_version = (ip_version >> 4) & 0xF;
+
+    __u32 rewrite_ip_src = 0;
+    __u32 rewrite_ip_dst = 0;
+    struct in6_addr *rewrite_ip6_src = 0;
+    struct in6_addr *rewrite_ip6_dst = 0;
+
+    if (ip_version == 4) {
+      rewrite_ip_src = ctx->ip.v4.src;
+      rewrite_ip_dst = ctx->ip.v4.dst;
+    } else {
+      rewrite_ip6_src = &ctx->ip.v6.src;
+      rewrite_ip6_dst = &ctx->ip.v6.dst;
+    }
     __u16 rewrite_port_src = ctx->rewrite_port_src;
-    __u32 rewrite_ip_dst = ctx->rewrite_ip_dst;
     __u16 rewrite_port_dst = ctx->rewrite_port_dst;
-    struct in6_addr *rewrite_ip6_src = &ctx->rewrite_ip6_src;
-    struct in6_addr *rewrite_ip6_dst = &ctx->rewrite_ip6_dst;
     __u64 cgroup_id = ctx->cgroup_id;
     __u8 direction = ctx->direction;
     int zero = 0;
@@ -463,7 +450,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
                 return;
             }
         }
-        if (ctx->skb->protocol == bpf_htons(ETH_P_IPV6)) {
+        if (ip_version == 6) {
             struct ipv6hdr *ip6 = (struct ipv6hdr *)p->buf;
             if (rewrite_ip6_src)
                 __builtin_memcpy(&ip6->saddr, rewrite_ip6_src, sizeof(struct in6_addr));
