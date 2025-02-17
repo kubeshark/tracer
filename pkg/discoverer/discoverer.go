@@ -175,7 +175,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 			log.Error().Msg(fmt.Sprintf("wrong size received: %v\n", p.size))
 			return
 		}
-		log.Debug().Uint32("Device ID", p.deviceId).Uint16("Size", p.size).Uint8("Remove", p.remove).Str("Path", string(p.path[:p.size-1])).Uint64("Cgroup ID", p.cgroupId).Str("flags", fmt.Sprintf("%x", p.inode)).Msg(fmt.Sprintf("Got file found event"))
+		log.Debug().Uint32("Device ID", p.deviceId).Uint16("Size", p.size).Uint8("Remove", p.remove).Str("Path", string(p.path[:p.size-1])).Uint64("Cgroup ID", p.cgroupId).Str("inode", fmt.Sprintf("%x", p.inode)).Msg("Got file found event")
 		if err = e.sslHooks.attachFile(p.cgroupId, p.deviceId, string(p.path[:p.size-1])); err != nil {
 			log.Error().Err(err).Msg("hook openSSL failed")
 			return
