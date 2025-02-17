@@ -11,15 +11,7 @@ import (
 )
 
 type SslHooks struct {
-	sslWriteProbe      link.Link
-	sslWriteRetProbe   link.Link
-	sslReadProbe       link.Link
-	sslReadRetProbe    link.Link
-	sslWriteExProbe    link.Link
-	sslWriteExRetProbe link.Link
-	sslReadExProbe     link.Link
-	sslReadExRetProbe  link.Link
-	sslPendingProbe    link.Link
+	links []link.Link
 }
 
 // TODO: incapsulate, add devuce id to the key, delete on file is deleted
@@ -54,59 +46,59 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 
 func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.Executable) error {
 	var err error
-	s.sslWriteProbe, err = sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
-
+	sslWriteProbe, err := sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslWriteProbe)
 
-	s.sslWriteRetProbe, err = sslLibrary.Uretprobe("SSL_write", bpfObjects.BpfObjs.SslRetWrite, nil)
-
+	sslWriteRetProbe, err := sslLibrary.Uretprobe("SSL_write", bpfObjects.BpfObjs.SslRetWrite, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslWriteRetProbe)
 
-	s.sslReadProbe, err = sslLibrary.Uprobe("SSL_read", bpfObjects.BpfObjs.SslRead, nil)
-
+	sslReadProbe, err := sslLibrary.Uprobe("SSL_read", bpfObjects.BpfObjs.SslRead, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslReadProbe)
 
-	s.sslReadRetProbe, err = sslLibrary.Uretprobe("SSL_read", bpfObjects.BpfObjs.SslRetRead, nil)
-
+	sslReadRetProbe, err := sslLibrary.Uretprobe("SSL_read", bpfObjects.BpfObjs.SslRetRead, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslReadRetProbe)
 
-	s.sslWriteExProbe, err = sslLibrary.Uprobe("SSL_write_ex", bpfObjects.BpfObjs.SslWriteEx, nil)
-
+	sslWriteExProbe, err := sslLibrary.Uprobe("SSL_write_ex", bpfObjects.BpfObjs.SslWriteEx, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslWriteExProbe)
 
-	s.sslWriteExRetProbe, err = sslLibrary.Uretprobe("SSL_write_ex", bpfObjects.BpfObjs.SslRetWriteEx, nil)
-
+	sslWriteExRetProbe, err := sslLibrary.Uretprobe("SSL_write_ex", bpfObjects.BpfObjs.SslRetWriteEx, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslWriteExRetProbe)
 
-	s.sslReadExProbe, err = sslLibrary.Uprobe("SSL_read_ex", bpfObjects.BpfObjs.SslReadEx, nil)
-
+	sslReadExProbe, err := sslLibrary.Uprobe("SSL_read_ex", bpfObjects.BpfObjs.SslReadEx, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslReadExProbe)
 
-	s.sslReadExRetProbe, err = sslLibrary.Uretprobe("SSL_read_ex", bpfObjects.BpfObjs.SslRetReadEx, nil)
-
+	sslReadExRetProbe, err := sslLibrary.Uretprobe("SSL_read_ex", bpfObjects.BpfObjs.SslRetReadEx, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslReadExRetProbe)
 
-	s.sslPendingProbe, err = sslLibrary.Uprobe("SSL_pending", bpfObjects.BpfObjs.SslPending, nil)
-
+	sslPendingProbe, err := sslLibrary.Uprobe("SSL_pending", bpfObjects.BpfObjs.SslPending, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslPendingProbe)
 
 	return nil
 }
@@ -114,29 +106,29 @@ func (s *SslHooks) installSslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.
 func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *link.Executable) error {
 	var err error
 
-	s.sslWriteProbe, err = sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
-
+	sslWriteProbe, err := sslLibrary.Uprobe("SSL_write", bpfObjects.BpfObjs.SslWrite, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslWriteProbe)
 
-	s.sslWriteRetProbe, err = sslLibrary.Uretprobe("SSL_write", bpfObjects.BpfObjs.SslRetWrite, nil)
-
+	sslWriteRetProbe, err := sslLibrary.Uretprobe("SSL_write", bpfObjects.BpfObjs.SslRetWrite, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslWriteRetProbe)
 
-	s.sslReadProbe, err = sslLibrary.Uprobe("SSL_read", bpfObjects.BpfObjs.SslRead, nil)
-
+	sslReadProbe, err := sslLibrary.Uprobe("SSL_read", bpfObjects.BpfObjs.SslRead, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslReadProbe)
 
-	s.sslReadRetProbe, err = sslLibrary.Uretprobe("SSL_read", bpfObjects.BpfObjs.SslRetRead, nil)
-
+	sslReadRetProbe, err := sslLibrary.Uretprobe("SSL_read", bpfObjects.BpfObjs.SslRetRead, nil)
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
+	s.links = append(s.links, sslReadRetProbe)
 
 	return nil
 }
@@ -144,51 +136,12 @@ func (s *SslHooks) installEnvoySslHooks(bpfObjects *bpf.BpfObjects, sslLibrary *
 func (s *SslHooks) Close() []error {
 	returnValue := make([]error, 0)
 
-	if err := s.sslWriteProbe.Close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	if err := s.sslWriteRetProbe.Close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	if err := s.sslReadProbe.Close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	if err := s.sslReadRetProbe.Close(); err != nil {
-		returnValue = append(returnValue, err)
-	}
-
-	if s.sslWriteExProbe != nil {
-		if err := s.sslWriteExProbe.Close(); err != nil {
+	for _, l := range s.links {
+		if err := l.Close(); err != nil {
 			returnValue = append(returnValue, err)
 		}
 	}
-
-	if s.sslWriteExRetProbe != nil {
-		if err := s.sslWriteExRetProbe.Close(); err != nil {
-			returnValue = append(returnValue, err)
-		}
-	}
-
-	if s.sslReadExProbe != nil {
-		if err := s.sslReadExProbe.Close(); err != nil {
-			returnValue = append(returnValue, err)
-		}
-	}
-
-	if s.sslReadExRetProbe != nil {
-		if err := s.sslReadExRetProbe.Close(); err != nil {
-			returnValue = append(returnValue, err)
-		}
-	}
-
-	if s.sslPendingProbe != nil {
-		if err := s.sslPendingProbe.Close(); err != nil {
-			returnValue = append(returnValue, err)
-		}
-	}
+	s.links = []link.Link{}
 
 	return returnValue
 }

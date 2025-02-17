@@ -89,6 +89,8 @@ static long str_match_begin(const char* s1, __u32 sz1, const char* s2, __u32 sz2
 
 struct file_path {
     char path[MAX_FILEPATH];
+    __u64 cgroup_id;
+    __u64 inode;
     __u32 device_id;
     __u16 size;
     __u8 remove;
@@ -106,7 +108,23 @@ BPF_PERF_OUTPUT(perf_found_cgroup);
 
 BPF_LRU_HASH(do_mkdir_context, __u64, struct file_path);
 
-static __always_inline void find_openssl(void* ctx, __u32 device_id, void* name, uint8_t remove) {
+struct cgroup_signal {
+    unsigned char path[MAX_FILEPATH];
+    __u64 cgroup_id;
+    __u32 hierarchy_id;
+    __u16 size;
+    __u8 remove;
+};
+BPF_PERF_OUTPUT(perf_cgroup_signal);
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct cgroup_signal);
+} cgroup_signal_heap SEC(".maps");
+
+static __always_inline void find_openssl(void* ctx, __u32 device_id, void* name, uint64_t cgroup_id, uint64_t inode, uint8_t remove) {
     __u32 zero = 0;
     struct file_path* p = bpf_map_lookup_elem(&file_probe_heap, &zero);
     if (p == NULL) {
@@ -126,6 +144,8 @@ static __always_inline void find_openssl(void* ctx, __u32 device_id, void* name,
         {
             if (str_match_begin(&p->path[offset], PATTERN_LIBSSL_LEN, PATTERN_LIBSSL, PATTERN_LIBSSL_LEN))
             {
+                p->inode = inode;
+                p->cgroup_id = cgroup_id;
                 p->device_id = device_id;
                 p->remove = remove;
                 p->size = sz;
@@ -202,7 +222,7 @@ int BPF_KPROBE(security_file_open)
     DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: PID: %d CGROUP: %lu", pid, cgroup_id);
     DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: flags: %x dev: 0x%x", flags, dev);
     DEBUG_FILE_PROBE("SECURITY_FILE_OPEN: inode: %lu filename: %s", inode, file_path);
-    find_openssl(ctx, dev, file_path, 0);
+    find_openssl(ctx, dev, file_path, cgroup_id, inode, 0);
 
     return 0;
 }
@@ -212,6 +232,7 @@ int BPF_KPROBE(security_inode_rename)
 {
     struct dentry* old_dentry = (struct dentry*)PT_REGS_PARM2(ctx);
     struct dentry* new_dentry = (struct dentry*)PT_REGS_PARM4(ctx);
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
 
     __u64 old_ino = BPF_CORE_READ(old_dentry, d_inode, i_ino);
     __u32 old_dev = BPF_CORE_READ(old_dentry, d_inode, i_sb, s_dev);
@@ -229,7 +250,7 @@ int BPF_KPROBE(security_inode_rename)
     DEBUG_FILE_PROBE("RENAME OLD: dev: 0x%x inode: %lu filename: %s", old_dev, old_ino, old_path);
     DEBUG_FILE_PROBE("RENAME NEW: dev: ox%x inode: %lu filename: %s", new_dev, new_ino, new_path);
     DEBUG_FILE_PROBE("RENAME NEW: filename: %s pid: %d", filename, pid);
-    find_openssl(ctx, new_dev, new_path, 0);
+    find_openssl(ctx, new_dev, new_path, cgroup_id, new_ino, 0);
 
     return 0;
 }
@@ -239,6 +260,7 @@ int BPF_KPROBE(security_inode_unlink)
 {
     struct inode* inode = (struct inode*)PT_REGS_PARM1(ctx);
     struct dentry* dentry = (struct dentry*)PT_REGS_PARM2(ctx);
+    __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     __u64 ino = BPF_CORE_READ(dentry, d_inode, i_ino);
     __u64 ino2 = BPF_CORE_READ(inode, i_ino);
     __u64 dev = BPF_CORE_READ(dentry, d_inode, i_sb, s_dev);
@@ -247,7 +269,7 @@ int BPF_KPROBE(security_inode_unlink)
     void* dentry_path = get_dentry_path_str(dentry);
     DEBUG_FILE_PROBE("SECURITY_FILE_UNLINK: dev: %d inode: %lu filename: %s", dev, ino, dentry_path);
     DEBUG_FILE_PROBE("SECURITY_FILE_UNLINK2: dev: %d inode: %lu", dev2, ino2);
-    find_openssl(ctx, dev, dentry_path, 1);
+    find_openssl(ctx, dev, dentry_path, cgroup_id, ino, 1);
 
     return 0;
 }
@@ -325,5 +347,67 @@ int BPF_KPROBE(vfs_rmdir)
     struct dentry* dentry = (struct dentry*)PT_REGS_PARM3(ctx);
     void* dentry_path = get_dentry_path_str(dentry);
     DEBUG_FILE_PROBE("VFS_RMDIR: filename: %s", dentry_path);
+    return 0;
+}
+
+SEC("raw_tracepoint/cgroup_mkdir_signal")
+int cgroup_mkdir_signal(struct bpf_raw_tracepoint_args *ctx)
+{
+    struct cgroup *dst_cgrp = (struct cgroup *) ctx->args[0];
+    char *path = (char *) ctx->args[1];
+
+    u32 hierarchy_id = BPF_CORE_READ(dst_cgrp, root, hierarchy_id);
+    u64 cgroup_id = get_cgroup_id(dst_cgrp);
+    DEBUG_FILE_PROBE("cgroup_mkdir: h: %lu id: %llu path: %s", hierarchy_id, cgroup_id, path);
+
+    __u32 zero = 0;
+    struct cgroup_signal* c = bpf_map_lookup_elem(&cgroup_signal_heap, &zero);
+    if (c == NULL) {
+        log_error(ctx, LOG_ERROR_FILE_PROBES_MAP_ERROR, 3, 0l, 0l);
+        return 0;
+    }
+    long sz = bpf_probe_read_str(c->path, MAX_FILEPATH, path);
+    if (sz <= 0) {
+        DEBUG_FILE_PROBE("cgroup_mkdir_signal: wrong path");
+        return 0;
+    }
+
+    c->size = sz;
+    c->cgroup_id = cgroup_id;
+    c->hierarchy_id = hierarchy_id;
+    c->remove = 0;
+    bpf_perf_event_output(ctx, &perf_cgroup_signal, BPF_F_CURRENT_CPU, c, sizeof(struct cgroup_signal));
+
+    return 0;
+}
+
+SEC("raw_tracepoint/cgroup_rmdir_signal")
+int cgroup_rmdir_signal(struct bpf_raw_tracepoint_args *ctx)
+{
+    struct cgroup *dst_cgrp = (struct cgroup *) ctx->args[0];
+    char *path = (char *) ctx->args[1];
+
+    u32 hierarchy_id = BPF_CORE_READ(dst_cgrp, root, hierarchy_id);
+    u64 cgroup_id = get_cgroup_id(dst_cgrp);
+    DEBUG_FILE_PROBE("cgroup_rmdir: h: %lu id: %llu path: %s", hierarchy_id, cgroup_id, path);
+
+    __u32 zero = 0;
+    struct cgroup_signal* c = bpf_map_lookup_elem(&cgroup_signal_heap, &zero);
+    if (c == NULL) {
+        log_error(ctx, LOG_ERROR_FILE_PROBES_MAP_ERROR, 3, 0l, 0l);
+        return 0;
+    }
+    long sz = bpf_probe_read_str(c->path, MAX_FILEPATH, path);
+    if (sz <= 0) {
+        DEBUG_FILE_PROBE("cgroup_rmdir_signal: wrong path");
+        return 0;
+    }
+
+    c->size = sz;
+    c->cgroup_id = cgroup_id;
+    c->hierarchy_id = hierarchy_id;
+    c->remove = 1;
+    bpf_perf_event_output(ctx, &perf_cgroup_signal, BPF_F_CURRENT_CPU, c, sizeof(struct cgroup_signal));
+
     return 0;
 }

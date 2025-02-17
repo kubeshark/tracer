@@ -184,6 +184,14 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 		return err
 	}
 
+	if err = s.addRawTracepoint("cgroup_mkdir", bpfObjects.CgroupMkdirSignal); err != nil {
+		return err
+	}
+
+	if err = s.addRawTracepoint("cgroup_rmdir", bpfObjects.CgroupRmdirSignal); err != nil {
+		return err
+	}
+
 	return nil
 }
 

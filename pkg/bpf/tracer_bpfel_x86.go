@@ -26,6 +26,15 @@ type TracerAddressInfo struct {
 
 type TracerBufT struct{ Buf [32768]uint8 }
 
+type TracerCgroupSignal struct {
+	Path        [4096]uint8
+	CgroupId    uint64
+	HierarchyId uint32
+	Size        uint16
+	Remove      uint8
+	_           [1]byte
+}
+
 type TracerConfiguration struct{ Flags uint32 }
 
 type TracerConnectInfo struct {
@@ -38,6 +47,8 @@ type TracerEntry struct{ Args [6]uint64 }
 
 type TracerFilePath struct {
 	Path     [4096]int8
+	CgroupId uint64
+	Inode    uint64
 	DeviceId uint32
 	Size     uint16
 	Remove   uint8
@@ -161,6 +172,8 @@ type TracerSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type TracerProgramSpecs struct {
 	CgroupBpfRunFilterSkb         *ebpf.ProgramSpec `ebpf:"cgroup_bpf_run_filter_skb"`
+	CgroupMkdirSignal             *ebpf.ProgramSpec `ebpf:"cgroup_mkdir_signal"`
+	CgroupRmdirSignal             *ebpf.ProgramSpec `ebpf:"cgroup_rmdir_signal"`
 	DoAccept                      *ebpf.ProgramSpec `ebpf:"do_accept"`
 	DoMkdirat                     *ebpf.ProgramSpec `ebpf:"do_mkdirat"`
 	DoMkdiratRet                  *ebpf.ProgramSpec `ebpf:"do_mkdirat_ret"`
@@ -222,6 +235,7 @@ type TracerMapSpecs struct {
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
 	Bufs                     *ebpf.MapSpec `ebpf:"bufs"`
 	CgroupIds                *ebpf.MapSpec `ebpf:"cgroup_ids"`
+	CgroupSignalHeap         *ebpf.MapSpec `ebpf:"cgroup_signal_heap"`
 	CgrpctxmapEg             *ebpf.MapSpec `ebpf:"cgrpctxmap_eg"`
 	CgrpctxmapIn             *ebpf.MapSpec `ebpf:"cgrpctxmap_in"`
 	ChunksBuffer             *ebpf.MapSpec `ebpf:"chunks_buffer"`
@@ -243,6 +257,7 @@ type TracerMapSpecs struct {
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.MapSpec `ebpf:"openssl_write_context"`
+	PerfCgroupSignal         *ebpf.MapSpec `ebpf:"perf_cgroup_signal"`
 	PerfFoundCgroup          *ebpf.MapSpec `ebpf:"perf_found_cgroup"`
 	PerfFoundOpenssl         *ebpf.MapSpec `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
@@ -281,6 +296,7 @@ type TracerMaps struct {
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
 	Bufs                     *ebpf.Map `ebpf:"bufs"`
 	CgroupIds                *ebpf.Map `ebpf:"cgroup_ids"`
+	CgroupSignalHeap         *ebpf.Map `ebpf:"cgroup_signal_heap"`
 	CgrpctxmapEg             *ebpf.Map `ebpf:"cgrpctxmap_eg"`
 	CgrpctxmapIn             *ebpf.Map `ebpf:"cgrpctxmap_in"`
 	ChunksBuffer             *ebpf.Map `ebpf:"chunks_buffer"`
@@ -302,6 +318,7 @@ type TracerMaps struct {
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
 	OpensslWriteContext      *ebpf.Map `ebpf:"openssl_write_context"`
+	PerfCgroupSignal         *ebpf.Map `ebpf:"perf_cgroup_signal"`
 	PerfFoundCgroup          *ebpf.Map `ebpf:"perf_found_cgroup"`
 	PerfFoundOpenssl         *ebpf.Map `ebpf:"perf_found_openssl"`
 	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
@@ -323,6 +340,7 @@ func (m *TracerMaps) Close() error {
 		m.AcceptSyscallContext,
 		m.Bufs,
 		m.CgroupIds,
+		m.CgroupSignalHeap,
 		m.CgrpctxmapEg,
 		m.CgrpctxmapIn,
 		m.ChunksBuffer,
@@ -344,6 +362,7 @@ func (m *TracerMaps) Close() error {
 		m.LogBuffer,
 		m.OpensslReadContext,
 		m.OpensslWriteContext,
+		m.PerfCgroupSignal,
 		m.PerfFoundCgroup,
 		m.PerfFoundOpenssl,
 		m.PerfFoundPid,
@@ -365,6 +384,8 @@ func (m *TracerMaps) Close() error {
 // It can be passed to LoadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
 type TracerPrograms struct {
 	CgroupBpfRunFilterSkb         *ebpf.Program `ebpf:"cgroup_bpf_run_filter_skb"`
+	CgroupMkdirSignal             *ebpf.Program `ebpf:"cgroup_mkdir_signal"`
+	CgroupRmdirSignal             *ebpf.Program `ebpf:"cgroup_rmdir_signal"`
 	DoAccept                      *ebpf.Program `ebpf:"do_accept"`
 	DoMkdirat                     *ebpf.Program `ebpf:"do_mkdirat"`
 	DoMkdiratRet                  *ebpf.Program `ebpf:"do_mkdirat_ret"`
@@ -421,6 +442,8 @@ type TracerPrograms struct {
 func (p *TracerPrograms) Close() error {
 	return _TracerClose(
 		p.CgroupBpfRunFilterSkb,
+		p.CgroupMkdirSignal,
+		p.CgroupRmdirSignal,
 		p.DoAccept,
 		p.DoMkdirat,
 		p.DoMkdiratRet,

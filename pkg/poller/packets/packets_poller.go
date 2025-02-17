@@ -85,7 +85,7 @@ func NewPacketsPoller(
 		tai:             tai.NewTaiInfo(),
 	}
 
-	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
+	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*100)
 
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
