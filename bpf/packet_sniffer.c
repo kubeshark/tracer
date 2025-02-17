@@ -262,20 +262,6 @@ static __always_inline int filter_packets(struct __sk_buff *skb,
     return 1;
   }
 
-  struct save_packet_args save_args = {
-      .skb = skb,
-      .cgroup_id = cgroup_id,
-      .direction = side,
-      .src_port =
-          (side == PACKET_DIRECTION_RECEIVED ? skb->remote_port >> 16
-                                             : bpf_htons(skb->local_port)),
-      .dst_port =
-          (side == PACKET_DIRECTION_RECEIVED ? bpf_htons(skb->local_port)
-                                             : skb->remote_port >> 16),
-      .transportHdr = transportHdr,
-      .transportOffset = transportOffset,
-  };
-
   struct pkt_sniffer_ctx ctx = {
       .skb = skb,
       .cgroup_id = cgroup_id,
@@ -336,7 +322,7 @@ static __noinline void _save_packet(struct pkt_sniffer_ctx *ctx)
     __u8 ip_version = 0;
 
     if (bpf_skb_load_bytes(skb, 0, &ip_version, 1) < 0) {
-        return 1;
+        return;
     }
 
     ip_version = (ip_version >> 4) & 0xF;
