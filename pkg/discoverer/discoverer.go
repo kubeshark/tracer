@@ -14,7 +14,6 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/cgroup"
-	sslHooks "github.com/kubeshark/tracer/pkg/hooks/ssl"
 	"github.com/kubeshark/tracer/pkg/utils"
 
 	"github.com/rs/zerolog/log"
@@ -28,11 +27,13 @@ type InternalEventsDiscoverer interface {
 
 type InternalEventsDiscovererImpl struct {
 	bpfObjects         *bpf.BpfObjects
-	sslHooks           map[string]sslHooks.SslHooks
+	sslHooks           *sslHooksManager
 	perfFoundOpenssl   *ebpf.Map
 	perfFoundCgroup    *ebpf.Map
+	perfCgroupSignal   *ebpf.Map
 	readerFoundOpenssl *perf.Reader
 	readerFoundCgroup  *perf.Reader
+	readerCgroupSignal *perf.Reader
 
 	cgroupsController cgroup.CgroupsController
 	pids              *pids
@@ -43,7 +44,8 @@ func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgro
 		bpfObjects:        bpfObjects,
 		perfFoundOpenssl:  bpfObjects.BpfObjs.PerfFoundOpenssl,
 		perfFoundCgroup:   bpfObjects.BpfObjs.PerfFoundCgroup,
-		sslHooks:          make(map[string]sslHooks.SslHooks),
+		perfCgroupSignal:  bpfObjects.BpfObjs.PerfCgroupSignal,
+		sslHooks:          newSslHooksManager(bpfObjects),
 		cgroupsController: cgroupsController,
 	}
 	var err error
@@ -67,7 +69,7 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 		return errors.Wrap(err, 0)
 	}
 
-	bufferSize := os.Getpagesize() * 100
+	bufferSize := os.Getpagesize() * 10
 
 	e.readerFoundOpenssl, err = perf.NewReader(e.perfFoundOpenssl, bufferSize)
 	if err != nil {
@@ -79,10 +81,17 @@ func (e *InternalEventsDiscovererImpl) Start() error {
 		return errors.Wrap(err, 0)
 	}
 
+	e.readerCgroupSignal, err = perf.NewReader(e.perfCgroupSignal, bufferSize)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+
 	go e.handleFoundOpenssl()
 	go e.handleFoundCgroup(isCgroupV2)
 
 	go e.pids.handleFoundNewPIDs()
+
+	go e.handleCgroupSignal()
 
 	e.scanExistingCgroups(isCgroupV2)
 
@@ -103,6 +112,8 @@ func (e *InternalEventsDiscovererImpl) UntargetCgroup(cgroupId uint64) {
 
 type foundFileEvent struct {
 	path     [4096]byte
+	cgroupId uint64
+	inode    uint64
 	deviceId uint32
 	size     uint16
 	remove   uint8
@@ -153,7 +164,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 			continue
 		}
 
-		const expectSize = 4108
+		const expectSize = 4124
 		data := record.RawSample
 		if len(data) != expectSize {
 			log.Error().Msg(fmt.Sprintf("bad event: size %v expected: %v\n", len(data), expectSize))
@@ -164,49 +175,44 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 			log.Error().Msg(fmt.Sprintf("wrong size received: %v\n", p.size))
 			return
 		}
-
-		// TODO: check what so big device ID number means
-		if p.deviceId > 0xffff {
-			continue
+		log.Debug().Uint32("Device ID", p.deviceId).Uint16("Size", p.size).Uint8("Remove", p.remove).Str("Path", string(p.path[:p.size-1])).Uint64("Cgroup ID", p.cgroupId).Str("inode", fmt.Sprintf("%x", p.inode)).Msg("Got file found event")
+		if err = e.sslHooks.attachFile(p.cgroupId, p.deviceId, string(p.path[:p.size-1])); err != nil {
+			log.Error().Err(err).Msg("hook openSSL failed")
+			return
 		}
-
-		mountPoint, err := getMountPointByDeviceId(p.deviceId)
-		if err != nil {
-			log.Warn().Uint32("Device ID", p.deviceId).Msg(fmt.Sprintf("get mount point failed: %v", err))
-			continue
-		}
-		if mountPoint == "" {
-			log.Warn().Uint32("Device ID", p.deviceId).Msg("mount point can not be found:")
-			continue
-		}
-		var installPaths []string
-		installPaths = append(installPaths, string(p.path[:p.size-1]))
-		installPaths = append(installPaths, filepath.Join("/hostroot", mountPoint, string(p.path[:p.size-1])))
-
-		for _, installPath := range installPaths {
-			if p.remove == 0 {
-				if _, ok := e.sslHooks[installPath]; ok {
-					log.Debug().Str("path", installPath).Msg("ssl hook already exists")
-					continue
-				}
-				hook := sslHooks.SslHooks{}
-				err = hook.InstallUprobes(e.bpfObjects, installPath)
-				if err != nil {
-					log.Debug().Err(err).Uint16("size", p.size).Str("path", installPath).Msg("Install uprobe missed")
-				} else {
-					e.sslHooks[installPath] = hook
-					log.Debug().Uint16("size", p.size).Str("path", installPath).Msg("New ssl hook is installed")
-				}
-			}
-		}
-		//TODO: check cases when existing hook can be deleted:
-		/*
-			log.Debug().Str("path", installPath).Msg("deleteing ssl hook")
-			delete(e.sslHooks, installPath)
-		*/
 	}
 }
 
+func (e *InternalEventsDiscovererImpl) handleCgroupSignal() {
+	for {
+		record, err := e.readerCgroupSignal.Read()
+
+		if err != nil {
+			if errors.Is(err, perf.ErrClosed) {
+				log.Warn().Msg("cgroup signal handler is closed")
+				return
+			}
+
+			log.Error().Err(err).Msg("read perf in cgroup signal handler failed")
+			return
+		}
+		if record.LostSamples != 0 {
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d libssl entry", record.LostSamples))
+			continue
+		}
+
+		data := record.RawSample
+		p := (*bpf.TracerCgroupSignal)(unsafe.Pointer(&data[0]))
+		if p.Remove != 0 {
+			if err = e.sslHooks.detachFile(p.CgroupId); err != nil {
+				log.Error().Err(err).Msg("detash openSSL hook failed")
+				return
+			}
+		}
+	}
+}
+
+// TODO: reimplement based on "raw_tracepoint/cgroup_mkdir_signal"
 func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 	for {
 		record, err := e.readerFoundCgroup.Read()
@@ -225,7 +231,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 			continue
 		}
 
-		const expectSize = 4108
+		const expectSize = 4124
 		data := record.RawSample
 		if len(data) != expectSize {
 			log.Error().Msg(fmt.Sprintf("bad event: size %v expected: %v\n", len(data), expectSize))
