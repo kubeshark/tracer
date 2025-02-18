@@ -63,14 +63,18 @@ func (watcher *Watcher) watchKubesharkConfigMap(ctx context.Context) error {
 				continue
 			}
 
+			cm := event.Object.(*v1.ConfigMap)
+			ensureSentry(cm)
+
 			var settings uint32
-			watcher.regex, watcher.namespaces, settings = SyncConfig(event.Object.(*v1.ConfigMap))
+			watcher.regex, watcher.namespaces, settings = SyncConfig(cm)
 
 			err = updateCurrentlyTargetedPods(watcher.callback, settings)
 			if err != nil {
 				log.Error().Err(err).Send()
 			}
-			watcher.lastUpdatedAt = event.Object.(*v1.ConfigMap).ObjectMeta.Annotations[resolverHistoryAnnotation]
+			watcher.lastUpdatedAt = cm.ObjectMeta.Annotations[resolverHistoryAnnotation]
+
 		case <-ctx.Done():
 			w.Stop()
 			return nil
