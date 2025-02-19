@@ -1,5 +1,14 @@
 package events
 
+
+// must match tracer/bpf/include/events.h SYSCALL_EVENT_ID_*
+const (
+	EventIdConnect      = 0
+	EventIdAccept       = 1
+	EventIdCloseConnect = 2
+	EventIdCloseAccept  = 3
+)
+
 type SyscallEventMessage struct {
 	Command [16]byte
 
