@@ -6,10 +6,11 @@ toolchain go1.22.7
 
 require (
 	github.com/Masterminds/semver v1.5.0
-	github.com/archdx/zerolog-sentry v1.8.4
 	github.com/cilium/ebpf v0.16.0
 	github.com/dlclark/regexp2 v1.11.0
-	github.com/getsentry/sentry-go v0.29.0
+	github.com/getsentry/sentry-go v0.31.1
+	github.com/getsentry/sentry-go/gin v0.31.1
+	github.com/getsentry/sentry-go/zerolog v0.31.1
 	github.com/gin-contrib/pprof v1.4.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-errors/errors v1.4.2
@@ -21,16 +22,14 @@ require (
 	github.com/kubeshark/api v1.1.32
 	github.com/kubeshark/gopacket v1.1.30
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
-	github.com/kubeshark/utils v0.0.0-20240912210808-416dca610f11
+	github.com/kubeshark/utils v0.0.0-20250210221556-322c90ef9b16
 	github.com/moby/moby v25.0.4+incompatible
-	github.com/moby/sys/mount v0.3.4
-	github.com/moby/sys/mountinfo v0.7.2
 	github.com/prometheus/procfs v0.15.1
-	github.com/rs/zerolog v1.32.0
+	github.com/rs/zerolog v1.33.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848
-	golang.org/x/sys v0.20.0
+	golang.org/x/sys v0.28.0
 	k8s.io/api v0.28.3
 	k8s.io/apimachinery v0.28.3
 	k8s.io/client-go v0.28.3
@@ -79,11 +78,11 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.23.0 // indirect
-	golang.org/x/net v0.25.0 // indirect
+	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
-	golang.org/x/term v0.20.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
+	golang.org/x/term v0.27.0 // indirect
+	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
