@@ -79,7 +79,7 @@ func (p *BpfLogger) poll() {
 		}
 
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Log buffer is full, dropped %d logs", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Log buffer is full, dropped %d logs", record.LostSamples))
 			continue
 		}
 

@@ -65,7 +65,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 		}
 
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Syslog events buffer is full, dropped %d logs", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Syslog events buffer is full, dropped %d logs", record.LostSamples))
 			continue
 		}
 
