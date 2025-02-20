@@ -1,5 +1,9 @@
 package events
 
+import (
+	"bytes"
+)
+
 
 // must match tracer/bpf/include/events.h SYSCALL_EVENT_ID_*
 const (
@@ -31,6 +35,15 @@ type SyscallEventMessage struct {
 
 type SyscallEvent struct {
 	SyscallEventMessage
-	ContainerID string
 	ProcessPath string
+}
+
+func (ev *SyscallEventMessage) CmdPath() (cmd string) {
+	nullIndex := bytes.IndexByte(ev.Command[:], 0)
+	if nullIndex == -1 {
+		cmd = string(ev.Command[:])
+	} else {
+		cmd = string(ev.Command[:nullIndex])
+	}
+	return
 }
