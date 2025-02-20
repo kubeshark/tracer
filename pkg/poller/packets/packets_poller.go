@@ -214,7 +214,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			return
 		}
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Buffer is full, dropped %d pkt chunks", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d pkt chunks", record.LostSamples))
 			p.lostChunks++
 			continue
 		}

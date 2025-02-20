@@ -137,7 +137,7 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 		}
 
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", record.LostSamples))
 			p.lostChunks += record.LostSamples
 			continue
 		}

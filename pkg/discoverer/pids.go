@@ -149,7 +149,7 @@ func (p *pids) handleFoundNewPIDs() {
 			return
 		}
 		if record.LostSamples != 0 {
-			log.Info().Msg(fmt.Sprintf("Buffer is full, dropped %d pid found entry", record.LostSamples))
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d pid found entry", record.LostSamples))
 			continue
 		}
 
