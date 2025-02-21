@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"sync"
@@ -11,7 +12,6 @@ import (
 	"github.com/cilium/ebpf/perf"
 	"github.com/go-errors/errors"
 
-	"encoding/binary"
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
@@ -30,6 +30,7 @@ type tracerPacketsData struct {
 	Counter   uint32
 	Num       uint16
 	Last      uint16
+	IPHdrType uint16
 	Direction uint8
 	Data      [4096]uint8
 }
@@ -48,7 +49,6 @@ type pktBuffer struct {
 
 type PacketsPoller struct {
 	ethernetDecoder gopacket.Decoder
-	ethhdr          *layers.Ethernet
 	ethhdrContent   []byte
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
@@ -73,11 +73,9 @@ func NewPacketsPoller(
 	}
 
 	ethhdrContent := make([]byte, 14)
-	binary.BigEndian.PutUint16(ethhdrContent[12:14], uint16(layers.EthernetTypeIPv4))
 
 	poller := &PacketsPoller{
 		ethernetDecoder: ethernetDecoder,
-		ethhdr:          ethernet.NewEthernetLayer(layers.EthernetTypeIPv4),
 		ethhdrContent:   ethhdrContent,
 		rawWriter:       rawWriter,
 		gopacketWriter:  gopacketWriter,
@@ -86,7 +84,6 @@ func NewPacketsPoller(
 	}
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*100)
-
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
@@ -149,12 +146,17 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 
 	if ptr.Last != 0 {
 		p.receivedPackets++
+
+		ethhdr := ethernet.NewEthernetLayer(layers.EthernetType(ptr.IPHdrType))
+
 		if p.rawWriter != nil {
-			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, p.ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
+			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 			if err != nil {
 				return err
 			}
 		}
+
+		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
 
 		if p.gopacketWriter != nil {
 			pktBuf := append(p.ethhdrContent, pkts.buf[:pkts.len]...)
@@ -204,7 +206,6 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 
 	for {
 		record, err := p.chunksReader.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				return
