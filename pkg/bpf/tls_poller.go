@@ -13,10 +13,10 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/hashicorp/golang-lru/simplelru"
 	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
-	"github.com/kubeshark/tracer/internal/tai"
 )
 
 const (
@@ -37,13 +37,14 @@ type TlsPoller struct {
 	gopacketWriter  GopacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
-	tai tai.TaiInfo
+	tai             tai.TaiInfo
 }
 
 func NewTlsPoller(
 	perfBuffer *ebpf.Map,
 	rawWriter RawWriter,
 	gopacketWriter GopacketWriter,
+	perfBufferSize int,
 ) (*TlsPoller, error) {
 	poller := &TlsPoller{
 		streams:        make(map[string]*TlsStream),
@@ -51,7 +52,7 @@ func NewTlsPoller(
 		chunksReader:   nil,
 		rawWriter:      rawWriter,
 		gopacketWriter: gopacketWriter,
-		tai: tai.NewTaiInfo(),
+		tai:            tai.NewTaiInfo(),
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
@@ -60,7 +61,7 @@ func NewTlsPoller(
 	}
 	poller.fdCache = fdCache
 
-	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*10000)
+	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
 
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
@@ -116,7 +117,7 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			break
 		} else if err != nil {
-			log.Error().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
 			return
 		}
 	}
@@ -129,10 +130,11 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 			close(chunks)
 
 			if errors.Is(err, perf.ErrClosed) {
+				log.Info().Err(err).Msg("perf buffer is closed")
 				return
 			}
 
-			log.Error().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
 			return
 		}
 

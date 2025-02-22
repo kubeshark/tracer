@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -132,9 +133,14 @@ func enableCapture(programsConfiguration *ebpf.Map, feature uint32) error {
 
 }
 
+func getPacketsPerfBufferSize() int {
+	// 64 Mb for all CPUs
+	return 64 * 1024 * 1024 / runtime.NumCPU()
+}
+
 func NewTLSPacketSource(dataDir string) (PacketSource, error) {
 	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
-		return bpf.NewTlsPoller(m, wr, goWr)
+		return bpf.NewTlsPoller(m, wr, goWr, getPacketsPerfBufferSize())
 	}
 
 	return newPacketSource(bpf.PinNameTLSPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCaptureTls, filepath.Join(dataDir, bpf.TlsBackendSupportedFile), filepath.Join(dataDir, bpf.TlsBackendNotSupportedFile))
@@ -142,7 +148,7 @@ func NewTLSPacketSource(dataDir string) (PacketSource, error) {
 
 func NewPlainPacketSource(dataDir string) (PacketSource, error) {
 	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
-		return packets.NewPacketsPoller(m, wr, goWr)
+		return packets.NewPacketsPoller(m, wr, goWr, getPacketsPerfBufferSize())
 	}
 
 	return newPacketSource(bpf.PinNamePlainPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCapturePlain, filepath.Join(dataDir, bpf.PlainBackendSupportedFile), filepath.Join(dataDir, bpf.PlainBackendNotSupportedFile))

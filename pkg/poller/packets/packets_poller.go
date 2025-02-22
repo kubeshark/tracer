@@ -64,6 +64,7 @@ func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
 	rawWriter bpf.RawWriter,
 	gopacketWriter bpf.GopacketWriter,
+	perfBufferSize int,
 ) (*PacketsPoller, error) {
 	var err error
 
@@ -83,7 +84,7 @@ func NewPacketsPoller(
 		tai:             tai.NewTaiInfo(),
 	}
 
-	poller.chunksReader, err = perf.NewReader(perfBuffer, os.Getpagesize()*100)
+	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
@@ -198,7 +199,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 		if errors.Is(err, os.ErrDeadlineExceeded) {
 			break
 		} else if err != nil {
-			log.Error().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
 			return
 		}
 	}
@@ -208,10 +209,11 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 		record, err := p.chunksReader.Read()
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
+				log.Info().Err(err).Msg("perf buffer is closed")
 				return
 			}
 
-			log.Error().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
 			return
 		}
 		if record.LostSamples != 0 {
