@@ -37,6 +37,8 @@ type TlsPoller struct {
 	gopacketWriter  GopacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
+	lastLostChunks      uint64
+	lastLostCheck  time.Time
 	tai             tai.TaiInfo
 }
 
@@ -124,6 +126,12 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 	p.chunksReader.SetDeadline(time.Time{})
 
 	for {
+		if time.Since(p.lastLostCheck) > time.Minute  && p.lastLostChunks != p.lostChunks {
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks - p.lastLostChunks))
+			p.lastLostChunks = p.lostChunks
+			p.lastLostCheck = time.Now()
+		}
+
 		record, err := p.chunksReader.Read()
 
 		if err != nil {
@@ -139,7 +147,6 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 		}
 
 		if record.LostSamples != 0 {
-			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", record.LostSamples))
 			p.lostChunks += record.LostSamples
 			continue
 		}
