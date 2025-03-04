@@ -321,6 +321,7 @@ func (t *Tracer) collectStatItem() {
 		pStMerged.PacketsIpv6 += pSt.PacketsIpv6
 		pStMerged.PacketsParsePassed += pSt.PacketsParsePassed
 		pStMerged.PacketsParseFailed += pSt.PacketsParseFailed
+		pStMerged.SaveStats.SavePackets += pSt.SaveStats.SavePackets
 		pStMerged.SaveStats.SaveFailedLogic += pSt.SaveStats.SaveFailedLogic
 		pStMerged.SaveStats.SaveFailedNotOpened += pSt.SaveStats.SaveFailedNotOpened
 		pStMerged.SaveStats.SaveFailedFull += pSt.SaveStats.SaveFailedFull
@@ -335,6 +336,7 @@ func (t *Tracer) collectStatItem() {
 		pSslMerged.UretprobesEnabled += pSsl.UretprobesEnabled
 		pSslMerged.UretprobesMatched += pSsl.UretprobesMatched
 		pSslMerged.UretprobesErrContext += pSsl.UretprobesErrContext
+		pSslMerged.SaveStats.SavePackets += pSsl.SaveStats.SavePackets
 		pSslMerged.SaveStats.SaveFailedLogic += pSsl.SaveStats.SaveFailedLogic
 		pSslMerged.SaveStats.SaveFailedNotOpened += pSsl.SaveStats.SaveFailedNotOpened
 		pSslMerged.SaveStats.SaveFailedFull += pSsl.SaveStats.SaveFailedFull
@@ -347,6 +349,7 @@ func (t *Tracer) collectStatItem() {
 		pGoTlsMerged.UretprobesTotal += pGoTls.UretprobesTotal
 		pGoTlsMerged.UretprobesEnabled += pGoTls.UretprobesEnabled
 		pGoTlsMerged.UretprobesMatched += pGoTls.UretprobesMatched
+		pGoTlsMerged.SaveStats.SavePackets += pGoTls.SaveStats.SavePackets
 		pGoTlsMerged.SaveStats.SaveFailedLogic += pGoTls.SaveStats.SaveFailedLogic
 		pGoTlsMerged.SaveStats.SaveFailedNotOpened += pGoTls.SaveStats.SaveFailedNotOpened
 		pGoTlsMerged.SaveStats.SaveFailedFull += pGoTls.SaveStats.SaveFailedFull

@@ -8,6 +8,7 @@ Copyright (C) Kubeshark
 #include "headers.h"
 
 struct save_stats {
+    __u64 save_packets;
     __u64 save_failed_logic;
     __u64 save_failed_not_opened;
     __u64 save_failed_full;

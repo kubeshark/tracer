@@ -303,6 +303,7 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     ret = save_packet(&ctx);
 
     if (likely(ret == 0)) {
+        ++stats->save_stats.save_packets;
     } else if (ret > 0) {
         ++stats->save_stats.save_failed_logic;
     } else if (ret == -EINVAL) {

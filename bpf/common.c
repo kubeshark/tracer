@@ -116,6 +116,7 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
 
     int ret = send_chunk(ctx, info->buffer, id, chunk);
     if (likely(ret == 0)) {
+        ++stats->save_packets;
     } else if (ret > 0) {
         ++stats->save_failed_logic;
     } else if (ret == -EINVAL) {

@@ -34,6 +34,7 @@ type Tracer46AllStats struct {
 		PacketsParsePassed    uint64
 		PacketsParseFailed    uint64
 		SaveStats             struct {
+			SavePackets         uint64
 			SaveFailedLogic     uint64
 			SaveFailedNotOpened uint64
 			SaveFailedFull      uint64
@@ -50,6 +51,7 @@ type Tracer46AllStats struct {
 		UretprobesMatched    uint64
 		UretprobesErrContext uint64
 		SaveStats            struct {
+			SavePackets         uint64
 			SaveFailedLogic     uint64
 			SaveFailedNotOpened uint64
 			SaveFailedFull      uint64
@@ -64,6 +66,7 @@ type Tracer46AllStats struct {
 		UretprobesEnabled uint64
 		UretprobesMatched uint64
 		SaveStats         struct {
+			SavePackets         uint64
 			SaveFailedLogic     uint64
 			SaveFailedNotOpened uint64
 			SaveFailedFull      uint64
