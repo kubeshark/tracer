@@ -24,6 +24,57 @@ type Tracer46AddressInfo struct {
 	Dport  uint16
 }
 
+type Tracer46AllStats struct {
+	PktSnifferStats struct {
+		PacketsTotal          uint64
+		PacketsProgramEnabled uint64
+		PacketsMatchedCgroup  uint64
+		PacketsIpv4           uint64
+		PacketsIpv6           uint64
+		PacketsParsePassed    uint64
+		PacketsParseFailed    uint64
+		SaveStats             struct {
+			SavePackets         uint64
+			SaveFailedLogic     uint64
+			SaveFailedNotOpened uint64
+			SaveFailedFull      uint64
+			SaveFailedOther     uint64
+		}
+	}
+	OpensslStats struct {
+		UprobesTotal         uint64
+		UprobesEnabled       uint64
+		UprobesMatched       uint64
+		UprobesErrUpdate     uint64
+		UretprobesTotal      uint64
+		UretprobesEnabled    uint64
+		UretprobesMatched    uint64
+		UretprobesErrContext uint64
+		SaveStats            struct {
+			SavePackets         uint64
+			SaveFailedLogic     uint64
+			SaveFailedNotOpened uint64
+			SaveFailedFull      uint64
+			SaveFailedOther     uint64
+		}
+	}
+	GotlsStats struct {
+		UprobesTotal      uint64
+		UprobesEnabled    uint64
+		UprobesMatched    uint64
+		UretprobesTotal   uint64
+		UretprobesEnabled uint64
+		UretprobesMatched uint64
+		SaveStats         struct {
+			SavePackets         uint64
+			SaveFailedLogic     uint64
+			SaveFailedNotOpened uint64
+			SaveFailedFull      uint64
+			SaveFailedOther     uint64
+		}
+	}
+}
+
 type Tracer46BufT struct{ Buf [32768]uint8 }
 
 type Tracer46CgroupSignal struct {
@@ -194,6 +245,7 @@ type Tracer46ProgramSpecs struct {
 type Tracer46MapSpecs struct {
 	AcceptContext            *ebpf.MapSpec `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
+	AllStatsMap              *ebpf.MapSpec `ebpf:"all_stats_map"`
 	Bufs                     *ebpf.MapSpec `ebpf:"bufs"`
 	CgroupIds                *ebpf.MapSpec `ebpf:"cgroup_ids"`
 	CgroupSignalHeap         *ebpf.MapSpec `ebpf:"cgroup_signal_heap"`
@@ -247,6 +299,7 @@ func (o *Tracer46Objects) Close() error {
 type Tracer46Maps struct {
 	AcceptContext            *ebpf.Map `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
+	AllStatsMap              *ebpf.Map `ebpf:"all_stats_map"`
 	Bufs                     *ebpf.Map `ebpf:"bufs"`
 	CgroupIds                *ebpf.Map `ebpf:"cgroup_ids"`
 	CgroupSignalHeap         *ebpf.Map `ebpf:"cgroup_signal_heap"`
@@ -283,6 +336,7 @@ func (m *Tracer46Maps) Close() error {
 	return _Tracer46Close(
 		m.AcceptContext,
 		m.AcceptSyscallContext,
+		m.AllStatsMap,
 		m.Bufs,
 		m.CgroupIds,
 		m.CgroupSignalHeap,

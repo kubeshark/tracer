@@ -176,13 +176,21 @@ static __always_inline int go_crypto_tls_get_fd_from_tcp_conn(struct pt_regs* ct
 }
 
 static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, void* go_context, enum ABI abi) {
+	struct gotls_stats* stats = stats_gotls();
+	if (stats == NULL) {
+		return;
+	}
+	++stats->uprobes_total;
+
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_TLS))
         return;
+	++stats->uprobes_enabled;
 
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     if (!should_target_cgroup(cgroup_id)) {
         return;
     }
+	++stats->uprobes_matched;
 
     __u64 pid_tgid = tracer_get_current_pid_tgid();
     __u64 pid = pid_tgid >> 32;
@@ -257,13 +265,22 @@ static __always_inline void go_crypto_tls_uprobe(struct pt_regs* ctx, void* go_c
 }
 
 static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* go_context, void* go_user_kernel_context, __u32 flags, enum ABI abi) {
+	struct gotls_stats* stats = stats_gotls();
+	if (stats == NULL) {
+		return;
+	}
+	++stats->uretprobes_total;
+
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_TLS))
         return;
+
+	++stats->uretprobes_enabled;
 
     __u64 cgroup_id = compat_get_current_cgroup_id(NULL);
     if (!should_target_cgroup(cgroup_id)) {
         return;
     }
+	++stats->uretprobes_matched;
 
     __u64 pid_tgid = tracer_get_current_pid_tgid();
     __u64 pid = pid_tgid >> 32;
@@ -346,7 +363,7 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* g
     info.address_info.saddr = address_info->saddr;
     info.address_info.sport = address_info->sport;
 
-    output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, cgroup_id);
+    output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, cgroup_id, &stats->save_stats);
 
     return;
 }

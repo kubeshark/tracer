@@ -224,6 +224,7 @@ func createTracer(isCgroupsV2 bool) (err error) {
 		// Stop here to prevent pod respawning
 		select {}
 	}
+	go tracer.collectStats()
 
 	return
 }
