@@ -47,6 +47,7 @@ type Tracer struct {
 
 	cgroupsController cgroup.CgroupsController
 	tcpMap            map[uint64]bool
+	stats             tracerStats
 }
 
 func (t *Tracer) Init(
@@ -156,6 +157,9 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 					log.Error().Err(err).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs delete failed")
 					return err
 				}
+			} else {
+				t.stats.TargetedCgroups--
+				t.stats.TargetedCgroupsDel++
 			}
 		}
 		log.Info().Str("pod", pod.Name).Msg("Detached pod:")
@@ -175,6 +179,9 @@ func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) e
 				if err := t.bpfObjects.BpfObjs.CgroupIds.Update(cInfo.cgroupID, uint32(0), ebpf.UpdateAny); err != nil {
 					log.Error().Err(err).Str("Cgroup Path", cInfo.cgroupPath).Str("Container ID", containerId).Uint64("Cgroup ID", cInfo.cgroupID).Msg("Cgroup IDs update failed")
 					return err
+				} else {
+					t.stats.TargetedCgroups++
+					t.stats.TargetedCgroupsAdd++
 				}
 
 				if ok, err := t.packetFilter.AttachPod(string(pod.UID), cInfo.cgroupPath); err != nil {
@@ -272,16 +279,22 @@ func (t *Tracer) collectStats() {
 	defer ticker.Stop()
 
 	for {
-		select {
-		case <-ticker.C:
-			t.collectStatItem()
-		}
+		<-ticker.C
+		t.collectStatItem()
 	}
 }
 
 type tracerStats struct {
+	TargetedCgroups    uint64
+	TargetedCgroupsAdd uint64
+	TargetedCgroupsDel uint64
+}
+
+type tracerAllStats struct {
 	bpf.TracerAllStats
-	Updated time.Time
+	TracerStats tracerStats
+
+	Updated     time.Time
 }
 
 func (t *Tracer) collectStatItem() {
@@ -291,8 +304,9 @@ func (t *Tracer) collectStatItem() {
 		return
 	}
 
-	merged := tracerStats{
-		Updated: time.Now(),
+	merged := tracerAllStats{
+		Updated:     time.Now(),
+		TracerStats: t.stats,
 	}
 	pStMerged := &merged.PktSnifferStats
 	pSslMerged := &merged.OpensslStats
