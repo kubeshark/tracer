@@ -281,7 +281,7 @@ func (t *Tracer) collectStats() {
 
 type tracerStats struct {
 	bpf.TracerAllStats
-	updated time.Time
+	Updated time.Time
 }
 
 func (t *Tracer) collectStatItem() {
@@ -292,7 +292,7 @@ func (t *Tracer) collectStatItem() {
 	}
 
 	merged := tracerStats{
-		updated: time.Now(),
+		Updated: time.Now(),
 	}
 	pStMerged := &merged.PktSnifferStats
 	pSslMerged := &merged.OpensslStats
