@@ -107,7 +107,7 @@ func (t *Tracer) Init(
 			isCli = 1
 		}
 		err := t.bpfObjects.BpfObjs.ConnectionContext.Update(pidFd, isCli, ebpf.UpdateNoExist)
-		if err == ebpf.ErrKeyExist {
+		if errors.Is(err, ebpf.ErrKeyExist) {
 			log.Warn().Uint64("pid fd", pidFd).Uint8("client", isCli).Msg("connection context key already exist")
 		} else if err != nil {
 			return fmt.Errorf("update connection context failed. pid fd: %v client: %v err: %v", pidFd, isCli, err)

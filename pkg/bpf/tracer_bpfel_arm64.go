@@ -94,9 +94,10 @@ type TracerPkt struct {
 	Counter   uint32
 	Num       uint16
 	Last      uint16
+	IpHdrType uint16
 	Direction uint8
 	Buf       [4096]uint8
-	_         [7]byte
+	_         [5]byte
 }
 
 type TracerPktIdT struct {
