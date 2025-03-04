@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -258,4 +260,93 @@ func createFeatureFile(fileName string) error {
 	}
 	file.Close()
 	return nil
+}
+
+func (t *Tracer) collectStats() {
+	if t.bpfObjects.BpfObjs.AllStatsMap == nil {
+		// No such map in tracer
+		return
+	}
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			t.collectStatItem()
+		}
+	}
+}
+
+type tracerStats struct {
+	bpf.TracerAllStats
+	updated time.Time
+}
+
+func (t *Tracer) collectStatItem() {
+	var cpuStats []bpf.TracerAllStats
+	if err := t.bpfObjects.BpfObjs.AllStatsMap.Lookup(uint32(0), &cpuStats); err != nil {
+		log.Error().Err(err).Msg("Failed to lookup stats")
+		return
+	}
+
+	merged := tracerStats{
+		updated: time.Now(),
+	}
+	pStMerged := &merged.PktSnifferStats
+	pSslMerged := &merged.OpensslStats
+	pGoTlsMerged := &merged.GotlsStats
+	for _, cpuStat := range cpuStats {
+		pSt := &cpuStat.PktSnifferStats
+
+		pStMerged.PacketsTotal += pSt.PacketsTotal
+		pStMerged.PacketsProgramEnabled += pSt.PacketsProgramEnabled
+		pStMerged.PacketsMatchedCgroup += pSt.PacketsMatchedCgroup
+		pStMerged.PacketsIpv4 += pSt.PacketsIpv4
+		pStMerged.PacketsIpv6 += pSt.PacketsIpv6
+		pStMerged.PacketsParsePassed += pSt.PacketsParsePassed
+		pStMerged.PacketsParseFailed += pSt.PacketsParseFailed
+		pStMerged.SaveStats.SaveFailedLogic += pSt.SaveStats.SaveFailedLogic
+		pStMerged.SaveStats.SaveFailedNotOpened += pSt.SaveStats.SaveFailedNotOpened
+		pStMerged.SaveStats.SaveFailedFull += pSt.SaveStats.SaveFailedFull
+		pStMerged.SaveStats.SaveFailedOther += pSt.SaveStats.SaveFailedOther
+
+		pSsl := &cpuStat.OpensslStats
+		pSslMerged.UprobesTotal += pSsl.UprobesTotal
+		pSslMerged.UprobesEnabled += pSsl.UprobesEnabled
+		pSslMerged.UprobesMatched += pSsl.UprobesMatched
+		pSslMerged.UprobesErrUpdate += pSsl.UprobesErrUpdate
+		pSslMerged.UretprobesTotal += pSsl.UretprobesTotal
+		pSslMerged.UretprobesEnabled += pSsl.UretprobesEnabled
+		pSslMerged.UretprobesMatched += pSsl.UretprobesMatched
+		pSslMerged.UretprobesErrContext += pSsl.UretprobesErrContext
+		pSslMerged.SaveStats.SaveFailedLogic += pSsl.SaveStats.SaveFailedLogic
+		pSslMerged.SaveStats.SaveFailedNotOpened += pSsl.SaveStats.SaveFailedNotOpened
+		pSslMerged.SaveStats.SaveFailedFull += pSsl.SaveStats.SaveFailedFull
+		pSslMerged.SaveStats.SaveFailedOther += pSsl.SaveStats.SaveFailedOther
+
+		pGoTls := &cpuStat.GotlsStats
+		pGoTlsMerged.UprobesTotal += pGoTls.UprobesTotal
+		pGoTlsMerged.UprobesEnabled += pGoTls.UprobesEnabled
+		pGoTlsMerged.UprobesMatched += pGoTls.UprobesMatched
+		pGoTlsMerged.UretprobesTotal += pGoTls.UretprobesTotal
+		pGoTlsMerged.UretprobesEnabled += pGoTls.UretprobesEnabled
+		pGoTlsMerged.UretprobesMatched += pGoTls.UretprobesMatched
+		pGoTlsMerged.SaveStats.SaveFailedLogic += pGoTls.SaveStats.SaveFailedLogic
+		pGoTlsMerged.SaveStats.SaveFailedNotOpened += pGoTls.SaveStats.SaveFailedNotOpened
+		pGoTlsMerged.SaveStats.SaveFailedFull += pGoTls.SaveStats.SaveFailedFull
+		pGoTlsMerged.SaveStats.SaveFailedOther += pGoTls.SaveStats.SaveFailedOther
+	}
+
+	jsonData, err := json.MarshalIndent(merged, "", "  ")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshall stats")
+		return
+	}
+
+	if err := os.WriteFile(filepath.Join(misc.GetDataDir(), "stats_tracer.json"), jsonData, 0644); err != nil {
+		log.Error().Err(err).Msg("Failed to write stats")
+		return
+	}
 }

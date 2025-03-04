@@ -10,7 +10,7 @@ Copyright (C) Kubeshark
 #include "include/logger_messages.h"
 #include "include/common.h"
 #include "include/probes.h"
-
+#include "include/stats.h"
 
 static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_chunk* chunk, __u64 id, __u32 fd, struct ssl_info* info) {
     __u32 pid = id >> 32;
@@ -30,12 +30,12 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
     return 1;
 }
 
-static __always_inline void send_chunk_part(struct pt_regs* ctx, uintptr_t buffer, __u64 id,
+static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer, __u64 id,
     struct tls_chunk* chunk, int start, int end) {
     size_t recorded = MIN(end - start, sizeof(chunk->data));
 
     if (recorded <= 0) {
-        return;
+        return 1;
     }
 
     chunk->recorded = recorded;
@@ -53,30 +53,35 @@ static __always_inline void send_chunk_part(struct pt_regs* ctx, uintptr_t buffe
 
     if (err != 0) {
         log_error(ctx, LOG_ERROR_READING_FROM_SSL_BUFFER, id, err, 0l);
-        return;
+        return 2;
     }
 
-    bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU, chunk, sizeof(struct tls_chunk));
+    return bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU, chunk, sizeof(struct tls_chunk));
 }
 
-static __always_inline void send_chunk(struct pt_regs* ctx, uintptr_t buffer, __u64 id, struct tls_chunk* chunk) {
+static __always_inline int send_chunk(struct pt_regs* ctx, uintptr_t buffer, __u64 id, struct tls_chunk* chunk) {
     // ebpf loops must be bounded at compile time, we can't use (i < chunk->len / CHUNK_SIZE)
     //
     // 	https://lwn.net/Articles/794934/
     //
     // However we want to run in kernel older than 5.3, hence we use "#pragma unroll" anyway
     //
+    int ret = 0;
 #pragma unroll
     for (int i = 0; i < MAX_CHUNKS_PER_OPERATION; i++) {
         if (chunk->len <= (CHUNK_SIZE * i)) {
             break;
         }
 
-        send_chunk_part(ctx, buffer, id, chunk, CHUNK_SIZE * i, chunk->len);
+        int err = send_chunk_part(ctx, buffer, id, chunk, CHUNK_SIZE * i, chunk->len);
+        if (err && ret == 0) {
+            ret = err;
+        }
     }
+    return ret;
 }
 
-static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags, __u64 cgroup_id) {
+static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_info* info, int count_bytes, __u64 id, __u32 flags, __u64 cgroup_id, struct save_stats* stats) {
     if (count_bytes > (CHUNK_SIZE * MAX_CHUNKS_PER_OPERATION)) {
         log_error(ctx, LOG_ERROR_BUFFER_TOO_BIG, id, count_bytes, 0l);
         return;
@@ -109,7 +114,17 @@ static __always_inline void output_ssl_chunk(struct pt_regs* ctx, struct ssl_inf
         return;
     }
 
-    send_chunk(ctx, info->buffer, id, chunk);
+    int ret = send_chunk(ctx, info->buffer, id, chunk);
+    if (likely(ret == 0)) {
+    } else if (ret > 0) {
+        ++stats->save_failed_logic;
+    } else if (ret == -EINVAL) {
+        ++stats->save_failed_not_opened;
+    } else if (ret == -EAGAIN) {
+        ++stats->save_failed_full;
+    } else {
+        ++stats->save_failed_other;
+    }
 }
 
 static __always_inline struct ssl_info new_ssl_info() {
