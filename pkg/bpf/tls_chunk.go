@@ -23,20 +23,6 @@ type AddressPair struct {
 	DstPort uint16
 }
 
-func (c *TracerTlsChunk) getSrcAddress() (net.IP, uint16) {
-	ip := bytesToIP(c.AddressInfo.Family, c.AddressInfo.Saddr4, c.AddressInfo.Saddr6)
-	port := ntohs(c.AddressInfo.Sport)
-
-	return ip, port
-}
-
-func (c *TracerTlsChunk) getDstAddress() (net.IP, uint16) {
-	ip := bytesToIP(c.AddressInfo.Family, c.AddressInfo.Daddr4, c.AddressInfo.Daddr6)
-	port := ntohs(c.AddressInfo.Dport)
-
-	return ip, port
-}
-
 func (c *TracerTlsChunk) IsClient() bool {
 	return c.Flags&FlagsIsClientBit != 0
 }
@@ -91,18 +77,50 @@ func (c *TracerTlsChunk) GetReader(stream *TlsStream) *tlsReader {
 	}
 }
 
-// bytesToIP converts raw bytes into net.IP (supports IPv4 and IPv6)
-func bytesToIP(family uint32, ipv4 uint32, ipv6 [16]byte) net.IP {
-	if family == AF_INET {
-		return net.IPv4(
-			byte(ipv4), byte(ipv4>>8),
-			byte(ipv4>>16), byte(ipv4>>24),
-		)
-	}
-	return net.IP(ipv6[:])
+// getSrcAddress retrieves the source IP and port
+func (c *TracerTlsChunk) getSrcAddress() (net.IP, uint16) {
+	ip := getIPFromAddressInfo(&c.AddressInfo, true)
+	port := ntohs(c.AddressInfo.Sport)
+	return ip, port
 }
 
-// ntohs converts big endian (network byte order) to little endian (assuming that's the host byte order)
+// getDstAddress retrieves the destination IP and port
+func (c *TracerTlsChunk) getDstAddress() (net.IP, uint16) {
+	ip := getIPFromAddressInfo(&c.AddressInfo, false)
+	port := ntohs(c.AddressInfo.Dport)
+	return ip, port
+}
+
+// Function to extract either Src or Dst IP based on offset calculations
+func getIPFromAddressInfo(ai *TracerAddressInfo, isSrc bool) net.IP {
+	if ai.Family == AF_INET {
+		if isSrc {
+			return ipv4ToIP(ai.Saddr4)
+		}
+		return ipv4ToIP(ai.Daddr4)
+	}
+
+	var addr6Ptr *[16]byte
+	basePtr := unsafe.Pointer(ai)
+
+	if isSrc {
+		addr6Ptr = (*[16]byte)(unsafe.Add(basePtr, unsafe.Offsetof(ai.Saddr4)))
+	} else {
+		addr6Ptr = (*[16]byte)(unsafe.Add(basePtr, unsafe.Offsetof(ai.Daddr4)))
+	}
+
+	return net.IP(addr6Ptr[:])
+}
+
+// Converts IPv4 integer representation to net.IP
+func ipv4ToIP(ipv4 uint32) net.IP {
+	return net.IPv4(
+		byte(ipv4), byte(ipv4>>8),
+		byte(ipv4>>16), byte(ipv4>>24),
+	)
+}
+
+// ntohs converts big endian (network byte order) to little endian
 func ntohs(i16be uint16) uint16 {
 	b := make([]byte, 2)
 	binary.BigEndian.PutUint16(b, i16be)
