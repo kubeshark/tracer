@@ -57,9 +57,17 @@ type PacketsPoller struct {
 	pktsMap         map[uint64]*pktBuffer // packet id to packet
 	receivedPackets uint64
 	lostChunks      uint64
-	lastLostChunks      uint64
-	lastLostCheck  time.Time
+	lastLostChunks  uint64
+	lastLostCheck   time.Time
 	tai             tai.TaiInfo
+	stats           PacketsPollerStats
+}
+
+type PacketsPollerStats struct {
+	ChunksGot     uint64
+	ChunksHandled uint64
+	ChunksLost    uint64
+	PacketsGot    uint64
 }
 
 func NewPacketsPoller(
@@ -108,6 +116,10 @@ func (p *PacketsPoller) GetLostChunks() uint64 {
 
 func (p *PacketsPoller) GetReceivedPackets() uint64 {
 	return p.receivedPackets
+}
+
+func (p *PacketsPoller) GetExtendedStats() interface{} {
+	return p.stats
 }
 
 func (p *PacketsPoller) poll() {
@@ -175,10 +187,8 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 			ci.Length = len(pktBuf)
 			ci.CaptureBackend = gopacket.CaptureBackendEbpf
 
-			err := p.gopacketWriter(pkt)
-			if err != nil {
-				return err
-			}
+			p.stats.PacketsGot++
+			p.gopacketWriter(pkt)
 		}
 
 		delete(p.pktsMap, ptr.ID)
@@ -193,7 +203,6 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 	log.Info().Msg("Start polling for packet events")
 
 	// remove all existing records
-
 	p.chunksReader.SetDeadline(time.Unix(1, 0))
 	var emptyRecord perf.Record
 	for {
@@ -208,8 +217,8 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 	p.chunksReader.SetDeadline(time.Time{})
 
 	for {
-		if time.Since(p.lastLostCheck) > time.Minute  && p.lastLostChunks != p.lostChunks {
-			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks - p.lastLostChunks))
+		if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != p.lostChunks {
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks-p.lastLostChunks))
 			p.lastLostChunks = p.lostChunks
 			p.lastLostCheck = time.Now()
 		}
@@ -225,9 +234,11 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			return
 		}
 		if record.LostSamples != 0 {
-			p.lostChunks++
+			p.lostChunks += record.LostSamples
+			p.stats.ChunksLost += record.LostSamples
 			continue
 		}
+		p.stats.ChunksGot++
 
 		chunk := tracerPktChunk{
 			cpu: record.CPU,
@@ -236,6 +247,8 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 
 		if err = p.handlePktChunk(chunk); err != nil {
 			log.Error().Err(err).Msg("handle chunk failed")
+		} else {
+			p.stats.ChunksHandled++
 		}
 	}
 }
