@@ -212,7 +212,15 @@ void BPF_KPROBE(tcp_close) {
         .inode_id = inode,
     };
 
-    if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst)) {
+    err = 0;
+    if (event == SYSCALL_EVENT_ID_CLOSE_ACCEPT) {
+        err = read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_dst, &ev.port_dst, &ev.ip_src, &ev.port_src);
+        ev.port_dst = bpf_ntohs(ev.port_dst);
+        ev.port_src = bpf_ntohs(ev.port_src);
+    } else {
+        err = read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), &ev.ip_src, &ev.port_src, &ev.ip_dst, &ev.port_dst);
+    }
+    if (err) {
         return;
     }
 

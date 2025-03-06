@@ -35,7 +35,13 @@ type TlsStream struct {
 	Client           *tlsReader
 	Server           *tlsReader
 	layers           *tlsLayers
+	stats            tlsStreamStats
 	sync.Mutex
+}
+
+type tlsStreamStats struct {
+	PacketsGot  uint64
+	DataWritten uint64
 }
 
 var ethernetDecoder = gopacket.DecodersByLayerName["Ethernet"]
@@ -107,6 +113,7 @@ func (t *TlsStream) writeData(timestamp uint64, cgroupId uint64, direction uint8
 	t.layers.swap()
 	t.loadSecNumbers(!reader.isClient)
 	t.writeLayers(timestamp, cgroupId, direction, []byte{}, !reader.isClient, 0)
+	t.stats.DataWritten++
 }
 
 func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uint8, data []byte, isClient bool, sentLen uint32) {
@@ -151,11 +158,8 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 		ci.Length = len(bufBytes)
 		ci.CaptureBackend = gopacket.CaptureBackendEbpfTls
 
-		err = t.poller.gopacketWriter(pkt)
-		if err != nil {
-			log.Error().Err(err).Msg("Error writing gopacket:")
-			return
-		}
+		t.stats.PacketsGot++
+		t.poller.gopacketWriter(pkt)
 	}
 
 	t.doTcpSeqAckWalk(isClient, sentLen)

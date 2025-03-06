@@ -29,6 +29,7 @@ type PacketSource interface {
 	Start() error
 	Stop() error
 	Stats() (packetsGot, packetsLost uint64)
+	ExtendedStats() interface{}
 }
 
 type PacketsPoller interface {
@@ -36,6 +37,7 @@ type PacketsPoller interface {
 	Stop() error
 	GetReceivedPackets() uint64
 	GetLostChunks() uint64
+	GetExtendedStats() interface{}
 }
 
 type PacketSourceImpl struct {
@@ -154,9 +156,8 @@ func NewPlainPacketSource(dataDir string) (PacketSource, error) {
 	return newPacketSource(bpf.PinNamePlainPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCapturePlain, filepath.Join(dataDir, bpf.PlainBackendSupportedFile), filepath.Join(dataDir, bpf.PlainBackendNotSupportedFile))
 }
 
-func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) error {
+func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) {
 	p.pktCh <- pkt
-	return nil
 }
 
 func (p *PacketSourceImpl) Start() error {
@@ -179,3 +180,8 @@ func (p *PacketSourceImpl) NextPacket() (gopacket.Packet, error) {
 	pkt := <-p.pktCh
 	return pkt, nil
 }
+
+func (p *PacketSourceImpl) ExtendedStats() interface{} {
+	return p.poller.GetExtendedStats()
+}
+

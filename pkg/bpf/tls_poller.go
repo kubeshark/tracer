@@ -25,7 +25,7 @@ const (
 )
 
 type RawWriter func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
-type GopacketWriter func(packet gopacket.Packet) (err error)
+type GopacketWriter func(packet gopacket.Packet)
 
 type TlsPoller struct {
 	streams         map[string]*TlsStream
@@ -37,9 +37,17 @@ type TlsPoller struct {
 	gopacketWriter  GopacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
-	lastLostChunks      uint64
-	lastLostCheck  time.Time
+	lastLostChunks  uint64
+	lastLostCheck   time.Time
 	tai             tai.TaiInfo
+	stats           TlsPollerStats
+}
+
+type TlsPollerStats struct {
+	tlsStreamStats
+	ChunksGot     uint64
+	ChunksHandled uint64
+	ChunksLost    uint64
 }
 
 func NewTlsPoller(
@@ -93,6 +101,8 @@ func (p *TlsPoller) Start() {
 
 				if err := p.handleTlsChunk(chunk, streamsMap); err != nil {
 					utils.LogError(err)
+				} else {
+					p.stats.ChunksHandled++
 				}
 			case key := <-p.closeStreams:
 				delete(p.streams, key)
@@ -107,6 +117,10 @@ func (p *TlsPoller) GetLostChunks() uint64 {
 
 func (p *TlsPoller) GetReceivedPackets() uint64 {
 	return p.receivedPackets
+}
+
+func (p *TlsPoller) GetExtendedStats() interface{} {
+	return p.stats
 }
 
 func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
@@ -126,8 +140,8 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 	p.chunksReader.SetDeadline(time.Time{})
 
 	for {
-		if time.Since(p.lastLostCheck) > time.Minute  && p.lastLostChunks != p.lostChunks {
-			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks - p.lastLostChunks))
+		if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != p.lostChunks {
+			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks-p.lastLostChunks))
 			p.lastLostChunks = p.lostChunks
 			p.lastLostCheck = time.Now()
 		}
@@ -148,8 +162,10 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 
 		if record.LostSamples != 0 {
 			p.lostChunks += record.LostSamples
+			p.stats.ChunksLost += record.LostSamples
 			continue
 		}
+		p.stats.ChunksGot++
 
 		buffer := bytes.NewReader(record.RawSample)
 
@@ -182,6 +198,12 @@ func (p *TlsPoller) handleTlsChunk(chunk *TracerTlsChunk, streamsMap *TcpStreamM
 
 	reader := chunk.GetReader(stream)
 	reader.NewChunk(chunk)
+
+	p.stats.PacketsGot += stream.stats.PacketsGot
+	stream.stats.PacketsGot = 0
+
+	p.stats.DataWritten += stream.stats.DataWritten
+	stream.stats.DataWritten = 0
 
 	return nil
 }
