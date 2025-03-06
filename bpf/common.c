@@ -67,8 +67,9 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
         return 2;
     }
 
-    if (chunk->address_info.family == AF_INET) {
-        bpf_printk("TLS Chunk (IPv4): Src=%u.%u.%u.%u\n",
+    if (chunk->address_info.family == AF_INET) { 
+        bpf_printk("IPV4");
+        /*bpf_printk("TLS Chunk (IPv4): Src=%u.%u.%u.%u\n",
             chunk->address_info.saddr4 & 0xFF, (chunk->address_info.saddr4 >> 8) & 0xFF,
             (chunk->address_info.saddr4 >> 16) & 0xFF, (chunk->address_info.saddr4 >> 24) & 0xFF);
         
@@ -78,9 +79,11 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
         
         bpf_printk("Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
             bpf_ntohs(chunk->address_info.sport), bpf_ntohs(chunk->address_info.dport),
-            chunk->direction, chunk->len, chunk->recorded);
+            chunk->direction, chunk->len, chunk->recorded);*/
     } else if (chunk->address_info.family == AF_INET6) {
-        bpf_printk("TLS Chunk (IPv6): Src=%x:%x:%x:%x\n",
+        bpf_printk("IPV6");
+
+        /*bpf_printk("TLS Chunk (IPv6): Src=%x:%x:%x:%x\n",
             chunk->address_info.saddr6[0]  << 8 | chunk->address_info.saddr6[1],
             chunk->address_info.saddr6[2]  << 8 | chunk->address_info.saddr6[3],
             chunk->address_info.saddr6[4]  << 8 | chunk->address_info.saddr6[5],
@@ -94,14 +97,14 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
         
         bpf_printk("Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
             bpf_ntohs(chunk->address_info.sport), bpf_ntohs(chunk->address_info.dport),
-            chunk->direction, chunk->len, chunk->recorded);
+            chunk->direction, chunk->len, chunk->recorded);*/
 
     }
 
-    bpf_printk("TLS Data (first 4 bytes): %02x %02x %02x %02x\n",
+    /*bpf_printk("TLS Data (first 4 bytes): %02x %02x %02x %02x\n",
         chunk->data[0], chunk->data[1], chunk->data[2], chunk->data[3]);
     bpf_printk("TLS Data (next 4 bytes): %02x %02x %02x %02x\n",
-        chunk->data[4], chunk->data[5], chunk->data[6], chunk->data[7]);
+        chunk->data[4], chunk->data[5], chunk->data[6], chunk->data[7]);*/
 
     return bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU, chunk, sizeof(struct tls_chunk));
 }
