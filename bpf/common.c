@@ -69,14 +69,32 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
 
     if (chunk->address_info.family == AF_INET) {
         bpf_trace_printk(
-            "TLS Chunk (IPv4): Src=%pI4, Dst=%pI4, Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
-            (void*)&chunk->address_info.saddr4, (void*)&chunk->address_info.daddr4,
+            "TLS Chunk (IPv4): Src=%u.%u.%u.%u, Dst=%u.%u.%u.%u, Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
+            chunk->address_info.saddr4 & 0xFF, (chunk->address_info.saddr4 >> 8) & 0xFF,
+            (chunk->address_info.saddr4 >> 16) & 0xFF, (chunk->address_info.saddr4 >> 24) & 0xFF,
+            chunk->address_info.daddr4 & 0xFF, (chunk->address_info.daddr4 >> 8) & 0xFF,
+            (chunk->address_info.daddr4 >> 16) & 0xFF, (chunk->address_info.daddr4 >> 24) & 0xFF,
             bpf_ntohs(chunk->address_info.sport), bpf_ntohs(chunk->address_info.dport),
             chunk->direction, chunk->len, chunk->recorded);
     } else if (chunk->address_info.family == AF_INET6) {
         bpf_trace_printk(
-            "TLS Chunk (IPv6): Src=%pI6, Dst=%pI6, Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
-            chunk->address_info.saddr6, chunk->address_info.daddr6,
+            "TLS Chunk (IPv6): Src=%x:%x:%x:%x:%x:%x:%x:%x, Dst=%x:%x:%x:%x:%x:%x:%x:%x, Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
+            chunk->address_info.saddr6[0]  << 8 | chunk->address_info.saddr6[1],
+            chunk->address_info.saddr6[2]  << 8 | chunk->address_info.saddr6[3],
+            chunk->address_info.saddr6[4]  << 8 | chunk->address_info.saddr6[5],
+            chunk->address_info.saddr6[6]  << 8 | chunk->address_info.saddr6[7],
+            chunk->address_info.saddr6[8]  << 8 | chunk->address_info.saddr6[9],
+            chunk->address_info.saddr6[10] << 8 | chunk->address_info.saddr6[11],
+            chunk->address_info.saddr6[12] << 8 | chunk->address_info.saddr6[13],
+            chunk->address_info.saddr6[14] << 8 | chunk->address_info.saddr6[15],
+            chunk->address_info.daddr6[0]  << 8 | chunk->address_info.daddr6[1],
+            chunk->address_info.daddr6[2]  << 8 | chunk->address_info.daddr6[3],
+            chunk->address_info.daddr6[4]  << 8 | chunk->address_info.daddr6[5],
+            chunk->address_info.daddr6[6]  << 8 | chunk->address_info.daddr6[7],
+            chunk->address_info.daddr6[8]  << 8 | chunk->address_info.daddr6[9],
+            chunk->address_info.daddr6[10] << 8 | chunk->address_info.daddr6[11],
+            chunk->address_info.daddr6[12] << 8 | chunk->address_info.daddr6[13],
+            chunk->address_info.daddr6[14] << 8 | chunk->address_info.daddr6[15],
             bpf_ntohs(chunk->address_info.sport), bpf_ntohs(chunk->address_info.dport),
             chunk->direction, chunk->len, chunk->recorded);
     }
