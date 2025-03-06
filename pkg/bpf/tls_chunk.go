@@ -6,8 +6,15 @@ import (
 	"unsafe"
 )
 
-const FlagsIsClientBit uint32 = 1 << 0
-const FlagsIsReadBit uint32 = 1 << 1
+const (
+	FlagsIsClientBit uint32 = 1 << 0
+	FlagsIsReadBit   uint32 = 1 << 1
+)
+
+const (
+	AF_INET  = 2
+	AF_INET6 = 10
+)
 
 type AddressPair struct {
 	SrcIp   net.IP
@@ -17,14 +24,14 @@ type AddressPair struct {
 }
 
 func (c *TracerTlsChunk) getSrcAddress() (net.IP, uint16) {
-	ip := intToIP(c.AddressInfo.Saddr)
+	ip := bytesToIP(c.AddressInfo.Family, c.AddressInfo.Saddr4, c.AddressInfo.Saddr6)
 	port := ntohs(c.AddressInfo.Sport)
 
 	return ip, port
 }
 
 func (c *TracerTlsChunk) getDstAddress() (net.IP, uint16) {
-	ip := intToIP(c.AddressInfo.Daddr)
+	ip := bytesToIP(c.AddressInfo.Family, c.AddressInfo.Daddr4, c.AddressInfo.Daddr6)
 	port := ntohs(c.AddressInfo.Dport)
 
 	return ip, port
@@ -84,9 +91,15 @@ func (c *TracerTlsChunk) GetReader(stream *TlsStream) *tlsReader {
 	}
 }
 
-// intToIP converts IPv4 number to net.IP
-func intToIP(ip32be uint32) net.IP {
-	return net.IPv4(uint8(ip32be), uint8(ip32be>>8), uint8(ip32be>>16), uint8(ip32be>>24))
+// bytesToIP converts raw bytes into net.IP (supports IPv4 and IPv6)
+func bytesToIP(family uint32, ipv4 uint32, ipv6 [16]byte) net.IP {
+	if family == AF_INET {
+		return net.IPv4(
+			byte(ipv4), byte(ipv4>>8),
+			byte(ipv4>>16), byte(ipv4>>24),
+		)
+	}
+	return net.IP(ipv6[:])
 }
 
 // ntohs converts big endian (network byte order) to little endian (assuming that's the host byte order)
