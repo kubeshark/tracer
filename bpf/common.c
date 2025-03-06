@@ -31,8 +31,8 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
         bpf_probe_read(&chunk->address_info.daddr4, sizeof(__be32), &info->address_info.daddr4);
     } else if (info->address_info.family == AF_INET6) {
         chunk->address_info.family = AF_INET6;
-        bpf_probe_read(chunk->address_info.saddr6, sizeof(__u8) * 16, &info->address_info.saddr6);
-        bpf_probe_read(chunk->address_info.daddr6, sizeof(__u8) * 16, &info->address_info.daddr6);
+        bpf_probe_read(chunk->address_info.saddr6, sizeof(chunk->address_info.saddr6), info->address_info.saddr6);
+        bpf_probe_read(chunk->address_info.daddr6, sizeof(chunk->address_info.daddr6), info->address_info.daddr6);
     }
 
     chunk->address_info.sport = info->address_info.sport;
@@ -70,13 +70,13 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
     if (chunk->address_info.family == AF_INET) {
         bpf_trace_printk(
             "TLS Chunk (IPv4): Src=%pI4, Dst=%pI4, Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
-            &chunk->address_info.saddr4, &chunk->address_info.daddr4,
+            (void*)&chunk->address_info.saddr4, (void*)&chunk->address_info.daddr4,
             bpf_ntohs(chunk->address_info.sport), bpf_ntohs(chunk->address_info.dport),
             chunk->direction, chunk->len, chunk->recorded);
     } else if (chunk->address_info.family == AF_INET6) {
         bpf_trace_printk(
             "TLS Chunk (IPv6): Src=%pI6, Dst=%pI6, Sport=%u, Dport=%u, Direction=%u, Len=%u, Recorded=%u\n",
-            &chunk->address_info.saddr6, &chunk->address_info.daddr6,
+            chunk->address_info.saddr6, chunk->address_info.daddr6,
             bpf_ntohs(chunk->address_info.sport), bpf_ntohs(chunk->address_info.dport),
             chunk->direction, chunk->len, chunk->recorded);
     }
