@@ -21,15 +21,14 @@ require (
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/api v1.1.32
 	github.com/kubeshark/gopacket v1.1.30
+	github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/kubeshark/utils v0.0.0-20250210221556-322c90ef9b16
 	github.com/moby/moby v25.0.4+incompatible
-	github.com/prometheus/procfs v0.15.1
 	github.com/rs/zerolog v1.33.0
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	golang.org/x/exp v0.0.0-20231219180239-dc181d75b848
-	golang.org/x/sys v0.28.0
+	golang.org/x/sys v0.30.0
 	k8s.io/api v0.28.3
 	k8s.io/apimachinery v0.28.3
 	k8s.io/client-go v0.28.3
@@ -57,7 +56,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -77,6 +76,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
+	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/net v0.33.0 // indirect

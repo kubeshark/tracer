@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 
 	"path/filepath"
 	"strconv"
@@ -33,11 +32,10 @@ type ResolverImpl struct {
 	udpMap     connectionsMap
 }
 
-func NewResolver(procfs string) Resolver {
+func NewResolver(procfs string) (Resolver, error) {
 	isCgroupV2, err := utils.IsCgroupV2()
 	if err != nil {
-		log.Error().Err(err).Msg("get cgroupv2 failed")
-		return nil
+		return nil, errors.New("get cgroupv2 failed")
 	}
 
 	res := &ResolverImpl{
@@ -47,25 +45,10 @@ func NewResolver(procfs string) Resolver {
 		udpMap:     make(connectionsMap),
 	}
 
-	locked := make(chan struct{})
+	res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp")
+	res.udpMap = getAllFlows(procfs, isCgroupV2, "udp")
 
-	go func(res *ResolverImpl, locked chan struct{}) {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-
-		close(locked)
-
-		log.Info().Str("procfs", procfs).Msg("resolver creation started")
-		defer func() {
-			log.Info().Str("procfs", procfs).Msg("resolver creation completed")
-		}()
-		res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp")
-		res.udpMap = getAllFlows(procfs, isCgroupV2, "udp")
-	}(res, locked)
-
-	<-locked
-
-	return res
+	return res, nil
 }
 
 func getIpPortKey(localIP, localPort, remoteIP, remotePort string) string {
@@ -176,6 +159,7 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 				// process can be short-living
 				continue
 			}
+			// It is enough to get connections from one process: it hass all connections for the network namespace
 			break
 		}
 		if err != nil {
