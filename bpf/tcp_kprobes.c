@@ -70,6 +70,7 @@ static __always_inline void tcp_kprobes_forward_go(struct pt_regs* ctx, __u64 id
 	__u32 pid = id >> 32;
 	__u64 key = (__u64)pid << 32 | fd;
 
+	bpf_printk("tcp_kprobes_forward_go");
 	long err = bpf_map_update_elem(map_fd_go_user_kernel, &key, &address_info, BPF_ANY);
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_PUTTING_GO_USER_KERNEL_CONTEXT, id, fd, err);
@@ -79,6 +80,7 @@ static __always_inline void tcp_kprobes_forward_go(struct pt_regs* ctx, __u64 id
 
 static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_ptr, struct address_info address_info) {
 	info_ptr->address_info.family = address_info.family;
+	bpf_printk("tcp_kprobes_forward_openssl");
 
 	if (address_info.family == AF_INET) {
 		bpf_printk("tcp_kprobes_forward_openssl IPv4");
@@ -104,15 +106,19 @@ static __always_inline void tcp_kprobe(struct pt_regs* ctx, void* map_fd_openssl
 
 	struct address_info address_info = {};
 	if (0 != tcp_kprobes_get_address_pair_from_ctx(ctx, id, &address_info)) {
+		bpf_printk("tcp_kprobes_get_address_pair_from_ctx ret 0 ");
 		return;
 	}
 
 	struct ssl_info* info_ptr = bpf_map_lookup_elem(map_fd_openssl, &id);
 	__u32* fd_ptr;
 	if (info_ptr == NULL) {
+		bpf_printk("tcp_kprobe info_ptr == NULL");
+
 		fd_ptr = bpf_map_lookup_elem(map_fd_go_kernel, &id);
 		// Connection is used by a Go program
 		if (fd_ptr == NULL) {
+			bpf_printk("tcp_kprobe fd_ptr == NULL");
 			// Connection was not created by a Go program or by openssl lib
 			return;
 		}
