@@ -353,15 +353,25 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* g
         return;
     }
 
-    if (address_info->family != AF_INET) {
-        // only IPv4 is supported
+    info.address_info.dport = address_info->dport;
+    info.address_info.sport = address_info->sport;
+
+    if (address_info->family == AF_INET) {
+        bpf_printk("go_crypto_tls_ex_uprobe IPv4");
+        info.address_info.daddr4 = address_info->daddr4;
+        info.address_info.saddr4 = address_info->saddr4;
+        info.address_info.family = AF_INET; 
+
+    } else if (address_info->family == AF_INET6) {
+        bpf_printk("go_crypto_tls_ex_uprobe IPv6");
+        bpf_probe_read_kernel(info.address_info.daddr6, sizeof(info.address_info.daddr6), address_info->daddr6);
+        bpf_probe_read_kernel(info.address_info.saddr6, sizeof(info.address_info.saddr6), address_info->saddr6);        
+        info.address_info.family = AF_INET6; 
+    } else {
+        bpf_printk("go_crypto_tls_ex_uprobe unknown");
+        info.address_info.family = 0; 
         return;
     }
-
-    info.address_info.daddr4 = address_info->daddr4;
-    info.address_info.dport = address_info->dport;
-    info.address_info.saddr4 = address_info->saddr4;
-    info.address_info.sport = address_info->sport;
 
     output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, cgroup_id, &stats->save_stats);
 
