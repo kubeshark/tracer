@@ -98,9 +98,9 @@ func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
 	return 0
 }
 
-func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.VersionInfo) (pObjs *BpfObjects, tlsEnabled, plainEnabled bool, err error) {
+func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.VersionInfo) (pObjs *BpfObjects, tlsEnabled, plainEnabled bool, err error) {
 	var mounted bool
-	mounted, err = isMounted("/sys/fs/bpf")
+	mounted, err = isMounted(procfs, "/sys/fs/bpf")
 	if err != nil {
 		err = fmt.Errorf("%w: mount check failed: %v", ErrBpfMountFailed, err)
 		return
@@ -159,15 +159,15 @@ func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.Versio
 			return
 		}
 	} else {
-		var hostProcIno uint64
+		var procIno uint64
 		var fileInfo os.FileInfo
-		fileInfo, err = os.Stat("/hostproc/1/ns/pid")
+		fileInfo, err = os.Stat(fmt.Sprintf("%s/1/ns/pid", procfs))
 		if err != nil {
 			// services like "apparmor" on EKS can reject access to system pid information
 			log.Warn().Err(err).Msg("Get host netns failed")
 		} else {
-			hostProcIno = fileInfo.Sys().(*syscall.Stat_t).Ino
-			log.Info().Uint64("ns", hostProcIno).Msg("Setting host ns")
+			procIno = fileInfo.Sys().(*syscall.Stat_t).Ino
+			log.Info().Uint64("ns", procIno).Msg("Setting host ns")
 		}
 
 		objects := &BpfObjectsImpl{
@@ -189,7 +189,7 @@ func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.Versio
 		}
 		bpfConsts := map[string]uint64{
 			"KERNEL_VERSION": kernelVersionInt,
-			"TRACER_NS_INO":  hostProcIno,
+			"TRACER_NS_INO":  procIno,
 			//"HELPER_EXISTS_KPROBE_bpf_strncmp":          programHelperExists(ebpf.Kprobe, asm.FnStrncmp),
 			"CGROUP_V1":                                 cgroupV1,
 			"PREFER_CGROUP_V1_EBPF_CAPTURE":             preferCgroupV1Capture,
@@ -262,8 +262,8 @@ func NewBpfObjects(preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.Versio
 	return
 }
 
-func isMounted(target string) (bool, error) {
-	file, err := os.Open("/hostproc/mounts")
+func isMounted(procfs string, target string) (bool, error) {
+	file, err := os.Open(fmt.Sprintf("%s/mounts", procfs))
 	if err != nil {
 		return false, err
 	}

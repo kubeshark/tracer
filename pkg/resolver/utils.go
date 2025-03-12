@@ -7,13 +7,11 @@ import (
 	"os"
 
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
-	"github.com/prometheus/procfs"
+	"github.com/iluxa/procfs"
 	"github.com/rs/zerolog/log"
-	"github.com/vishvananda/netns"
 )
 
 type IpSocketLine struct {
@@ -30,22 +28,15 @@ type IpSocketLine struct {
 }
 
 func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	var tcpConns procfs.NetTCP
 	var tcpConns6 procfs.NetTCP
-	getTcpConns := func() error {
-		fs, err := procfs.NewDefaultFS()
+	getTcpConns := func(_pid string) error {
+		tcpConns, err = procfs.NewNetTCP(fmt.Sprintf("/hostproc/%v/net/tcp", _pid))
 		if err != nil {
 			return err
 		}
 
-		tcpConns, err = fs.NetTCP()
-		if err != nil {
-			return err
-		}
-
-		tcpConns6, err = fs.NetTCP6()
+		tcpConns6, err = procfs.NewNetTCP(fmt.Sprintf("/hostproc/%v/net/tcp6", _pid))
 		if err != nil {
 			return err
 		}
@@ -55,18 +46,13 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 
 	var udpConns procfs.NetUDP
 	var udpConns6 procfs.NetUDP
-	getUdpConns := func() error {
-		fs, err := procfs.NewDefaultFS()
+	getUdpConns := func(_pid string) error {
+		udpConns, err = procfs.NewNetUDP(fmt.Sprintf("/hostproc/%v/net/udp", _pid))
 		if err != nil {
 			return err
 		}
 
-		udpConns, err = fs.NetUDP()
-		if err != nil {
-			return err
-		}
-
-		udpConns6, err = fs.NetUDP6()
+		udpConns6, err = procfs.NewNetUDP(fmt.Sprintf("/hostproc/%v/net/udp6", _pid))
 		if err != nil {
 			return err
 		}
@@ -75,7 +61,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 	}
 
 	if proto == "tcp" {
-		if err = executeInNs("/hostproc", pid, getTcpConns); err != nil {
+		if err = getTcpConns(pid); err != nil {
 			err = fmt.Errorf("execute tcp in ns failed for pid: %v error: %v", pid, err)
 			return
 		}
@@ -114,7 +100,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		}
 
 	} else if proto == "udp" {
-		if err = executeInNs("/hostproc", pid, getUdpConns); err != nil {
+		if err = getUdpConns(pid); err != nil {
 			err = fmt.Errorf("execute udp in ns failed for pid: %v error: %v", pid, err)
 			return
 		}
@@ -158,34 +144,6 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 	}
 
 	return
-}
-
-func executeInNs(proc, pid string, cb func() error) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	nsh, err := netns.GetFromPath(fmt.Sprintf("%s/%s/ns/net", proc, pid))
-	if err != nil {
-		return fmt.Errorf("unable to get netns of pid: %v: %v", pid, err)
-	}
-
-	oldnetns, err := netns.Get()
-	if err != nil {
-		return fmt.Errorf("unable to get current netns: %v", err)
-	}
-
-	if err := netns.Set(nsh); err != nil {
-		return fmt.Errorf("failed to switch to target network namespace: %v\n", err)
-	}
-
-	if err := cb(); err != nil {
-		return err
-	}
-
-	if err := netns.Set(oldnetns); err != nil {
-		return fmt.Errorf("Failed to switch back to original network namespace: %v\n", err)
-	}
-	return nil
 }
 
 func getPidStatus(proc string, hostPid uint32) (status map[string]string, err error) {

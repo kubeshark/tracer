@@ -88,7 +88,7 @@ func (t *Tracer) Init(
 	}
 	log.Info().Msg(fmt.Sprintf("Detected Linux kernel version: %s cgroups version2: %v", kernelVersion, isCgroupsV2))
 
-	t.bpfObjects, tlsEnabled, plainEnabled, err = bpf.NewBpfObjects(*preferCgroupV1Capture, isCgroupsV2, kernelVersion)
+	t.bpfObjects, tlsEnabled, plainEnabled, err = bpf.NewBpfObjects(procfs, *preferCgroupV1Capture, isCgroupsV2, kernelVersion)
 	if err != nil {
 		return fmt.Errorf("creating bpf failed: %w", err)
 	}
