@@ -99,8 +99,6 @@ github.com/hashicorp/golang-lru v0.5.4 h1:YDjusn29QI/Das2iO9M0BHnIbxPeyuCHsjMW+l
 github.com/hashicorp/golang-lru v0.5.4/go.mod h1:iADmTwqILo4mZ8BN3D2Q6+9jd8WM5uGBxy+E8yxSoD4=
 github.com/hashicorp/golang-lru/v2 v2.0.2 h1:Dwmkdr5Nc/oBiXgJS3CDHNhJtIHkuZ3DZF5twqnfBdU=
 github.com/hashicorp/golang-lru/v2 v2.0.2/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
-github.com/iluxa/procfs v0.0.2 h1:R769RjBm62m1AZTtY67SOBbRFcEcshvMtZc84QTbEFc=
-github.com/iluxa/procfs v0.0.2/go.mod h1:Qx3BoGzhntR0IHuIJ8ooYT25wuvc/4ez7z3ceDpn4sw=
 github.com/jinzhu/copier v0.4.0 h1:w3ciUoD19shMCRargcpm0cm91ytaBhDvuRpz1ODO/U8=
 github.com/jinzhu/copier v0.4.0/go.mod h1:DfbEm0FYsaqBcKcFuvmOZb218JkPGtvSHsKg8S8hyyg=
 github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8HmY=
@@ -132,6 +130,8 @@ github.com/kubeshark/api v1.1.32 h1:qZ4so2FBJOgw7Eqmlvr1Kz29hALM4hsFgHzC/cULoMM=
 github.com/kubeshark/api v1.1.32/go.mod h1:+Ua35OiwreWiUYfqJz0Aswn3UmsLctLUQh3tvxagQz4=
 github.com/kubeshark/gopacket v1.1.30 h1:Dz6eo7b6+NdVCrgiyKxlGEVTm0L6PwgbVvSomsuwIyU=
 github.com/kubeshark/gopacket v1.1.30/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj7M/Arv8MKm8=
+github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324 h1:bkkaNmy70yebjPIPeZv5bDamFl0fmAKQn038NWf/GBU=
+github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324/go.mod h1:eOQ5k+THNnxNiyNdy1cWkGWTecBMrbxT1IHjdt6kLsY=
 github.com/kubeshark/tracerproto v1.0.0/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c h1:Km6Wm+AwCRO/6aK60PqGpW6bVuXNw+bbZRjX837N/rU=
 github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=

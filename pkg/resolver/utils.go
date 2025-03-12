@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/iluxa/procfs"
+	"github.com/kubeshark/procfs"
 	"github.com/rs/zerolog/log"
 )
 
