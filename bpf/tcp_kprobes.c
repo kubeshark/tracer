@@ -90,7 +90,7 @@ static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_pt
 		__builtin_memcpy(info_ptr->address_info.daddr6, address_info.daddr6, sizeof(address_info.daddr6));
 	} else {
 		bpf_printk("tcp_kprobes_forward_openssl unsupported protocol");
-        return -1; 
+        return; 
     }
 
 	info_ptr->address_info.dport = address_info.dport;
