@@ -28,8 +28,10 @@ Copyright (C) Kubeshark
 
 struct address_info {
     __be32 family;
-    __be32 saddr;
-    __be32 daddr;
+    __be32 saddr4;   
+    __be32 daddr4;
+    __u8 saddr6[16];  
+    __u8 daddr6[16]; 
     __be16 sport;
     __be16 dport;
 };

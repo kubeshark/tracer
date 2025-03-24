@@ -8,6 +8,7 @@ Copyright (C) Kubeshark
 #ifndef __COMMON__
 #define __COMMON__
 
+#define AF_UNSPEC 0	/* Unspecified */
 #define AF_INET	2	/* IPv4 Protocol */
 #define AF_INET6 10	/* IPv6 Protocol */
 

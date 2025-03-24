@@ -10,8 +10,6 @@ Copyright (C) Kubeshark
 #include "include/logger_messages.h"
 #include "include/pids.h"
 
-#define IPV4_ADDR_LEN (16)
-
 struct accept_info {
 	uintptr_t addrlen;
 };
@@ -77,11 +75,6 @@ void sys_exit_accept4(struct sys_exit_accept4_ctx* ctx) {
 
 	__u32 addrlen;
 	bpf_probe_read(&addrlen, sizeof(__u32), (void*)info.addrlen);
-
-	if (addrlen != IPV4_ADDR_LEN) {
-		// Currently only ipv4 is supported linux-src/include/linux/inet.h
-		return;
-	}
 
 	conn_flags flags = 0;
 
@@ -160,11 +153,6 @@ void sys_exit_connect(struct sys_exit_connect_ctx* ctx) {
 
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_CONNECT_INFO, id, err, 0l);
-		return;
-	}
-
-	if (info.addrlen != IPV4_ADDR_LEN) {
-		// Currently only ipv4 is supported linux-src/include/linux/inet.h
 		return;
 	}
 

@@ -25,7 +25,18 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
 
     chunk->flags |= (*flags & FLAGS_IS_CLIENT_BIT);
 
-    bpf_probe_read(&chunk->address_info, sizeof(chunk->address_info), &info->address_info);
+    if (info->address_info.family == AF_INET) {
+        chunk->address_info.family = AF_INET;
+        bpf_probe_read(&chunk->address_info.saddr4, sizeof(__be32), &info->address_info.saddr4);
+        bpf_probe_read(&chunk->address_info.daddr4, sizeof(__be32), &info->address_info.daddr4);
+    } else if (info->address_info.family == AF_INET6) {
+        chunk->address_info.family = AF_INET6;
+        bpf_probe_read(chunk->address_info.saddr6, sizeof(chunk->address_info.saddr6), info->address_info.saddr6);
+        bpf_probe_read(chunk->address_info.daddr6, sizeof(chunk->address_info.daddr6), info->address_info.daddr6);
+    }
+
+    chunk->address_info.sport = info->address_info.sport;
+    chunk->address_info.dport = info->address_info.dport;
 
     return 1;
 }
