@@ -357,18 +357,16 @@ static __always_inline void go_crypto_tls_ex_uprobe(struct pt_regs* ctx, void* g
         info.address_info.daddr4 = address_info->daddr4;
         info.address_info.saddr4 = address_info->saddr4;
         info.address_info.family = AF_INET; 
-    } else if {
+    } else if (address_info->family == AF_INET6) {
         bpf_probe_read_kernel(info.address_info.daddr6, sizeof(info.address_info.daddr6), address_info->daddr6);
         bpf_probe_read_kernel(info.address_info.saddr6, sizeof(info.address_info.saddr6), address_info->saddr6);        
         info.address_info.family = AF_INET6; 
     } else {
         info.address_info.family = AF_UNSPEC;
-        return
+        return;
     }
 
-    info.address_info.daddr = address_info->daddr;
     info.address_info.dport = address_info->dport;
-    info.address_info.saddr = address_info->saddr;
     info.address_info.sport = address_info->sport;
 
     output_ssl_chunk(ctx, &info, info.buffer_len, pid_tgid, flags, cgroup_id, &stats->save_stats);

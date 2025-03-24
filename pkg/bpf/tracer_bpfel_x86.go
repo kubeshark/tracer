@@ -18,8 +18,10 @@ type TracerAcceptInfo struct{ Addrlen uint64 }
 
 type TracerAddressInfo struct {
 	Family uint32
-	Saddr  uint32
-	Daddr  uint32
+	Saddr4 uint32
+	Daddr4 uint32
+	Saddr6 [16]uint8
+	Daddr6 [16]uint8
 	Sport  uint16
 	Dport  uint16
 }
