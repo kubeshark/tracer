@@ -33,6 +33,9 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
         chunk->address_info.family = AF_INET6;
         bpf_probe_read(chunk->address_info.saddr6, sizeof(chunk->address_info.saddr6), info->address_info.saddr6);
         bpf_probe_read(chunk->address_info.daddr6, sizeof(chunk->address_info.daddr6), info->address_info.daddr6);
+    } else {
+        log_error(ctx, LOG_ERROR_UNKNOWN_FAMILY, id, info->address_info.family, 0l);
+        return 0;
     }
 
     chunk->address_info.sport = info->address_info.sport;

@@ -9,7 +9,6 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs*
     long err;
     struct sock* sk = (struct sock*)PT_REGS_PARM1(ctx);
     __u16 family_short;
-    __be32 family;
 
     err = bpf_probe_read_kernel(&family_short, sizeof(family_short), (void*)&sk->__sk_common.skc_family);
     if (err != 0) {
@@ -17,10 +16,9 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs*
         return -1;
     }
 
-    family = (__be32)family_short;  
-    address_info_ptr->family = family;
+    address_info_ptr->family = (__be32)family_short;
 
-    if (family == AF_INET) {
+    if (address_info_ptr->family  == AF_INET) {
         // Extract IPv4 addresses
         err = bpf_probe_read_kernel(&address_info_ptr->saddr4, sizeof(address_info_ptr->saddr4), (void*)&sk->__sk_common.skc_rcv_saddr);
         if (err != 0) {
@@ -32,7 +30,7 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs*
             log_error(ctx, LOG_ERROR_READING_SOCKET_DADDR, id, err, 0l);
             return -1;
         }
-    } else if (family == AF_INET6) {
+    } else if (address_info_ptr->family  == AF_INET6) {
         // Extract IPv6 addresses
         err = bpf_probe_read_kernel(address_info_ptr->saddr6, sizeof(address_info_ptr->saddr6), (void*)&sk->__sk_common.skc_v6_rcv_saddr);
         if (err != 0) {
@@ -45,7 +43,7 @@ static __always_inline int tcp_kprobes_get_address_pair_from_ctx(struct pt_regs*
             return -1;
         }
     } else {
-		log_error(ctx, LOG_ERROR_UNKNOWN_FAMILY, id, family, 0l);
+		log_error(ctx, LOG_ERROR_UNKNOWN_FAMILY, id, address_info_ptr->family , 0l);
         return -1; 
     }
 
@@ -75,7 +73,7 @@ static __always_inline void tcp_kprobes_forward_go(struct pt_regs* ctx, __u64 id
 	}
 }
 
-static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_ptr, struct address_info address_info) {
+static void __always_inline tcp_kprobes_forward_openssl(struct pt_regs* ctx, __u64 id, struct ssl_info* info_ptr, struct address_info address_info) {
 	info_ptr->address_info.family = address_info.family;
 
 	if (address_info.family == AF_INET) {
@@ -85,6 +83,7 @@ static void __always_inline tcp_kprobes_forward_openssl(struct ssl_info* info_pt
 		__builtin_memcpy(info_ptr->address_info.saddr6, address_info.saddr6, sizeof(address_info.saddr6));
 		__builtin_memcpy(info_ptr->address_info.daddr6, address_info.daddr6, sizeof(address_info.daddr6));
 	} else {
+        log_error(ctx, LOG_ERROR_UNKNOWN_FAMILY, id, address_info.family, 0l);
 		return;
     }
 
@@ -114,7 +113,7 @@ static __always_inline void tcp_kprobe(struct pt_regs* ctx, void* map_fd_openssl
 		tcp_kprobes_forward_go(ctx, id, *fd_ptr, address_info, map_fd_go_user_kernel);
 	} else {
 		// Connection is used by openssl lib
-		tcp_kprobes_forward_openssl(info_ptr, address_info);
+		tcp_kprobes_forward_openssl(ctx, id, info_ptr, address_info);
 	}
 }
 
