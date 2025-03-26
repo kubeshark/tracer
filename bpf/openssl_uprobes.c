@@ -32,7 +32,7 @@ static __always_inline int get_count_bytes(struct pt_regs* ctx, struct ssl_info*
 	// ssl_read_ex and ssl_write_ex write the number of bytes to an arg named *count
 	//
 	size_t countBytes;
-	long err = bpf_probe_read(&countBytes, sizeof(size_t), (void*)info->count_ptr);
+	long err = bpf_probe_read_user(&countBytes, sizeof(size_t), (void*)info->count_ptr);
 
 	if (err != 0) {
 		log_error(ctx, LOG_ERROR_READING_BYTES_COUNT, id, err, 0l);

@@ -16,13 +16,18 @@ import (
 
 type tlsLayers struct {
 	ethernet *layers.Ethernet
-	ipv4     *layers.IPv4
+	network  gopacket.SerializableLayer
 	tcp      *layers.TCP
 }
 
 func (l *tlsLayers) swap() {
 	l.ethernet.SrcMAC, l.ethernet.DstMAC = l.ethernet.DstMAC, l.ethernet.SrcMAC
-	l.ipv4.SrcIP, l.ipv4.DstIP = l.ipv4.DstIP, l.ipv4.SrcIP
+	switch ipLayer := l.network.(type) {
+	case *layers.IPv4:
+		ipLayer.SrcIP, ipLayer.DstIP = ipLayer.DstIP, ipLayer.SrcIP
+	case *layers.IPv6:
+		ipLayer.SrcIP, ipLayer.DstIP = ipLayer.DstIP, ipLayer.SrcIP
+	}
 	l.tcp.SrcPort, l.tcp.DstPort = l.tcp.DstPort, l.tcp.SrcPort
 }
 
@@ -125,7 +130,7 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 			direction,
 			layers.LayerTypeEthernet,
 			t.layers.ethernet,
-			t.layers.ipv4,
+			t.layers.network,
 			t.layers.tcp,
 			gopacket.Payload(data),
 		)
@@ -138,7 +143,7 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 	if t.poller.gopacketWriter != nil {
 		buf := gopacket.NewSerializeBuffer()
 
-		err := gopacket.SerializeLayers(buf, t.serializeOptions, t.layers.ethernet, t.layers.ipv4, t.layers.tcp, gopacket.Payload(data))
+		err := gopacket.SerializeLayers(buf, t.serializeOptions, t.layers.ethernet, t.layers.network, t.layers.tcp, gopacket.Payload(data))
 		if err != nil {
 			log.Error().Err(err).Msg("Error serializing packet:")
 			return
@@ -188,24 +193,45 @@ func (t *TlsStream) doTcpSeqAckWalk(isClient bool, sentLen uint32) {
 }
 
 func (t *TlsStream) setLayers(timestamp uint64, cgroupId uint64, direction uint8, reader *tlsReader) {
-	ipv4 := t.newIPv4Layer(reader)
+	srcIP := net.ParseIP(reader.tcpID.SrcIP)
+	var ipLayer gopacket.SerializableLayer
+	isIPv4 := srcIP.To4() != nil
+
+	if isIPv4 {
+		ipLayer = t.newIPv4Layer(reader)
+	} else {
+		ipLayer = t.newIPv6Layer(reader)
+	}
+
 	tcp := t.newTCPLayer(reader)
-	err := tcp.SetNetworkLayerForChecksum(ipv4)
-	if err != nil {
+	if err := tcp.SetNetworkLayerForChecksum(ipLayer.(gopacket.NetworkLayer)); err != nil {
 		log.Error().Err(err).Send()
 	}
 
 	if t.layers == nil {
+		var ethType layers.EthernetType
+		if isIPv4 {
+			ethType = layers.EthernetTypeIPv4
+		} else {
+			ethType = layers.EthernetTypeIPv6
+		}
 		t.layers = &tlsLayers{
-			ethernet: ethernet.NewEthernetLayer(layers.EthernetTypeIPv4),
-			ipv4:     ipv4,
+			ethernet: ethernet.NewEthernetLayer(ethType),
+			network:  ipLayer,
 			tcp:      tcp,
 		}
 		t.doTcpHandshake(timestamp, cgroupId, direction)
 	} else {
-		t.layers.ipv4.SrcIP = ipv4.SrcIP
-		t.layers.ipv4.DstIP = ipv4.DstIP
-
+		switch layer := t.layers.network.(type) {
+		case *layers.IPv4:
+			newLayer := ipLayer.(*layers.IPv4)
+			layer.SrcIP = newLayer.SrcIP
+			layer.DstIP = newLayer.DstIP
+		case *layers.IPv6:
+			newLayer := ipLayer.(*layers.IPv6)
+			layer.SrcIP = newLayer.SrcIP
+			layer.DstIP = newLayer.DstIP
+		}
 		t.layers.tcp.SrcPort = tcp.SrcPort
 		t.layers.tcp.DstPort = tcp.DstPort
 	}
@@ -228,6 +254,20 @@ func (t *TlsStream) newIPv4Layer(reader *tlsReader) *layers.IPv4 {
 		Protocol: layers.IPProtocolTCP,
 	}
 	return res
+}
+
+func (t *TlsStream) newIPv6Layer(reader *tlsReader) *layers.IPv6 {
+	srcIP := net.ParseIP(reader.tcpID.SrcIP)
+	dstIP := net.ParseIP(reader.tcpID.DstIP)
+	log.Info().Msgf("IPv6 layer created with srcIP: %v, dstIP: %v", srcIP, dstIP)
+
+	return &layers.IPv6{
+		Version:    6,
+		HopLimit:   64,
+		SrcIP:      srcIP,
+		DstIP:      dstIP,
+		NextHeader: layers.IPProtocolTCP,
+	}
 }
 
 func (t *TlsStream) newTCPLayer(reader *tlsReader) *layers.TCP {

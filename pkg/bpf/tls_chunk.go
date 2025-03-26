@@ -6,8 +6,15 @@ import (
 	"unsafe"
 )
 
-const FlagsIsClientBit uint32 = 1 << 0
-const FlagsIsReadBit uint32 = 1 << 1
+const (
+	FlagsIsClientBit uint32 = 1 << 0
+	FlagsIsReadBit   uint32 = 1 << 1
+)
+
+const (
+	AF_INET  = 2
+	AF_INET6 = 10
+)
 
 type AddressPair struct {
 	SrcIp   net.IP
@@ -16,18 +23,44 @@ type AddressPair struct {
 	DstPort uint16
 }
 
+// getSrcAddress retrieves the source IP and port
 func (c *TracerTlsChunk) getSrcAddress() (net.IP, uint16) {
-	ip := intToIP(c.AddressInfo.Saddr)
+	ip := getIPFromAddressInfo(&c.AddressInfo, true)
 	port := ntohs(c.AddressInfo.Sport)
-
 	return ip, port
 }
 
+// getDstAddress retrieves the destination IP and port
 func (c *TracerTlsChunk) getDstAddress() (net.IP, uint16) {
-	ip := intToIP(c.AddressInfo.Daddr)
+	ip := getIPFromAddressInfo(&c.AddressInfo, false)
 	port := ntohs(c.AddressInfo.Dport)
-
 	return ip, port
+}
+
+// Function to extract either Src or Dst IP based on offset calculations
+func getIPFromAddressInfo(ai *TracerAddressInfo, isSrc bool) net.IP {
+	switch ai.Family {
+	case AF_INET:
+		if isSrc {
+			return ipv4ToIP(ai.Saddr4)
+		}
+		return ipv4ToIP(ai.Daddr4)
+	case AF_INET6:
+		if isSrc {
+			return net.IP(ai.Saddr6[:])
+		}
+		return net.IP(ai.Daddr6[:])
+	default:
+		return nil
+	}
+}
+
+// Converts IPv4 integer representation to net.IP
+func ipv4ToIP(ipv4 uint32) net.IP {
+	return net.IPv4(
+		byte(ipv4), byte(ipv4>>8),
+		byte(ipv4>>16), byte(ipv4>>24),
+	)
 }
 
 func (c *TracerTlsChunk) IsClient() bool {
@@ -82,11 +115,6 @@ func (c *TracerTlsChunk) GetReader(stream *TlsStream) *tlsReader {
 	} else {
 		return stream.Server
 	}
-}
-
-// intToIP converts IPv4 number to net.IP
-func intToIP(ip32be uint32) net.IP {
-	return net.IPv4(uint8(ip32be), uint8(ip32be>>8), uint8(ip32be>>16), uint8(ip32be>>24))
 }
 
 // ntohs converts big endian (network byte order) to little endian (assuming that's the host byte order)
