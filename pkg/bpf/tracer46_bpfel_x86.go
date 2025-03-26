@@ -106,6 +106,45 @@ type Tracer46FilePath struct {
 	_        [1]byte
 }
 
+type Tracer46FlowStatsT struct {
+	LastUpdateTime uint64
+	Event          struct {
+		Comm          [16]int8
+		CgroupId      uint64
+		InodeId       uint64
+		PacketsSent   uint64
+		BytesSent     uint64
+		PacketsRecv   uint64
+		BytesRecv     uint64
+		IpSrc         uint32
+		IpDst         uint32
+		Pid           uint32
+		ParentPid     uint32
+		HostPid       uint32
+		HostParentPid uint32
+		EventId       uint16
+		PortSrc       uint16
+		PortDst       uint16
+		Pad           [10]int8
+	}
+}
+
+type Tracer46FlowT struct {
+	IpLocal struct {
+		AddrV4 struct{ S_addr uint32 }
+		_      [12]byte
+	}
+	IpRemote struct {
+		AddrV4 struct{ S_addr uint32 }
+		_      [12]byte
+	}
+	PortLocal  uint16
+	PortRemote uint16
+	Protocol   uint8
+	IpVersion  uint8
+	_          [2]byte
+}
+
 type Tracer46FoundPid struct {
 	Cgroup uint64
 	Pid    uint32
@@ -277,7 +316,9 @@ type Tracer46MapSpecs struct {
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
 	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.MapSpec `ebpf:"tcp_accept_context"`
+	TcpAcceptFlowContext     *ebpf.MapSpec `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.MapSpec `ebpf:"tcp_connect_context"`
+	TcpConnectFlowContext    *ebpf.MapSpec `ebpf:"tcp_connect_flow_context"`
 }
 
 // Tracer46Objects contains all objects after they have been loaded into the kernel.
@@ -331,7 +372,9 @@ type Tracer46Maps struct {
 	Settings                 *ebpf.Map `ebpf:"settings"`
 	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.Map `ebpf:"tcp_accept_context"`
+	TcpAcceptFlowContext     *ebpf.Map `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.Map `ebpf:"tcp_connect_context"`
+	TcpConnectFlowContext    *ebpf.Map `ebpf:"tcp_connect_flow_context"`
 }
 
 func (m *Tracer46Maps) Close() error {
@@ -368,7 +411,9 @@ func (m *Tracer46Maps) Close() error {
 		m.Settings,
 		m.SyscallEvents,
 		m.TcpAcceptContext,
+		m.TcpAcceptFlowContext,
 		m.TcpConnectContext,
+		m.TcpConnectFlowContext,
 	)
 }
 

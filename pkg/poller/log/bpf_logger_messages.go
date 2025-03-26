@@ -29,4 +29,5 @@ var bpfLogMessages = []string{
 	/*0024*/ "[%d] Unable to get go tcp connection fd info]",
 	/*0025*/ "[%d] Packet sniffer error]",
 	/*0026*/ "[%d] File probes error]",
+	/*0027*/ "[%d] Event error [err: %d]",
 }

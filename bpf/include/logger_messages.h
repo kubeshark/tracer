@@ -35,6 +35,7 @@ Copyright (C) Kubeshark
 #define LOG_ERROR_GETTING_GO_TCP_CONN_FD (24)
 #define LOG_ERROR_PKT_SNIFFER (25)
 #define LOG_ERROR_FILE_PROBES_MAP_ERROR (26)
+#define LOG_ERROR_EVENT (27)
 
 // Sometimes we have the same error, happening from different locations.
 // 	in order to be able to distinct between them in the log, we add an 

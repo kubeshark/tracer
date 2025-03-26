@@ -68,6 +68,13 @@ struct
     __type(value, struct pkt);
 } pkt_heap SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, struct flow_t);
+} heap_flow SEC(".maps");
+
 struct pkt_id_t
 {
     __u64 id;
@@ -82,6 +89,8 @@ struct
 } pkt_id SEC(".maps");
 
 BPF_PERF_OUTPUT_LARGE(pkts_buffer);
+
+#define NSEC_PER_SEC 1000000000
 
 /*
     defining ENABLE_TRACE_PACKETS enables tracing into kernel cyclic buffer
@@ -209,6 +218,7 @@ struct pkt_sniffer_ctx {
 };
 
 
+static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side);
 static __always_inline int save_packet(struct pkt_sniffer_ctx* args);
 static __always_inline int parse_packet(struct __sk_buff* skb,
     __u32* src_ip4, __u16* src_port,
@@ -220,10 +230,13 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
 static __always_inline int filter_packets(struct __sk_buff* skb,
     void* cgrpctxmap, struct packet_sniffer_stats* stats, __u8 side) {
     ++stats->packets_total;
-    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_PLAIN)) {
+
+    int zero = 0;
+    struct flow_t* key_flow = bpf_map_lookup_elem(&heap_flow, &zero);
+    if (key_flow == NULL)
+    {
         return 1;
     }
-    ++stats->packets_program_enabled;
 
     __u64 cgroup_id = 0;
     if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE) {
@@ -231,11 +244,6 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     } else {
         cgroup_id = bpf_skb_cgroup_id(skb);
     }
-
-    if (cgroup_id == 0 || !should_target_cgroup(cgroup_id)) {
-        return 1;
-    }
-    ++stats->packets_matched_cgroup;
 
     __u32 src_ip = 0;
     __u16 src_port = 0;
@@ -261,7 +269,7 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
             &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
     } else {
         ++stats->packets_ipv4;
-        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, NULL,
+        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr,
             &src_ip6, &dst_ip6, NULL);
     }
     if (!ret) {
@@ -284,6 +292,17 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
                                                : skb->remote_port >> 16),
     };
 
+    __builtin_memset(key_flow, 0, sizeof(struct flow_t));
+    if (side == PACKET_DIRECTION_RECEIVED) {
+        key_flow->port_remote = src_port;
+        key_flow->port_local = bpf_ntohs(dst_port);
+    } else {
+        key_flow->port_local = bpf_ntohs(src_port);
+        key_flow->port_remote = dst_port;
+    }
+    key_flow->protocol = transportHdr;
+    key_flow->ip_version = ip_version;
+
     const char* flow_label =
         (side == PACKET_DIRECTION_RECEIVED) ? "cg/in" : "cg/out";
     if (ip_version == 4) {
@@ -292,13 +311,39 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         TRACE_PACKET_IPV4(flow_label, true, skb->local_ip4, skb->remote_ip4,
             skb->local_port & 0xffff, skb->remote_port & 0xffff,
             cgroup_id);
+        if (side == PACKET_DIRECTION_RECEIVED) {
+            key_flow->ip_local.addr_v4.s_addr = dst_ip;
+            key_flow->ip_remote.addr_v4.s_addr = src_ip;
+        } else {
+            key_flow->ip_local.addr_v4.s_addr = src_ip;
+            key_flow->ip_remote.addr_v4.s_addr = dst_ip;
+        }
     } else {
         __builtin_memcpy(&ctx.ip.v6.src, &src_ip6, sizeof(struct in6_addr));
         __builtin_memcpy(&ctx.ip.v6.dst, &dst_ip6, sizeof(struct in6_addr));
         TRACE_PACKET_IPV6(flow_label, true, skb->local_ip6, skb->remote_ip6,
             skb->local_port & 0xffff, skb->remote_port & 0xffff,
             cgroup_id);
+
+        if (side == PACKET_DIRECTION_RECEIVED) {
+            __builtin_memcpy(&key_flow->ip_local.addr_v6, &dst_ip6, sizeof(struct in6_addr));
+            __builtin_memcpy(&key_flow->ip_remote.addr_v6, &src_ip6, sizeof(struct in6_addr));
+        } else {
+            __builtin_memcpy(&key_flow->ip_local.addr_v6, &src_ip6, sizeof(struct in6_addr));
+            __builtin_memcpy(&key_flow->ip_remote.addr_v6, &dst_ip6, sizeof(struct in6_addr));
+        }
     }
+    update_flow_stats(skb, key_flow, side);
+
+    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_PLAIN)) {
+        return 1;
+    }
+    ++stats->packets_program_enabled;
+
+    if (cgroup_id == 0 || !should_target_cgroup(cgroup_id)) {
+        return 1;
+    }
+    ++stats->packets_matched_cgroup;
 
     ret = save_packet(&ctx);
 
@@ -315,6 +360,45 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     }
 
     return 1;
+}
+
+static __always_inline void send_flow_stats(struct __sk_buff* skb, struct flow_stats_t* val_flow, __u8 side, __u8 is_client) {
+    if (!val_flow) {
+        return;
+    }
+    if (side == PACKET_DIRECTION_RECEIVED) {
+        if (is_client) {
+            val_flow->event.packets_recv++;
+            val_flow->event.bytes_recv += skb->len;
+        } else {
+            val_flow->event.packets_sent++;
+            val_flow->event.bytes_sent += skb->len;
+        }
+    } else {
+        if (is_client) {
+            val_flow->event.packets_sent++;
+            val_flow->event.bytes_sent += skb->len;
+        } else {
+            val_flow->event.packets_recv++;
+            val_flow->event.bytes_recv += skb->len;
+        }
+    }
+
+    __u64 now = bpf_ktime_get_ns();
+    if (now - val_flow->last_update_time > 10lu * NSEC_PER_SEC) {
+        val_flow->last_update_time = now;
+        bpf_perf_event_output(skb, &syscall_events, BPF_F_CURRENT_CPU, &val_flow->event, sizeof(struct syscall_event));
+    }
+}
+
+static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side) {
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow), side, 0);
+
+    SWAP_FLOW(key_flow);
+
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow), side, 0);
 }
 
 SEC("cgroup_skb/ingress")

@@ -81,6 +81,60 @@ struct pid_offset {
     __u64 symbol_offset;
 };
 
+struct syscall_event {
+    char comm[16];
+
+    __u64 cgroup_id;
+    __u64 inode_id;
+
+    __u64 packets_sent;
+    __u64 bytes_sent;
+    __u64 packets_recv;
+    __u64 bytes_recv;
+
+    __be32 ip_src;
+    __be32 ip_dst;
+    __be32 pid;
+    __be32 parent_pid;
+    __be32 host_pid;
+    __be32 host_parent_pid;
+
+    __u16 event_id;
+    __be16 port_src;
+    __be16 port_dst;
+
+    char __pad[10]; //padding
+};
+
+union ip_addr {
+	struct in_addr addr_v4;
+	struct in6_addr addr_v6;
+};
+
+struct flow_t {
+    union ip_addr ip_local;
+    union ip_addr ip_remote;
+    __u16 port_local;
+    __u16 port_remote;
+    __u8 protocol;
+    __u8 ip_version;
+};
+
+struct flow_stats_t {
+    __u64 last_update_time;
+    struct syscall_event event;
+};
+
+#define SWAP_FLOW(_flow) \
+    do { \
+        union ip_addr _tmp_addr = _flow->ip_local; \
+        _flow->ip_local = _flow->ip_remote; \
+        _flow->ip_remote = _tmp_addr; \
+        __u16 _tmp_port = _flow->port_local; \
+        _flow->port_local = _flow->port_remote; \
+        _flow->port_remote = _tmp_port; \
+    } while (0)
+
 const struct goid_offsets* unused __attribute__((unused));
 
 // Heap-like area for eBPF programs - stack size limited to 512 bytes, we must use maps for bigger (chunk) objects.
@@ -160,6 +214,9 @@ BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
 
 BPF_LRU_HASH(tcp_connect_context, __u64, __u32);
+BPF_LRU_HASH(tcp_connect_flow_context, struct flow_t, struct flow_stats_t);
 BPF_LRU_HASH(tcp_accept_context, __u64, __u32);
+BPF_LRU_HASH(tcp_accept_flow_context, struct flow_t, struct flow_stats_t);
+BPF_PERF_OUTPUT(syscall_events);
 
 #endif /* __MAPS__ */

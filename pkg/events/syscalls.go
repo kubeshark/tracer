@@ -13,11 +13,20 @@ const (
 	EventIdCloseAccept  = 3
 )
 
+type SyscallEventStats struct {
+	PacketsSent uint64
+	BytesSent uint64
+	PacketsReceived uint64
+	BytesReceived uint64
+}
+
 type SyscallEventMessage struct {
 	Command [16]byte
 
 	CgroupID uint64
 	SocketID uint64
+
+	Stats SyscallEventStats
 
 	IpSrc         uint32
 	IpDst         uint32
@@ -29,8 +38,6 @@ type SyscallEventMessage struct {
 	EventId uint16
 	PortSrc uint16
 	PortDst uint16
-
-	Pad [10]byte
 }
 
 type SyscallEvent struct {

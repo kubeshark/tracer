@@ -108,6 +108,45 @@ type TracerFilePath struct {
 	_        [1]byte
 }
 
+type TracerFlowStatsT struct {
+	LastUpdateTime uint64
+	Event          struct {
+		Comm          [16]int8
+		CgroupId      uint64
+		InodeId       uint64
+		PacketsSent   uint64
+		BytesSent     uint64
+		PacketsRecv   uint64
+		BytesRecv     uint64
+		IpSrc         uint32
+		IpDst         uint32
+		Pid           uint32
+		ParentPid     uint32
+		HostPid       uint32
+		HostParentPid uint32
+		EventId       uint16
+		PortSrc       uint16
+		PortDst       uint16
+		Pad           [10]int8
+	}
+}
+
+type TracerFlowT struct {
+	IpLocal struct {
+		AddrV4 struct{ S_addr uint32 }
+		_      [12]byte
+	}
+	IpRemote struct {
+		AddrV4 struct{ S_addr uint32 }
+		_      [12]byte
+	}
+	PortLocal  uint16
+	PortRemote uint16
+	Protocol   uint8
+	IpVersion  uint8
+	_          [2]byte
+}
+
 type TracerFoundPid struct {
 	Cgroup uint64
 	Pid    uint32
@@ -308,6 +347,7 @@ type TracerMapSpecs struct {
 	GoWriteContext           *ebpf.MapSpec `ebpf:"go_write_context"`
 	GoidOffsetsMap           *ebpf.MapSpec `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.MapSpec `ebpf:"heap"`
+	HeapFlow                 *ebpf.MapSpec `ebpf:"heap_flow"`
 	Inodemap                 *ebpf.MapSpec `ebpf:"inodemap"`
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
@@ -325,7 +365,9 @@ type TracerMapSpecs struct {
 	Sockmap                  *ebpf.MapSpec `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.MapSpec `ebpf:"tcp_accept_context"`
+	TcpAcceptFlowContext     *ebpf.MapSpec `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.MapSpec `ebpf:"tcp_connect_context"`
+	TcpConnectFlowContext    *ebpf.MapSpec `ebpf:"tcp_connect_flow_context"`
 }
 
 // TracerObjects contains all objects after they have been loaded into the kernel.
@@ -370,6 +412,7 @@ type TracerMaps struct {
 	GoWriteContext           *ebpf.Map `ebpf:"go_write_context"`
 	GoidOffsetsMap           *ebpf.Map `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.Map `ebpf:"heap"`
+	HeapFlow                 *ebpf.Map `ebpf:"heap_flow"`
 	Inodemap                 *ebpf.Map `ebpf:"inodemap"`
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
@@ -387,7 +430,9 @@ type TracerMaps struct {
 	Sockmap                  *ebpf.Map `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.Map `ebpf:"tcp_accept_context"`
+	TcpAcceptFlowContext     *ebpf.Map `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.Map `ebpf:"tcp_connect_context"`
+	TcpConnectFlowContext    *ebpf.Map `ebpf:"tcp_connect_flow_context"`
 }
 
 func (m *TracerMaps) Close() error {
@@ -415,6 +460,7 @@ func (m *TracerMaps) Close() error {
 		m.GoWriteContext,
 		m.GoidOffsetsMap,
 		m.Heap,
+		m.HeapFlow,
 		m.Inodemap,
 		m.LogBuffer,
 		m.OpensslReadContext,
@@ -432,7 +478,9 @@ func (m *TracerMaps) Close() error {
 		m.Sockmap,
 		m.SyscallEvents,
 		m.TcpAcceptContext,
+		m.TcpAcceptFlowContext,
 		m.TcpConnectContext,
+		m.TcpConnectFlowContext,
 	)
 }
 
