@@ -56,6 +56,8 @@ func main() {
 		level = zerolog.InfoLevel
 	case "warning":
 		level = zerolog.WarnLevel
+	case "error":
+		level = zerolog.ErrorLevel
 	default:
 		level = zerolog.WarnLevel
 		log.Warn().Msgf("Invalid log level '%s'. Defaulting to 'warning'.", *logLevel)
