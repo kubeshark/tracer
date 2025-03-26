@@ -1,13 +1,13 @@
 package syscall
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"unsafe"
 
 	"github.com/cilium/ebpf/perf"
 	"github.com/kubeshark/tracer/misc"
@@ -69,14 +69,12 @@ func (t *SyscallEventsTracer) pollEvents() {
 			continue
 		}
 
-		buffer := bytes.NewReader(record.RawSample)
-
-		var ev events.SyscallEventMessage
-
-		if err := binary.Read(buffer, binary.LittleEndian, &ev); err != nil {
-			log.Error().Err(err).Msg("Parse syscall event failed")
-			continue
+		const expectedSize = 108
+		if len(record.RawSample) != expectedSize {
+			log.Error().Int("size", len(record.RawSample)).Int("expected", expectedSize).Msg("wrong syscall event size")
+			return
 		}
+		ev := (*events.SyscallEventMessage)(unsafe.Pointer(&record.RawSample[0]))
 
 		toIP := func(ip uint32) net.IP {
 			ipBytes := make([]byte, 4)
@@ -99,10 +97,10 @@ func (t *SyscallEventsTracer) pollEvents() {
 		}
 
 		var e events.SyscallEvent
-		e.SyscallEventMessage = ev
+		e.SyscallEventMessage = *ev
 
 		e.ProcessPath, _ = resolver.ResolveSymlinkWithoutValidation(filepath.Join("/hostproc", fmt.Sprintf("%v", ev.HostPid), "exe"))
-		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v",
+		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v, sent (pkts: %v, bytes: %v), recv (pkts: %v, bytes: %v)",
 			evName,
 			toIP(e.IpSrc),
 			toPort(e.PortSrc),
@@ -114,6 +112,10 @@ func (t *SyscallEventsTracer) pollEvents() {
 			e.Pid,
 			e.ParentPid,
 			e.CgroupID,
+			e.Stats.PacketsSent,
+			e.Stats.BytesSent,
+			e.Stats.PacketsReceived,
+			e.Stats.BytesReceived,
 		))
 
 		t.eventSocket.WriteObject(e)

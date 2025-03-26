@@ -20,30 +20,11 @@ BPF_LRU_HASH(accept_context, __u64, struct accept_data);
 
 #define SYSCALL_EVENT_ID_CONNECT 0
 #define SYSCALL_EVENT_ID_ACCEPT 1
-#define SYSCALL_EVENT_ID_CLOSE_CONNECT 2
-#define SYSCALL_EVENT_ID_CLOSE_ACCEPT 3
+#define SYSCALL_EVENT_ID_CONNECT_CLOSE 2
+#define SYSCALL_EVENT_ID_ACCEPT_CLOSE 3
+#define SYSCALL_EVENT_ID_CONNECT_UPDATE 4
+#define SYSCALL_EVENT_ID_ACCEPT_UPDATE 5
 
-struct syscall_event {
-    char comm[16];
-
-    __u64 cgroup_id;
-    __u64 inode_id;
-
-    __be32 ip_src;
-    __be32 ip_dst;
-    __be32 pid;
-    __be32 parent_pid;
-    __be32 host_pid;
-    __be32 host_parent_pid;
-
-    __u16 event_id;
-    __be16 port_src;
-    __be16 port_dst;
-
-    char __pad[10]; //padding
-};
-
-BPF_PERF_OUTPUT(syscall_events);
 
 static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk, __be32* saddr, __be16* sport, __be32* daddr, __be16* dport);
 
