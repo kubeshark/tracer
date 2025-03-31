@@ -35,6 +35,7 @@ Copyright (C) Kubeshark
 #define LOG_ERROR_GETTING_GO_TCP_CONN_FD (24)
 #define LOG_ERROR_PKT_SNIFFER (25)
 #define LOG_ERROR_FILE_PROBES_MAP_ERROR (26)
+#define LOG_ERROR_EVENT (27)
 
 // Sometimes we have the same error, happening from different locations.
 // 	in order to be able to distinct between them in the log, we add an 
@@ -47,5 +48,12 @@ Copyright (C) Kubeshark
 #define ORIGIN_SYS_ENTER_WRITE_CODE (3l)
 #define ORIGIN_SYS_EXIT_ACCEPT4_CODE (4l)
 #define ORIGIN_SYS_EXIT_CONNECT_CODE (5l)
+
+#define EVENT_ERROR_CODE_UPDATE_TCP_CONNECT 0
+#define EVENT_ERROR_CODE_PERF_SYSCALL 1
+#define EVENT_ERROR_CODE_UPDATE_FLOW 2
+#define EVENT_ERROR_CODE_UPDATE_TCP_ACCEPT 3
+#define EVENT_ERROR_CODE_UPDATE_ACCEPT_CONTEXT 4
+#define EVENT_ERROR_CODE_UNKOWN_EVENT 5
 
 #endif /* __LOG_MESSAGES__ */
