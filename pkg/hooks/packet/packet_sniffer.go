@@ -37,12 +37,12 @@ func NewPacketFilter(procfs string, bpfObjs bpf.TracerObjects, cgroupsController
 	}
 
 	if enabled {
+		if _, err := pf.attachPod("0", cgroupsController.GetCgroupV2MountPoint()); err != nil {
+			return nil, err
+		}
 		if isCgroupV2 {
 			log.Info().Msg("Using eBPF packet capture for Cgroup V2")
 		} else {
-			if _, err := pf.attachPod("0", cgroupsController.GetCgroupV2MountPoint()); err != nil {
-				return nil, err
-			}
 			log.Info().Msg("Using eBPF packet capture for Cgroup V1")
 		}
 	}
@@ -59,13 +59,6 @@ func (pf *PacketFilter) Close() error {
 	}
 
 	return pf.tcClient.CleanTC()
-}
-
-func (t *PacketFilter) AttachPod(uuid, cgroupV2Path string) (bool, error) {
-	if !t.enabled || !t.isCgroupV2 {
-		return false, nil
-	}
-	return t.attachPod(uuid, cgroupV2Path)
 }
 
 func (t *PacketFilter) attachPod(uuid, cgroupV2Path string) (bool, error) {
@@ -99,21 +92,6 @@ func (t *PacketFilter) attachPod(uuid, cgroupV2Path string) (bool, error) {
 	t.attachedPods[uuid].links[cgroupV2Path] = links
 
 	return true, nil
-}
-
-func (t *PacketFilter) DetachPod(uuid string) bool {
-	log.Info().Str("pod", uuid).Msg("Detaching pod:")
-	p, ok := t.attachedPods[uuid]
-	if !ok {
-		// pod can be on a different node
-		return false
-	}
-
-	for _, l := range p.links {
-		closeLinks(l)
-	}
-	delete(t.attachedPods, uuid)
-	return true
 }
 
 func closeLinks(links []link.Link) {
