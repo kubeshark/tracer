@@ -10,13 +10,6 @@ Copyright (C) Kubeshark
 
 #include "include/events.h"
 
-#define EVENT_ERROR_CODE_UPDATE_TCP_CONNECT 0
-#define EVENT_ERROR_CODE_PERF_SYSCALL 1
-#define EVENT_ERROR_CODE_UPDATE_FLOW 2
-#define EVENT_ERROR_CODE_UPDATE_TCP_ACCEPT 3
-#define EVENT_ERROR_CODE_UPDATE_ACCEPT_CONTEXT 4
-#define EVENT_ERROR_CODE_UNKOWN_EVENT 5
-
 SEC("kprobe/tcp_connect")
 void BPF_KPROBE(tcp_connect) {
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
@@ -68,18 +61,16 @@ void BPF_KPROBE(tcp_connect) {
     key_flow.protocol = IPPROTO_TCP;
     key_flow.ip_version = 4;
 
-    __u32* local_ip = &key_flow.ip_local.addr_v4.s_addr;
-    __u32* remote_ip = &key_flow.ip_remote.addr_v4.s_addr;
-    __u16* local_port = &key_flow.port_local;
-    __u16* remote_port = &key_flow.port_remote;
-    if (read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), local_ip, local_port, remote_ip, remote_port)) {
+    if (read_addrs_ports(ctx, sk, &key_flow.ip_local.addr_v4.s_addr, &key_flow.port_local,
+        &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote)) {
         return;
     }
+
     // open connect has local port in host order and remote port in network order
-    ev.ip_src = *local_ip;
-    ev.port_src = *local_port;
-    ev.ip_dst = *remote_ip;
-    ev.port_dst = bpf_ntohs(*remote_port);
+    ev.ip_src = key_flow.ip_local.addr_v4.s_addr;
+    ev.port_src = key_flow.port_local;
+    ev.ip_dst = key_flow.ip_remote.addr_v4.s_addr;
+    ev.port_dst = bpf_ntohs(key_flow.port_remote);
 
     __u64 key = (__u64)sk;
     if (bpf_map_update_elem(&tcp_connect_context, &key, &ev.pid, BPF_ANY)) {
@@ -158,20 +149,16 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
     key_flow.protocol = IPPROTO_TCP;
     key_flow.ip_version = 4;
 
-    __u32* local_ip = &key_flow.ip_local.addr_v4.s_addr;
-    __u32* remote_ip = &key_flow.ip_remote.addr_v4.s_addr;
-    __u16* local_port = &key_flow.port_local;
-    __u16* remote_port = &key_flow.port_remote;
-
-    if (read_addrs_ports(ctx, sk, local_ip, local_port, remote_ip, remote_port)) {
+    if (read_addrs_ports(ctx, sk, &key_flow.ip_local.addr_v4.s_addr, &key_flow.port_local,
+        &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote)) {
         return;
     }
 
     // open accept has local port in host order and remote port in network order
-    ev.ip_src = *remote_ip;
-    ev.port_src = bpf_ntohs(*remote_port);
-    ev.ip_dst = *local_ip;
-    ev.port_dst = *local_port;
+    ev.ip_src = key_flow.ip_remote.addr_v4.s_addr;
+    ev.port_src = bpf_ntohs(key_flow.port_remote);
+    ev.ip_dst = key_flow.ip_local.addr_v4.s_addr;
+    ev.port_dst = key_flow.port_local;
 
     __u64 key = (__u64)sk;
     if (bpf_map_update_elem(&tcp_accept_context, &key, &ev.pid, BPF_ANY)) {
@@ -304,14 +291,11 @@ void BPF_KPROBE(tcp_close) {
 
     struct flow_t key_flow;
     __builtin_memset(&key_flow, 0, sizeof(key_flow));
-    __u32* local_ip = &key_flow.ip_local.addr_v4.s_addr;
-    __u32* remote_ip = &key_flow.ip_remote.addr_v4.s_addr;
-    __u16* local_port = &key_flow.port_local;
-    __u16* remote_port = &key_flow.port_remote;
     key_flow.protocol = IPPROTO_TCP;
     key_flow.ip_version = 4;
 
-    err = read_addrs_ports(ctx, (struct sock*)PT_REGS_PARM1(ctx), local_ip, local_port, remote_ip, remote_port);
+    err = read_addrs_ports(ctx, sk, &key_flow.ip_local.addr_v4.s_addr, &key_flow.port_local,
+        &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote);
     if (err) {
         return;
     }
@@ -319,18 +303,18 @@ void BPF_KPROBE(tcp_close) {
     struct flow_stats_t* val_flow = NULL;
     if (event == SYSCALL_EVENT_ID_ACCEPT_CLOSE) {
         // close accept has local port in host order and remote port in network order
-        ev.ip_src = *remote_ip;
-        ev.port_src = bpf_ntohs(*remote_port);
-        ev.ip_dst = *local_ip;
-        ev.port_dst = *local_port;
+        ev.ip_src = key_flow.ip_remote.addr_v4.s_addr;
+        ev.port_src = bpf_ntohs(key_flow.port_remote);
+        ev.ip_dst = key_flow.ip_local.addr_v4.s_addr;
+        ev.port_dst = key_flow.port_local;
 
         val_flow = bpf_map_lookup_elem(&tcp_accept_flow_context, &key_flow);
     } else if (event == SYSCALL_EVENT_ID_CONNECT_CLOSE) {
         // close connect has local port in host order and remote port in network order
-        ev.ip_src = *local_ip;
-        ev.port_src = *local_port;
-        ev.ip_dst = *remote_ip;
-        ev.port_dst = bpf_ntohs(*remote_port);
+        ev.ip_src = key_flow.ip_local.addr_v4.s_addr;
+        ev.port_src = key_flow.port_local;
+        ev.ip_dst = key_flow.ip_remote.addr_v4.s_addr;
+        ev.port_dst = bpf_ntohs(key_flow.port_remote);
 
         val_flow = bpf_map_lookup_elem(&tcp_connect_flow_context, &key_flow);
     } else {

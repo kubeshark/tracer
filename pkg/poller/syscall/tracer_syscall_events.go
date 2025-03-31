@@ -71,7 +71,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 
 		const expectedSize = 108
 		if len(record.RawSample) != expectedSize {
-			log.Error().Int("size", len(record.RawSample)).Int("expected", expectedSize).Msg("wrong syscall event size")
+			log.Fatal().Int("size", len(record.RawSample)).Int("expected", expectedSize).Msg("wrong syscall event size")
 			return
 		}
 		ev := (*events.SyscallEventMessage)(unsafe.Pointer(&record.RawSample[0]))
