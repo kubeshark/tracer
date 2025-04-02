@@ -253,10 +253,6 @@ void BPF_KPROBE(tcp_close) {
         return;
     }
 
-    if (family != AF_INET) {
-        return;
-    }
-
     u64 inode = 0;
     struct socket* s = BPF_CORE_READ(sk, sk_socket);
     if (s) {
