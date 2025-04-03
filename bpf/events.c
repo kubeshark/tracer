@@ -73,7 +73,7 @@ void BPF_KPROBE(tcp_connect) {
     ev.port_dst = bpf_ntohs(key_flow.port_remote);
 
     __u64 key = (__u64)sk;
-    if (bpf_map_update_elem(&tcp_connect_context, &key, &ev.pid, BPF_ANY)) {
+    if (bpf_map_update_elem(&tcp_connect_context, &key, &key_flow, BPF_ANY)) {
         log_error(ctx, LOG_ERROR_EVENT, EVENT_ERROR_CODE_UPDATE_TCP_CONNECT, 0l, 0l);
         return;
     }
@@ -161,7 +161,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
     ev.port_dst = key_flow.port_local;
 
     __u64 key = (__u64)sk;
-    if (bpf_map_update_elem(&tcp_accept_context, &key, &ev.pid, BPF_ANY)) {
+    if (bpf_map_update_elem(&tcp_accept_context, &key, &key_flow, BPF_ANY)) {
         log_error(ctx, LOG_ERROR_EVENT, EVENT_ERROR_CODE_UPDATE_TCP_ACCEPT, 0l, 0l);
         return;
     }
@@ -263,15 +263,15 @@ void BPF_KPROBE(tcp_close) {
     }
 
     __u16 event = 0;
-
+    struct flow_t* key_flow = NULL;
     __u64 key = (__u64)sk;
-    if (bpf_map_lookup_elem(&tcp_accept_context, &key)) {
-        event = SYSCALL_EVENT_ID_ACCEPT_CLOSE;
-        bpf_map_delete_elem(&tcp_accept_context, &key);
-    } else if (bpf_map_lookup_elem(&tcp_connect_context, &key)) {
+    key_flow = bpf_map_lookup_elem(&tcp_accept_context, &key);
+    event = SYSCALL_EVENT_ID_ACCEPT_CLOSE;
+    if (!key_flow) {
+        key_flow = bpf_map_lookup_elem(&tcp_connect_context, &key);
         event = SYSCALL_EVENT_ID_CONNECT_CLOSE;
-        bpf_map_delete_elem(&tcp_connect_context, &key);
-    } else {
+    }
+    if (!key_flow) {
         return;
     }
 
@@ -285,37 +285,26 @@ void BPF_KPROBE(tcp_close) {
         .inode_id = inode,
     };
 
-    struct flow_t key_flow;
-    __builtin_memset(&key_flow, 0, sizeof(key_flow));
-    key_flow.protocol = IPPROTO_TCP;
-    key_flow.ip_version = 4;
-
-    err = read_addrs_ports(ctx, sk, &key_flow.ip_local.addr_v4.s_addr, &key_flow.port_local,
-        &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote);
-    if (err) {
-        return;
-    }
-
     struct flow_stats_t* val_flow = NULL;
     if (event == SYSCALL_EVENT_ID_ACCEPT_CLOSE) {
         // close accept has local port in host order and remote port in network order
-        ev.ip_src = key_flow.ip_remote.addr_v4.s_addr;
-        ev.port_src = bpf_ntohs(key_flow.port_remote);
-        ev.ip_dst = key_flow.ip_local.addr_v4.s_addr;
-        ev.port_dst = key_flow.port_local;
+        ev.ip_src = key_flow->ip_remote.addr_v4.s_addr;
+        ev.port_src = bpf_ntohs(key_flow->port_remote);
+        ev.ip_dst = key_flow->ip_local.addr_v4.s_addr;
+        ev.port_dst = key_flow->port_local;
 
-        val_flow = bpf_map_lookup_elem(&tcp_accept_flow_context, &key_flow);
+        val_flow = bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow);
     } else if (event == SYSCALL_EVENT_ID_CONNECT_CLOSE) {
         // close connect has local port in host order and remote port in network order
-        ev.ip_src = key_flow.ip_local.addr_v4.s_addr;
-        ev.port_src = key_flow.port_local;
-        ev.ip_dst = key_flow.ip_remote.addr_v4.s_addr;
-        ev.port_dst = bpf_ntohs(key_flow.port_remote);
+        ev.ip_src = key_flow->ip_local.addr_v4.s_addr;
+        ev.port_src = key_flow->port_local;
+        ev.ip_dst = key_flow->ip_remote.addr_v4.s_addr;
+        ev.port_dst = bpf_ntohs(key_flow->port_remote);
 
-        val_flow = bpf_map_lookup_elem(&tcp_connect_flow_context, &key_flow);
+        val_flow = bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow);
     } else {
         log_error(ctx, LOG_ERROR_EVENT, EVENT_ERROR_CODE_UNKOWN_EVENT, 0l, 0l);
-        return;
+        goto cleanup;
     }
 
     if (val_flow) {
@@ -324,9 +313,9 @@ void BPF_KPROBE(tcp_close) {
         ev.packets_recv = val_flow->event.packets_recv;
         ev.bytes_recv = val_flow->event.bytes_recv;
         if (event == SYSCALL_EVENT_ID_ACCEPT_CLOSE) {
-            bpf_map_delete_elem(&tcp_accept_flow_context, &key_flow);
+            bpf_map_delete_elem(&tcp_accept_flow_context, key_flow);
         } else {
-            bpf_map_delete_elem(&tcp_connect_flow_context, &key_flow);
+            bpf_map_delete_elem(&tcp_connect_flow_context, key_flow);
         }
     }
 
@@ -335,7 +324,14 @@ void BPF_KPROBE(tcp_close) {
 
     if (bpf_perf_event_output(ctx, &syscall_events, BPF_F_CURRENT_CPU, &ev, sizeof(struct syscall_event))) {
         log_error(ctx, LOG_ERROR_EVENT, EVENT_ERROR_CODE_PERF_SYSCALL, 0l, 0l);
-        return;
+        goto cleanup;
+    }
+
+cleanup:
+    if (event == SYSCALL_EVENT_ID_ACCEPT_CLOSE) {
+        bpf_map_delete_elem(&tcp_accept_context, &key);
+    } else if (event == SYSCALL_EVENT_ID_CONNECT_CLOSE) {
+        bpf_map_delete_elem(&tcp_connect_context, &key);
     }
 }
 

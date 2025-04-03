@@ -213,9 +213,9 @@ BPF_LRU_HASH(go_kernel_read_context, __u64, __u32);
 BPF_LRU_HASH(go_user_kernel_write_context, __u64, struct address_info);
 BPF_LRU_HASH(go_user_kernel_read_context, __u64, struct address_info);
 
-BPF_LRU_HASH(tcp_connect_context, __u64, __u32);
+BPF_LRU_HASH(tcp_connect_context, __u64, struct flow_t);
 BPF_LRU_HASH(tcp_connect_flow_context, struct flow_t, struct flow_stats_t);
-BPF_LRU_HASH(tcp_accept_context, __u64, __u32);
+BPF_LRU_HASH(tcp_accept_context, __u64, struct flow_t);
 BPF_LRU_HASH(tcp_accept_flow_context, struct flow_t, struct flow_stats_t);
 BPF_PERF_OUTPUT(syscall_events);
 
