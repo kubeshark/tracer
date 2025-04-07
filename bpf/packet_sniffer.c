@@ -272,7 +272,7 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr,
             &src_ip6, &dst_ip6, NULL);
     }
-    if (!ret) {
+    if (ret) {
         ++stats->packets_parse_failed;
         return 1;
     }
@@ -597,10 +597,17 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
     return ret;
 }
 
-/* parse_packet identifies TLS packet
-  returns:
-  0 in case packet has TCP source or destination port equal to 443 - in this case packet is treated as TLS and not going to be processed
-  not 0 in other cases
+/* parse_packet to find out IP addresses and ports information
+   @skb: pointer to the packet
+   @src_ip4: pointer to the source IPv4 address
+   @src_port: pointer to the source port
+   @dst_ip4: pointer to the destination IPv4 address
+   @dst_port: pointer to the destination port
+   @ipp: pointer to the IP protocol number
+   @src_ip6: pointer to the source IPv6 address
+   @dst_ip6: pointer to the destination IPv6 address
+   @transportOffset: pointer to the transport layer offset
+returns 0 on success, -1 on error
 */
 static __always_inline int parse_packet(struct __sk_buff* skb,
     __u32* src_ip4, __u16* src_port,
@@ -617,7 +624,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
 
         struct iphdr* ip = (struct iphdr*)cursor;
         if (ip + 1 > (struct iphdr*)data_end)
-            return 2;
+            return -1;
 
         if (src_ip4) {
             *src_ip4 = ip->saddr;
@@ -628,10 +635,10 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
 
         int hdrsize = ip->ihl * 4;
         if (hdrsize < sizeof(struct iphdr))
-            return 3;
+            return -1;
 
         if ((void*)ip + hdrsize > data_end)
-            return 4;
+            return -1;
 
         cursor += hdrsize;
         ip_proto = ip->protocol;
@@ -641,7 +648,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
     } else {
         struct ipv6hdr* ip6 = (struct ipv6hdr*)cursor;
         if ((ip6 + 1 > (struct ipv6hdr*)data_end)) {
-            return 6;
+            return -1;
         }
 
         if (src_ip6) {
@@ -660,7 +667,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
             struct ipv6_opt_hdr* hdr = (struct ipv6_opt_hdr*)cursor;
 
             if (hdr + 1 > (struct ipv6_opt_hdr*)data_end)
-                return 7;
+                return -1;
 
             if (ip_proto == IPPROTO_TCP || ip_proto == IPPROTO_UDP ||
                 ip_proto == IPPROTO_ICMPV6) {
@@ -681,11 +688,11 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
                 cursor += 8;
                 break;
             default:
-                return 7;
+                return -1;
             }
 
             if (cursor > data_end)
-                return 7;
+                return -1;
 
             ip_proto = hdr->nexthdr;
         }
@@ -702,7 +709,7 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
     if (ip_proto == IPPROTO_TCP) {
         struct tcphdr* tcp = (struct tcphdr*)cursor;
         if (tcp + 1 > (struct tcphdr*)data_end)
-            return 5;
+            return -1;
         if (src_port) {
             *src_port = tcp->source;
         }
@@ -711,16 +718,12 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
         }
 
         cursor += tcp->doff * 4;
-        if (tcp->dest == bpf_htons(443) || tcp->source == bpf_htons(443)) {
-            // skip only packets with tcp port 443 to support previous bpf filter
-            return 0;
-        }
     }
 
     if (ip_proto == IPPROTO_UDP) {
         struct udphdr* udp = (struct udphdr*)cursor;
         if (udp + 1 > (struct udphdr*)data_end)
-            return 5;
+            return -1;
         if (src_port) {
             *src_port = udp->source;
         }
@@ -729,5 +732,5 @@ static __always_inline int parse_packet(struct __sk_buff* skb,
         }
     }
 
-    return 6;
+    return 0;
 }
