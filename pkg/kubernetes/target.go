@@ -169,6 +169,7 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, noPods bool, e
 			url, err)
 	}
 	noPods = data.NoPods
+	targetPods = data.TargetPods
 
 	return
 }
