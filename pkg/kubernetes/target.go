@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"errors"
-
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
@@ -75,30 +73,26 @@ func updateCurrentlyTargetedPods(
 	settings uint32,
 ) (err error) {
 
-	newAllTargetPods, noPods, err := getAllTargetPodsFromHub()
+	newAllTargetPods, targetingEnabled, err := getAllTargetPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get all targeted pods")
 	}
 
-	if noPods {
+	if !targetingEnabled {
 		SetAllCgroupsOn(&settings)
 	} else {
 		SetAllCgroupsOff(&settings)
 	}
 
-	if noPods {
-		log.Info().Msg("No pods found")
+	if !targetingEnabled {
+		log.Info().Msg("Targeting is disabled, watch all pods")
 		err = callback(nil, nil, settings)
 		return
 	}
 
-	newSelectedTargetPods, noPods, err := getSelectedTargetedPodsFromHub()
+	newSelectedTargetPods, _, err := getSelectedTargetedPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get selected targeted pods")
-	}
-	if noPods {
-		err = errors.New("Received unexpected 'no targeted pods'")
-		return
 	}
 
 	addedTargetedPods, removedTargetedPods := getPodArrayDiff(GetSelectedTargetPods(), newSelectedTargetPods)
@@ -111,15 +105,15 @@ func updateCurrentlyTargetedPods(
 	return
 }
 
-func getAllTargetPodsFromHub() (targetPods []*v1.Pod, noPods bool, err error) {
+func getAllTargetPodsFromHub() (targetPods []*v1.Pod, targetingEnabled bool, err error) {
 	return getTargetPodsFromHub(allTargetPodsEndpoint)
 }
 
-func getSelectedTargetedPodsFromHub() (targetPods []*v1.Pod, noPods bool, err error) {
+func getSelectedTargetedPodsFromHub() (targetPods []*v1.Pod, targetingEnabled bool, err error) {
 	return getTargetPodsFromHub(selectedTargetPodsEndpoint)
 }
 
-func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, noPods bool, err error) {
+func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, targetingEnabled bool, err error) {
 
 	url := hubAddr + endpoint
 
@@ -157,8 +151,8 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, noPods bool, e
 	}
 
 	type targetPodsResponse struct {
-		NoPods     bool      `json:"nopods"`
-		TargetPods []*v1.Pod `json:"targets"`
+		TargetingEnabled bool      `json:"targetingEnabled"`
+		TargetPods       []*v1.Pod `json:"targets"`
 	}
 
 	var data targetPodsResponse
@@ -168,7 +162,7 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, noPods bool, e
 		return nil, false, fmt.Errorf("failed unmarshalling list of target pod from url=%s: %w",
 			url, err)
 	}
-	noPods = data.NoPods
+	targetingEnabled = data.TargetingEnabled
 	targetPods = data.TargetPods
 
 	return
