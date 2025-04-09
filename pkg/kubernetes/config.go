@@ -19,7 +19,10 @@ const (
 	CONFIG_STOPPED    = "STOPPED"
 )
 
-const CONFIGURATION_FLAG_CAPTURE_STOPPED = 1 << 0
+const (
+	CONFIGURATION_FLAG_CAPTURE_STOPPED  = 1 << 0
+	CONFIGURATION_FLAG_PASS_ALL_CGROUPS = 1 << 1
+)
 
 func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 	configPodRegex := configMap.Data[CONFIG_POD_REGEX]
@@ -39,6 +42,14 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 	}
 
 	return regex, namespaces, settings
+}
+
+func SetAllCgroupsOn(settings *uint32) {
+	*settings |= CONFIGURATION_FLAG_PASS_ALL_CGROUPS
+}
+
+func SetAllCgroupsOff(settings *uint32) {
+	*settings &^= CONFIGURATION_FLAG_PASS_ALL_CGROUPS
 }
 
 func GetThisNodeName(watcher *Watcher) (name string, err error) {
