@@ -89,7 +89,7 @@ func updateCurrentlyTargetedPods(
 	if noPods {
 		log.Info().Msg("No pods found")
 		err = callback(nil, nil, settings)
-		return nil
+		return
 	}
 
 	newSelectedTargetPods, noPods, err := getSelectedTargetedPodsFromHub()
