@@ -362,6 +362,7 @@ type TracerMapSpecs struct {
 	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
 	ProgramsConfiguration    *ebpf.MapSpec `ebpf:"programs_configuration"`
 	Settings                 *ebpf.MapSpec `ebpf:"settings"`
+	SocketCgroups            *ebpf.MapSpec `ebpf:"socket_cgroups"`
 	Sockmap                  *ebpf.MapSpec `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.MapSpec `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.MapSpec `ebpf:"tcp_accept_context"`
@@ -427,6 +428,7 @@ type TracerMaps struct {
 	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
 	ProgramsConfiguration    *ebpf.Map `ebpf:"programs_configuration"`
 	Settings                 *ebpf.Map `ebpf:"settings"`
+	SocketCgroups            *ebpf.Map `ebpf:"socket_cgroups"`
 	Sockmap                  *ebpf.Map `ebpf:"sockmap"`
 	SyscallEvents            *ebpf.Map `ebpf:"syscall_events"`
 	TcpAcceptContext         *ebpf.Map `ebpf:"tcp_accept_context"`
@@ -475,6 +477,7 @@ func (m *TracerMaps) Close() error {
 		m.PktsBuffer,
 		m.ProgramsConfiguration,
 		m.Settings,
+		m.SocketCgroups,
 		m.Sockmap,
 		m.SyscallEvents,
 		m.TcpAcceptContext,

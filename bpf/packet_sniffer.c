@@ -90,6 +90,13 @@ struct
 
 BPF_PERF_OUTPUT_LARGE(pkts_buffer);
 
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 65536);
+    __type(key, __u64); // sock id
+    __type(value, __u64); // cgroup id
+} socket_cgroups SEC(".maps");
+
 #define NSEC_PER_SEC 1000000000
 
 /*
@@ -231,6 +238,12 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     void* cgrpctxmap, struct packet_sniffer_stats* stats, __u8 side) {
     ++stats->packets_total;
 
+    struct bpf_sock* sk = skb->sk;
+    if (!sk) {
+        return 1;
+    }
+    __u64 sknum = (__u64)(void*)sk;
+
     int zero = 0;
     struct flow_t* key_flow = bpf_map_lookup_elem(&heap_flow, &zero);
     if (key_flow == NULL)
@@ -241,6 +254,18 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     __u64 cgroup_id = 0;
     if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE) {
         cgroup_id = get_packet_cgroup(skb, cgrpctxmap);
+
+        // cgroup can not always be defined by context map
+        // save socket to the dedicated map
+        if (cgroup_id) {
+            bpf_map_update_elem(&socket_cgroups, &sknum, &cgroup_id, BPF_ANY);
+        } else {
+            __u64* c = bpf_map_lookup_elem(&socket_cgroups, &sknum);
+            if (c && *c) {
+                cgroup_id = *c;
+            }
+        }
+
     } else {
         cgroup_id = bpf_skb_cgroup_id(skb);
     }
