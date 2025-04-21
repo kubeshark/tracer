@@ -58,28 +58,9 @@ func newPacketSource(perfName string, enableCaptureName string, createPoller cre
 	var perfBuffer *ebpf.Map
 	var enableCaptureMap *ebpf.Map
 
-	expireTime := time.Now().Add(15 * time.Second)
-	supported := false
-	for time.Now().Before(expireTime) {
-		if file, err := os.Open(pathNotSupported); err == nil {
-			file.Close()
-			return nil, ErrNotSupported
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("check file %v existence failed: %v", pathNotSupported, err)
-		}
-
-		if file, err := os.Open(pathSupported); err == nil {
-			file.Close()
-			supported = true
-			break
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("check file %v existence failed: %v", pathSupported, err)
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	if !supported {
-		// time is up but no file was found
+	if supported, err := IsPlainPacketCaptureSupported(pathSupported, pathNotSupported); err != nil {
+		return nil, err
+	} else if !supported {
 		return nil, ErrNotSupported
 	}
 
@@ -185,3 +166,27 @@ func (p *PacketSourceImpl) ExtendedStats() interface{} {
 	return p.poller.GetExtendedStats()
 }
 
+func IsPlainPacketCaptureSupported(pathSupported, pathNotSupported string) (supported bool, err error) {
+	expireTime := time.Now().Add(15 * time.Second)
+	for time.Now().Before(expireTime) {
+		var file *os.File
+		if file, err = os.Open(pathNotSupported); err == nil {
+			file.Close()
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			err = fmt.Errorf("check file %v existence failed: %w", pathNotSupported, err)
+			return
+		}
+
+		if file, err = os.Open(pathSupported); err == nil {
+			file.Close()
+			supported = true
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			err = fmt.Errorf("check file %v existence failed: %w", pathSupported, err)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return
+}

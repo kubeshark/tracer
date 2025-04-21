@@ -25,6 +25,7 @@ const (
 	PinNamePlainPackets          = "packets_plain"
 	PinNameTLSPackets            = "packets_tls"
 	PinNameProgramsConfiguration = "progs_config"
+	PinNameFlows                 = "flows"
 
 	TlsBackendSupportedFile      = "tracer_tls_supported"
 	TlsBackendNotSupportedFile   = "tracer_tls_not_supported"
@@ -131,6 +132,11 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	var errLoadTls error
 
 	pinMap := func(mapName string, mapObj *ebpf.Map) error {
+		p := filepath.Join(PinPath, mapName)
+		if err = os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: remove flows map failed: %v", ErrBpfOperationFailed, err)
+		}
+
 		if err = mapObj.Pin(filepath.Join(PinPath, mapName)); err != nil {
 			return err
 		}
@@ -240,6 +246,11 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	if plainEnabled {
 		if err = pinMap(PinNamePlainPackets, objs.BpfObjs.PktsBuffer); err != nil {
 			err = fmt.Errorf("%w: pin packets buffer failed: %v", ErrBpfOperationFailed, err)
+			return
+		}
+
+		if err = pinMap(PinNameFlows, objs.BpfObjs.AllFlowsStats); err != nil {
+			err = fmt.Errorf("%w: pin flows failed: %v", ErrBpfOperationFailed, err)
 			return
 		}
 	}

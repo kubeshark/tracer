@@ -97,6 +97,41 @@ struct {
     __type(value, __u64); // cgroup id
 } socket_cgroups SEC(".maps");
 
+struct flow_key_t {
+    __u64 cgroup_id; // local peer cgroup id
+    __u8 ip_local[16];
+    __u8 ip_remote[16];
+    __u16 port_local;
+    __u16 port_remote;
+    __u16 __pad;
+    __u8 protocol;
+    __u8 ip_version;
+};
+
+struct flow_value_t {
+    __u64 first_update_time;
+    __u64 last_update_time;
+    __u64 pkts_sent;
+    __u64 bytes_sent;
+    __u64 pkts_recv;
+    __u64 bytes_recv;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH);
+    __uint(max_entries, 65536);
+    __type(key, struct flow_key_t);
+    __type(value, struct flow_value_t);
+} all_flows_stats SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, struct flow_key_t);
+} heap_flow_key SEC(".maps");
+
+
 #define NSEC_PER_SEC 1000000000
 
 /*
@@ -250,6 +285,14 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     {
         return 1;
     }
+    __builtin_memset(key_flow, 0, sizeof(struct flow_t));
+
+    struct flow_key_t* fkey = bpf_map_lookup_elem(&heap_flow_key, &zero);
+    if (fkey == NULL)
+    {
+        return 1;
+    }
+    __builtin_memset(fkey, 0, sizeof(struct flow_key_t));
 
     __u64 cgroup_id = 0;
     if (CGROUP_V1 || PREFER_CGROUP_V1_EBPF_CAPTURE) {
@@ -358,6 +401,45 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
             __builtin_memcpy(&key_flow->ip_remote.addr_v6, &dst_ip6, sizeof(struct in6_addr));
         }
     }
+
+    fkey->cgroup_id = cgroup_id;
+    fkey->port_local = key_flow->port_local;
+    fkey->port_remote = bpf_ntohs(key_flow->port_remote);
+    fkey->protocol = key_flow->protocol;
+    fkey->ip_version = key_flow->ip_version;
+    if (ip_version == 4) {
+        __builtin_memcpy(fkey->ip_local, &key_flow->ip_local.addr_v4.s_addr, sizeof(key_flow->ip_local.addr_v4.s_addr));
+        __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v4.s_addr, sizeof(key_flow->ip_remote.addr_v4.s_addr));
+    } else {
+        __builtin_memcpy(fkey->ip_local, &key_flow->ip_local.addr_v6, sizeof(struct in6_addr));
+        __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v6, sizeof(struct in6_addr));
+    }
+
+    struct flow_value_t* val_flow = bpf_map_lookup_elem(&all_flows_stats, fkey);
+    if (val_flow) {
+        if (side == PACKET_DIRECTION_RECEIVED) {
+            val_flow->pkts_recv++;
+            val_flow->bytes_recv += skb->len;
+        } else {
+            val_flow->pkts_sent++;
+            val_flow->bytes_sent += skb->len;
+        }
+        val_flow->last_update_time = bpf_ktime_get_ns();
+        if (val_flow->first_update_time == 0) {
+            val_flow->first_update_time = val_flow->last_update_time;
+        }
+    } else {
+        struct flow_value_t new_val = { 0 };
+        new_val.pkts_recv = (side == PACKET_DIRECTION_RECEIVED) ? 1 : 0;
+        new_val.pkts_sent = (side == PACKET_DIRECTION_RECEIVED) ? 0 : 1;
+        new_val.bytes_recv = (side == PACKET_DIRECTION_RECEIVED) ? skb->len : 0;
+        new_val.bytes_sent = (side == PACKET_DIRECTION_RECEIVED) ? 0 : skb->len;
+        new_val.first_update_time = bpf_ktime_get_ns();
+        new_val.last_update_time = bpf_ktime_get_ns();
+        bpf_map_update_elem(&all_flows_stats, fkey, &new_val, BPF_ANY);
+    }
+
+    // should be in the bottom because it swaps flow:
     update_flow_stats(skb, key_flow, side);
 
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_PLAIN)) {

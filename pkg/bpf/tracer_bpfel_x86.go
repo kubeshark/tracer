@@ -108,6 +108,17 @@ type TracerFilePath struct {
 	_        [1]byte
 }
 
+type TracerFlowKeyT struct {
+	CgroupId   uint64
+	IpLocal    [16]uint8
+	IpRemote   [16]uint8
+	PortLocal  uint16
+	PortRemote uint16
+	Pad        uint16
+	Protocol   uint8
+	IpVersion  uint8
+}
+
 type TracerFlowStatsT struct {
 	LastUpdateTime uint64
 	Event          struct {
@@ -145,6 +156,15 @@ type TracerFlowT struct {
 	Protocol   uint8
 	IpVersion  uint8
 	_          [2]byte
+}
+
+type TracerFlowValueT struct {
+	FirstUpdateTime uint64
+	LastUpdateTime  uint64
+	PktsSent        uint64
+	BytesSent       uint64
+	PktsRecv        uint64
+	BytesRecv       uint64
 }
 
 type TracerFoundPid struct {
@@ -326,6 +346,7 @@ type TracerProgramSpecs struct {
 type TracerMapSpecs struct {
 	AcceptContext            *ebpf.MapSpec `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
+	AllFlowsStats            *ebpf.MapSpec `ebpf:"all_flows_stats"`
 	AllStatsMap              *ebpf.MapSpec `ebpf:"all_stats_map"`
 	Bufs                     *ebpf.MapSpec `ebpf:"bufs"`
 	CgroupIds                *ebpf.MapSpec `ebpf:"cgroup_ids"`
@@ -348,6 +369,7 @@ type TracerMapSpecs struct {
 	GoidOffsetsMap           *ebpf.MapSpec `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.MapSpec `ebpf:"heap"`
 	HeapFlow                 *ebpf.MapSpec `ebpf:"heap_flow"`
+	HeapFlowKey              *ebpf.MapSpec `ebpf:"heap_flow_key"`
 	Inodemap                 *ebpf.MapSpec `ebpf:"inodemap"`
 	LogBuffer                *ebpf.MapSpec `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.MapSpec `ebpf:"openssl_read_context"`
@@ -392,6 +414,7 @@ func (o *TracerObjects) Close() error {
 type TracerMaps struct {
 	AcceptContext            *ebpf.Map `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
+	AllFlowsStats            *ebpf.Map `ebpf:"all_flows_stats"`
 	AllStatsMap              *ebpf.Map `ebpf:"all_stats_map"`
 	Bufs                     *ebpf.Map `ebpf:"bufs"`
 	CgroupIds                *ebpf.Map `ebpf:"cgroup_ids"`
@@ -414,6 +437,7 @@ type TracerMaps struct {
 	GoidOffsetsMap           *ebpf.Map `ebpf:"goid_offsets_map"`
 	Heap                     *ebpf.Map `ebpf:"heap"`
 	HeapFlow                 *ebpf.Map `ebpf:"heap_flow"`
+	HeapFlowKey              *ebpf.Map `ebpf:"heap_flow_key"`
 	Inodemap                 *ebpf.Map `ebpf:"inodemap"`
 	LogBuffer                *ebpf.Map `ebpf:"log_buffer"`
 	OpensslReadContext       *ebpf.Map `ebpf:"openssl_read_context"`
@@ -441,6 +465,7 @@ func (m *TracerMaps) Close() error {
 	return _TracerClose(
 		m.AcceptContext,
 		m.AcceptSyscallContext,
+		m.AllFlowsStats,
 		m.AllStatsMap,
 		m.Bufs,
 		m.CgroupIds,
@@ -463,6 +488,7 @@ func (m *TracerMaps) Close() error {
 		m.GoidOffsetsMap,
 		m.Heap,
 		m.HeapFlow,
+		m.HeapFlowKey,
 		m.Inodemap,
 		m.LogBuffer,
 		m.OpensslReadContext,
