@@ -8,6 +8,9 @@ on:
       branches:
         - master
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Run tests and collect coverage
