@@ -28,6 +28,24 @@ jobs:
           git config --global url."https://${GH_ACCESS_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
 
       - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            sudo \
+            curl \
+            build-essential \
+            xz-utils \
+            libpcap-dev \
+            clang \
+            llvm \
+            libbpf-dev \
+            libelf-dev
+          ./install-capstone.sh
+
+      - name: Generate eBPF object files and Go bindings
+        run: make bpf
+
+      - name: Install go dependencies
         run: go mod download
 
       - name: Run tests
