@@ -7,5 +7,5 @@ coverage:
       default: false
       go:  
         target: 80%  
-        paths: ["**.go"]  
-        only_pulls: true  
+        only_pulls: true
+        paths: []    
