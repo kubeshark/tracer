@@ -8,4 +8,4 @@ coverage:
       go:  
         target: 80%  
         only_pulls: true
-        paths: []    
+        paths: ["replace-with-first-path-added"]
