@@ -129,7 +129,7 @@ func (p *PacketsPoller) poll() {
 	go p.checkBuffers()
 }
 
-func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
+func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -138,11 +138,11 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		// zero packet to reset
 		log.Info().Msg("Resetting plain packets buffer")
 		p.pktsMap = make(map[uint64]*pktBuffer)
-		return nil
+		return false, nil
 	}
 	const expectedChunkSize = 4148
 	if len(data) != expectedChunkSize {
-		return fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
+		return false, fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
 	}
 
 	ptr := (*tracerPacketsData)(unsafe.Pointer(&data[0]))
@@ -153,7 +153,9 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		pkts = p.pktsMap[ptr.ID]
 	}
 	if ptr.Num != pkts.num {
-		return fmt.Errorf("lost packet message id: (%v %v) num: (%v %v) len: %v last: %v dir: %v tot_len: %v cpu: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction, ptr.TotLen, chunk.cpu)
+		// chunk was lost
+		log.Debug().Msgf("lost packet message id: (%v %v) num: (%v %v) len: %v last: %v dir: %v tot_len: %v cpu: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction, ptr.TotLen, chunk.cpu)
+		return false, nil
 	}
 
 	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
@@ -167,7 +169,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		if p.rawWriter != nil {
 			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
 			if err != nil {
-				return err
+				return false, err
 			}
 		}
 
@@ -196,7 +198,7 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) error {
 		pkts.num++
 	}
 
-	return nil
+	return true, nil
 }
 
 func (p *PacketsPoller) pollChunksPerfBuffer() {
@@ -245,9 +247,10 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			buf: record.RawSample,
 		}
 
-		if err = p.handlePktChunk(chunk); err != nil {
+		var ok bool
+		if ok, err = p.handlePktChunk(chunk); err != nil {
 			log.Error().Err(err).Msg("handle chunk failed")
-		} else {
+		} else if ok {
 			p.stats.ChunksHandled++
 		}
 	}
