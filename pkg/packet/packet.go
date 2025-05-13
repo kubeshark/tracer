@@ -28,7 +28,7 @@ type PacketSource interface {
 	NextPacket() (gopacket.Packet, error)
 	Start() error
 	Stop() error
-	Stats() (packetsGot, packetsLost uint64)
+	Stats() (packetsGot, packetsLost, chunksLost uint64)
 	ExtendedStats() interface{}
 }
 
@@ -150,10 +150,9 @@ func (p *PacketSourceImpl) Stop() error {
 	return p.poller.Stop()
 }
 
-func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost uint64) {
+func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost, chunksLost uint64) {
 	packetsGot = p.poller.GetReceivedPackets()
-	// Using chunks instead of packets:
-	packetsLost = p.poller.GetLostChunks()
+	chunksLost = p.poller.GetLostChunks()
 	return
 }
 
