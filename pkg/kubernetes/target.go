@@ -113,12 +113,15 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, err error) {
 	log.Debug().Str("url", url).Msg("Retrieving target pods from the hub")
 
 	retryClient := retryablehttp.NewClient()
+	retryClient.Logger = nil
 	req, err := retryablehttp.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make GET build request on url=%s: %w",
 			url, err)
 	}
 	req.Header.Set("X-Kubeshark-Capture", "ignore")
+
+	log.Debug().Str("url", url).Msg("Retrieving target pods from the hub")
 
 	res, err := retryClient.Do(req)
 	if err != nil {
