@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+func SetTimestamp(ti TaiInfo, tp uint64) (t time.Time) {
+	if tp != 0 {
+		t = time.Unix(0, int64(tp)-int64(ti.GetTAIOffset()))
+	} else {
+		t = time.Now()
+	}
+	return
+}
+
 type TaiInfo interface {
 	GetTAIOffset() uint64
 }
