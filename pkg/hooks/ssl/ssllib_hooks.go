@@ -1,13 +1,19 @@
 package ssl
 
 import (
+	"fmt"
 	"path/filepath"
+	"strconv"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/kubeshark/offsetdb/hasher"
+	"github.com/kubeshark/offsetdb/models"
+	"github.com/kubeshark/offsetdb/store"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/utils"
+	"github.com/rs/zerolog/log"
 )
 
 type SslHooks struct {
@@ -32,13 +38,30 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 	}
 
 	sslLibrary, err := link.OpenExecutable(sslLibraryPath)
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
 
 	if isEnvoy {
-		return s.installEnvoySslHooks(bpfObjects, sslLibrary)
+		if err := s.installEnvoySslHooks(bpfObjects, sslLibrary); err != nil {
+			return nil
+		}
+		log.Warn().Msgf("Trying to install envoy ssl hooks by offset")
+
+		hash, err := hasher.ComputeFileSHA256(sslLibraryPath)
+		if err != nil {
+			return fmt.Errorf("fallback: sha256 failed: %w", err)
+		}
+		store := store.NewOffsetStore()
+		if err := store.LoadOffsets(); err != nil {
+			return fmt.Errorf("failed to load store: %w", err)
+		}
+		info, found := store.GetOffsets(hash)
+		if !found {
+			return fmt.Errorf("failed to find offsets for hash %s", hash)
+		}
+
+		return s.installEnvoySslHooksWithOffset(bpfObjects, sslLibrary, info)
 	}
 
 	return s.installSslHooks(bpfObjects, sslLibrary)
@@ -144,4 +167,77 @@ func (s *SslHooks) Close() []error {
 	s.links = []link.Link{}
 
 	return returnValue
+}
+
+func (s *SslHooks) installEnvoySslHooksWithOffset(
+	bpfObjects *bpf.BpfObjects,
+	sslLibrary *link.Executable,
+	info *models.OffsetInfo,
+) error {
+	var err error
+	var addr uint64
+
+	if addr, err = parseOffset(info.SSLWriteOffset); err != nil {
+		return err
+	}
+
+	// ENTRY SSL_write
+	upWrite, err := sslLibrary.Uprobe(
+		"", // no symbol lookup
+		bpfObjects.BpfObjs.SslWrite,
+		&link.UprobeOptions{Address: addr},
+	)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	s.links = append(s.links, upWrite)
+
+	// EXIT SSL_write
+	urWrite, err := sslLibrary.Uretprobe(
+		"",
+		bpfObjects.BpfObjs.SslRetWrite,
+		&link.UprobeOptions{Address: addr},
+	)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	s.links = append(s.links, urWrite)
+
+	if addr, err = parseOffset(info.SSLReadOffset); err != nil {
+		return err
+	}
+
+	// ENTRY SSL_read
+	upRead, err := sslLibrary.Uprobe(
+		"",
+		bpfObjects.BpfObjs.SslRead,
+		&link.UprobeOptions{Address: addr},
+	)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	s.links = append(s.links, upRead)
+
+	// EXIT SSL_read
+	urRead, err := sslLibrary.Uretprobe(
+		"",
+		bpfObjects.BpfObjs.SslRetRead,
+		&link.UprobeOptions{Address: addr},
+	)
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
+	s.links = append(s.links, urRead)
+
+	return nil
+}
+
+// parseOffset turns a hex- or dec-formatted string into a uint64
+func parseOffset(s string) (uint64, error) {
+	// Let strconv auto-detect the base from “0x…” prefix or plain digits
+	val, err := strconv.ParseUint(s, 0, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid offset %q: %w", s, err)
+	}
+	return val, nil
 }
