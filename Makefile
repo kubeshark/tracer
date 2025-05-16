@@ -52,7 +52,7 @@ run-tls: setcap ## Run the program with TLS capture enabled. Requires Hub being 
 		./tracer -debug
 
 run-pprof: setcap ## Run the program with profiling enabled. Requires Hub being available on port 8898
-	PGORACE="log_path=/tmp/kubeshark-race.log" ROFILING_ENABLED=true ./tracer -port 30002 -debug
+	GORACE="log_path=/tmp/kubeshark-race.log" PROFILING_ENABLED=true ./tracer -port 30002 -debug
 
 test:
 	GORACE="log_path=/tmp/kubeshark-race.log" $(GOTEST) ./... -coverpkg=./... -race -coverprofile=coverage.out -covermode=atomic -v
