@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/misc/race"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/pkg/resolver"
 	"github.com/kubeshark/tracer/pkg/utils"
@@ -63,6 +64,8 @@ func main() {
 		log.Warn().Msgf("Invalid log level '%s'. Defaulting to 'warning'.", *logLevel)
 	}
 	zerolog.SetGlobalLevel(level)
+
+	go race.WatchRaceLogs()
 
 	if *initBPFDEPRECATED {
 		log.Warn().Msg("-init-bpf option is deprecated")

@@ -42,17 +42,17 @@ setcap:
 	sudo setcap cap_net_raw,cap_net_admin,cap_sys_admin,cap_sys_ptrace,cap_dac_override,cap_sys_resource,cap_sys_module=eip ./tracer
 
 run: setcap ## Run the program. Requires Hub being available on port 8898
-	./tracer -debug
+	GORACE="log_path=/tmp/kubeshark-race.log" ./tracer -debug
 
 run-race: setcap ## -race flag requires the GODEBUG=netdns=go
-	GODEBUG=netdns=go ./tracer -debug
+	GORACE="log_path=/tmp/kubeshark-race.log" GODEBUG=netdns=go ./tracer -debug
 
 run-tls: setcap ## Run the program with TLS capture enabled. Requires Hub being available on port 8898
-	KUBESHARK_GLOBAL_LIBSSL_PID=$(shell ps -ef | awk '$$8=="python3" && $$9=="tls.py" {print $$2}') \
+	GORACE="log_path=/tmp/kubeshark-race.log" KUBESHARK_GLOBAL_LIBSSL_PID=$(shell ps -ef | awk '$$8=="python3" && $$9=="tls.py" {print $$2}') \
 		./tracer -debug
 
 run-pprof: setcap ## Run the program with profiling enabled. Requires Hub being available on port 8898
-	PROFILING_ENABLED=true ./tracer -port 30002 -debug
+	GORACE="log_path=/tmp/kubeshark-race.log" PROFILING_ENABLED=true ./tracer -port 30002 -debug
 
 test:
-	$(GOTEST) ./... -coverpkg=./... -race -coverprofile=coverage.out -covermode=atomic -v
+	GORACE="log_path=/tmp/kubeshark-race.log" $(GOTEST) ./... -coverpkg=./... -race -coverprofile=coverage.out -covermode=atomic -v

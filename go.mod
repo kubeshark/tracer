@@ -25,6 +25,7 @@ require (
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/kubeshark/utils v0.0.0-20250210221556-322c90ef9b16
 	github.com/moby/moby v25.0.4+incompatible
+	github.com/nxadm/tail v1.4.11
 	github.com/rs/zerolog v1.33.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/vishvananda/netlink v1.2.1-beta.2
@@ -44,6 +45,7 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
+	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
@@ -96,6 +98,7 @@ require (
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
+	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.1 // indirect
