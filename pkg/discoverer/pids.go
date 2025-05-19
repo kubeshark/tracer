@@ -116,6 +116,8 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 		if pi.sslHook == nil && pi.sslPath != "" {
 			hook := sslHooks.SslHooks{}
 
+			log.Info().Uint32("pid", pid).Str("path", pi.sslPath).Msg("installing ssl hook")
+
 			err := hook.InstallUprobes(p.bpfObjs, pi.sslPath)
 			if err != nil {
 				log.Debug().Err(err).Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg("install ssl hook failed")
