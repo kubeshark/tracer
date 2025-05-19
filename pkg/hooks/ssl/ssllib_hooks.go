@@ -43,7 +43,7 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 	}
 
 	if isEnvoy {
-		log.Info().Msgf("Installing envoy ssl hooks")
+		log.Info().Msgf("Installing envoy ssl hooks into %v", sslLibraryPath)
 		if err := s.installEnvoySslHooks(bpfObjects, sslLibrary); err != nil {
 			log.Info().Msgf("Installed envoy ssl hooks with symbols")
 			return nil
