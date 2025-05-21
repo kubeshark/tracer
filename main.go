@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/kubeshark/tracer/misc"
-	"github.com/kubeshark/tracer/misc/race"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/pkg/resolver"
 	"github.com/kubeshark/tracer/pkg/utils"
+	"github.com/kubeshark/utils/race"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"k8s.io/apimachinery/pkg/types"
