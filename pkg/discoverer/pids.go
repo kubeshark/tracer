@@ -116,8 +116,6 @@ func (p *pids) targetCgroup(cgroupId uint64) {
 		if pi.sslHook == nil && pi.sslPath != "" {
 			hook := sslHooks.SslHooks{}
 
-			log.Info().Uint32("pid", pid).Str("path", pi.sslPath).Msg("installing ssl hook")
-
 			err := hook.InstallUprobes(p.bpfObjs, pi.sslPath)
 			if err != nil {
 				log.Debug().Err(err).Uint32("pid", pid).Uint64("cgroup", cgroupId).Msg("install ssl hook failed")
@@ -224,12 +222,10 @@ func (p *pids) installHooks(e foundPidEvent) {
 }
 
 func (p *pids) installGoHook(e foundPidEvent) (goHook *goHooks.GoHooks, goPath, envoyPath string) {
-	log.Info().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("Install go hook begin")
 	path, err := findLibraryByPid(p.procfs, e.pid, "")
 	if err != nil {
 		return
 	}
-	log.Info().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("path found")
 
 	if filepath.Base(path) == "envoy" {
 		envoyPath = path
@@ -237,16 +233,16 @@ func (p *pids) installGoHook(e foundPidEvent) (goHook *goHooks.GoHooks, goPath, 
 
 	ex, err := link.OpenExecutable(path)
 	if err != nil {
-		log.Info().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("Open executable failed")
+		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("Open executable failed")
 		return
 	}
 
 	offsets, err := goHooks.FindGoOffsets(path)
 	if err != nil {
-		log.Info().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("find offsets failed")
+		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("find offsets failed")
 		return
 	}
-	log.Info().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("gotls found")
+	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("gotls found")
 	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
 		goPath = path
 		return

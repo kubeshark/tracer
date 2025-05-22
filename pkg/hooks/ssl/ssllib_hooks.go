@@ -183,34 +183,29 @@ func (s *SslHooks) installEnvoySslHooksWithOffset(
 	var err error
 	var relativeOffset, baseOffset, absoluteOffset uint64
 
-	// 1. Find the base file offset of the executable segment in the SSL library
 	baseOffset, err = findStrippedExecutableSegmentOffset(sslLibraryPath)
 	if err != nil {
 		return fmt.Errorf("failed to find base offset in SSL library '%s': %w", sslLibraryPath, err)
 	}
 
 	// --- SSL_write ---
-	// Parse the RELATIVE offset for SSL_write
 	if relativeOffset, err = parseOffset(info.SSLWriteOffset); err != nil {
 		return fmt.Errorf("parsing SSLWriteOffset: %w", err)
 	}
 	absoluteOffset = baseOffset + relativeOffset
 
 	// ENTRY SSL_write
-	// log.Printf("Attaching SSL_write uprobe at file offset 0x%x (base: 0x%x, relative: 0x%x)", absoluteOffset, baseOffset, relativeOffset)
 	upWrite, err := sslLibrary.Uprobe(
-		"", // no symbol lookup, using address
+		"",
 		bpfObjects.BpfObjs.SslWrite,
 		&link.UprobeOptions{Address: absoluteOffset},
 	)
 	if err != nil {
-		// Consider including the calculated offset in the error message for better debugging
 		return fmt.Errorf("attaching SSL_write uprobe at offset 0x%x : %w", absoluteOffset, err)
 	}
 	s.links = append(s.links, upWrite)
 
 	// EXIT SSL_write (uses the same address as the entry)
-	// log.Printf("Attaching SSL_write uretprobe at file offset 0x%x", absoluteOffset)
 	urWrite, err := sslLibrary.Uretprobe(
 		"",
 		bpfObjects.BpfObjs.SslRetWrite,
@@ -222,14 +217,12 @@ func (s *SslHooks) installEnvoySslHooksWithOffset(
 	s.links = append(s.links, urWrite)
 
 	// --- SSL_read ---
-	// Parse the RELATIVE offset for SSL_read
 	if relativeOffset, err = parseOffset(info.SSLReadOffset); err != nil {
 		return fmt.Errorf("parsing SSLReadOffset: %w", err)
 	}
 	absoluteOffset = baseOffset + relativeOffset
 
 	// ENTRY SSL_read
-	// log.Printf("Attaching SSL_read uprobe at file offset 0x%x (base: 0x%x, relative: 0x%x)", absoluteOffset, baseOffset, relativeOffset)
 	upRead, err := sslLibrary.Uprobe(
 		"",
 		bpfObjects.BpfObjs.SslRead,
@@ -241,7 +234,6 @@ func (s *SslHooks) installEnvoySslHooksWithOffset(
 	s.links = append(s.links, upRead)
 
 	// EXIT SSL_read (uses the same address as the entry)
-	// log.Printf("Attaching SSL_read uretprobe at file offset 0x%x", absoluteOffset)
 	urRead, err := sslLibrary.Uretprobe(
 		"",
 		bpfObjects.BpfObjs.SslRetRead,
@@ -276,14 +268,12 @@ func findStrippedExecutableSegmentOffset(path string) (uint64, error) {
 
 	// Prefer .text section offset when available
 	if sec := f.Section(".text"); sec != nil && sec.Offset != 0 {
-		// log.Printf("Using .text section offset: Off=0x%x, Addr=0x%x", sec.Offset, sec.Addr)
 		return sec.Offset, nil
 	}
 
 	// Otherwise, pick the first executable PT_LOAD
 	for _, prog := range f.Progs {
 		if prog.Type == elf.PT_LOAD && (prog.Flags&elf.PF_X) != 0 {
-			// log.Printf("Selected PT_LOAD exec segment: Off=0x%x, Vaddr=0x%x", prog.Off, prog.Vaddr)
 			return prog.Off, nil
 		}
 	}
