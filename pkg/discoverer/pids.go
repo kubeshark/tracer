@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
 	"unsafe"
 
 	"github.com/cilium/ebpf/link"
@@ -138,7 +137,6 @@ func (p *pids) untargetCgroup(cgroupId uint64) {
 func (p *pids) handleFoundNewPIDs() {
 	for {
 		record, err := p.readerFoundPid.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				log.Info().Msg("found pid handler is closed")
