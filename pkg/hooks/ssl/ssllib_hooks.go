@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
@@ -14,6 +15,7 @@ import (
 	"github.com/kubeshark/offsetdb/store"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/utils"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -31,11 +33,20 @@ var hookInodes, _ = lru.New[uint64, uint32](16384)
 
 func init() {
 	if err := offStore.LoadOffsets(offsetdb); err != nil {
-		panic(err)
 	}
 }
 
 func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath string) error {
+	var once sync.Once
+	onceFunc := func() {
+		err := offStore.LoadOffsets(offsetdb)
+		if err != nil {
+			log.Warn().Msgf("failed to load offset db: %v", err)
+			offStore = nil
+		}
+	}
+	once.Do(onceFunc)
+
 	var isEnvoy bool
 	if filepath.Base(sslLibraryPath) == "envoy" {
 		isEnvoy = true
@@ -62,7 +73,12 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 		}
 
 		// Check if the hash is in the offset store
-		info, found := offStore.GetOffsets(hash)
+		var info *models.OffsetInfo
+		var found bool
+		if offStore != nil {
+			info, found = offStore.GetOffsets(hash)
+		}
+		// Check if the hash is in the offset store
 		if !found {
 			// Try to install the hooks by symbols
 			return s.installEnvoySslHooks(bpfObjects, sslLibrary)
