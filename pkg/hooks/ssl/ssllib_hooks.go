@@ -20,12 +20,20 @@ const (
 	offsetdb = "/app/offsets.json"
 )
 
+var offStore = store.NewOffsetStore()
+
 type SslHooks struct {
 	links []link.Link
 }
 
 // TODO: incapsulate, add devuce id to the key, delete on file is deleted
 var hookInodes, _ = lru.New[uint64, uint32](16384)
+
+func init() {
+	if err := offStore.LoadOffsets(offsetdb); err != nil {
+		panic(err)
+	}
+}
 
 func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath string) error {
 	var isEnvoy bool
@@ -54,16 +62,10 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 		}
 
 		// Check if the hash is in the offset store
-		store := store.NewOffsetStore()
-		if err := store.LoadOffsets(offsetdb); err != nil {
-			return fmt.Errorf("failed to load store: %w", err)
-		}
-		info, found := store.GetOffsets(hash)
+		info, found := offStore.GetOffsets(hash)
 		if !found {
 			// Try to install the hooks by symbols
-			if err := s.installEnvoySslHooks(bpfObjects, sslLibrary); err != nil {
-				return nil
-			}
+			return s.installEnvoySslHooks(bpfObjects, sslLibrary)
 		}
 
 		return s.installEnvoySslHooksWithOffset(bpfObjects, sslLibrary, sslLibraryPath, info)
