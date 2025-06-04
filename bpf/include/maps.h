@@ -163,6 +163,7 @@ struct socket_cookie_data {
 };
 
 #define CONFIGURATION_FLAG_CAPTURE_STOPPED (1 << 0)
+#define CONFIGURATION_PASS_ALL_CGROUPS (1 << 1)
 struct configuration {
     __u32 flags;
 };
