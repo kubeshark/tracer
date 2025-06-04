@@ -177,8 +177,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 		}
 		log.Debug().Uint32("Device ID", p.deviceId).Uint16("Size", p.size).Uint8("Remove", p.remove).Str("Path", string(p.path[:p.size-1])).Uint64("Cgroup ID", p.cgroupId).Str("inode", fmt.Sprintf("%x", p.inode)).Msg("Got file found event")
 		if err = e.sslHooks.attachFile(p.cgroupId, p.deviceId, string(p.path[:p.size-1])); err != nil {
-			log.Error().Err(err).Msg("hook openSSL failed")
-			return
+			log.Debug().Msgf("hook openSSL failed: %v", err.Error())
 		}
 	}
 }
@@ -246,7 +245,7 @@ func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 		cgroupPath := string(p.path[:p.size-1])
 
 		if !isCgroupsV2 && !strings.HasPrefix(cgroupPath, "/sys/fs/cgroup/cpuset") {
-			return
+			continue
 		}
 
 		if cgroupID, contId, ok := e.cgroupsController.AddCgroupPath(cgroupPath); ok {
