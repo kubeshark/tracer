@@ -1,6 +1,6 @@
 module github.com/kubeshark/tracer
 
-go 1.22.2
+go 1.22.4
 
 toolchain go1.22.7
 
@@ -21,6 +21,7 @@ require (
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/api v1.1.32
 	github.com/kubeshark/gopacket v1.1.30
+	github.com/kubeshark/offsetdb v0.0.0-20250529155907-b5b962037b6b
 	github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324
 	github.com/kubeshark/tracerproto v1.0.3-0.20240730073449-de3a99a3719c
 	github.com/kubeshark/utils v0.1.1

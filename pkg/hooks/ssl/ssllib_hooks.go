@@ -1,14 +1,28 @@
 package ssl
 
 import (
+	"debug/elf"
+	"fmt"
 	"path/filepath"
+	"strconv"
+	"sync"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/go-errors/errors"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/kubeshark/offsetdb/hasher"
+	"github.com/kubeshark/offsetdb/models"
+	"github.com/kubeshark/offsetdb/store"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/utils"
+	"github.com/rs/zerolog/log"
 )
+
+const (
+	offsetdb = "/app/offsets.json"
+)
+
+var offStore = store.NewOffsetStore()
 
 type SslHooks struct {
 	links []link.Link
@@ -17,7 +31,22 @@ type SslHooks struct {
 // TODO: incapsulate, add devuce id to the key, delete on file is deleted
 var hookInodes, _ = lru.New[uint64, uint32](16384)
 
+func init() {
+	if err := offStore.LoadOffsets(offsetdb); err != nil {
+	}
+}
+
 func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath string) error {
+	var once sync.Once
+	onceFunc := func() {
+		err := offStore.LoadOffsets(offsetdb)
+		if err != nil {
+			log.Warn().Msgf("failed to load offset db: %v", err)
+			offStore = nil
+		}
+	}
+	once.Do(onceFunc)
+
 	var isEnvoy bool
 	if filepath.Base(sslLibraryPath) == "envoy" {
 		isEnvoy = true
@@ -32,13 +61,30 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 	}
 
 	sslLibrary, err := link.OpenExecutable(sslLibraryPath)
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
 
 	if isEnvoy {
-		return s.installEnvoySslHooks(bpfObjects, sslLibrary)
+		// Compute the has of the binary
+		hash, err := hasher.ComputeFileSHA256(sslLibraryPath)
+		if err != nil {
+			return fmt.Errorf("fallback: sha256 failed: %w", err)
+		}
+
+		// Check if the hash is in the offset store
+		var info *models.OffsetInfo
+		var found bool
+		if offStore != nil {
+			info, found = offStore.GetOffsets(hash)
+		}
+		// Check if the hash is in the offset store
+		if !found {
+			// Try to install the hooks by symbols
+			return s.installEnvoySslHooks(bpfObjects, sslLibrary)
+		}
+
+		return s.installEnvoySslHooksWithOffset(bpfObjects, sslLibrary, sslLibraryPath, info)
 	}
 
 	return s.installSslHooks(bpfObjects, sslLibrary)
@@ -144,4 +190,110 @@ func (s *SslHooks) Close() []error {
 	s.links = []link.Link{}
 
 	return returnValue
+}
+
+func (s *SslHooks) installEnvoySslHooksWithOffset(
+	bpfObjects *bpf.BpfObjects,
+	sslLibrary *link.Executable,
+	sslLibraryPath string,
+	info *models.OffsetInfo,
+) error {
+	var err error
+	var relativeOffset, baseOffset, absoluteOffset uint64
+
+	baseOffset, err = findStrippedExecutableSegmentOffset(sslLibraryPath)
+	if err != nil {
+		return fmt.Errorf("failed to find base offset in SSL library '%s': %w", sslLibraryPath, err)
+	}
+
+	// --- SSL_write ---
+	if relativeOffset, err = parseOffset(info.SSLWriteOffset); err != nil {
+		return fmt.Errorf("parsing SSLWriteOffset: %w", err)
+	}
+	absoluteOffset = baseOffset + relativeOffset
+
+	// ENTRY SSL_write
+	upWrite, err := sslLibrary.Uprobe(
+		"",
+		bpfObjects.BpfObjs.SslWrite,
+		&link.UprobeOptions{Address: absoluteOffset},
+	)
+	if err != nil {
+		return fmt.Errorf("attaching SSL_write uprobe at offset 0x%x : %w", absoluteOffset, err)
+	}
+	s.links = append(s.links, upWrite)
+
+	// EXIT SSL_write (uses the same address as the entry)
+	urWrite, err := sslLibrary.Uretprobe(
+		"",
+		bpfObjects.BpfObjs.SslRetWrite,
+		&link.UprobeOptions{Address: absoluteOffset},
+	)
+	if err != nil {
+		return fmt.Errorf("attaching SSL_write uretprobe at offset 0x%x : %w", absoluteOffset, err)
+	}
+	s.links = append(s.links, urWrite)
+
+	// --- SSL_read ---
+	if relativeOffset, err = parseOffset(info.SSLReadOffset); err != nil {
+		return fmt.Errorf("parsing SSLReadOffset: %w", err)
+	}
+	absoluteOffset = baseOffset + relativeOffset
+
+	// ENTRY SSL_read
+	upRead, err := sslLibrary.Uprobe(
+		"",
+		bpfObjects.BpfObjs.SslRead,
+		&link.UprobeOptions{Address: absoluteOffset},
+	)
+	if err != nil {
+		return fmt.Errorf("attaching SSL_read uprobe at offset 0x%x : %w", absoluteOffset, err)
+	}
+	s.links = append(s.links, upRead)
+
+	// EXIT SSL_read (uses the same address as the entry)
+	urRead, err := sslLibrary.Uretprobe(
+		"",
+		bpfObjects.BpfObjs.SslRetRead,
+		&link.UprobeOptions{Address: absoluteOffset},
+	)
+	if err != nil {
+		return fmt.Errorf("attaching SSL_read uretprobe at offset 0x%x : %w", absoluteOffset, err)
+	}
+	s.links = append(s.links, urRead)
+
+	return nil
+}
+
+// parseOffset turns a hex- or dec-formatted string into a uint64
+func parseOffset(s string) (uint64, error) {
+	// Let strconv auto-detect the base from “0x…” prefix or plain digits
+	val, err := strconv.ParseUint(s, 0, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid offset %q: %w", s, err)
+	}
+	return val, nil
+}
+
+// findStrippedExecutableSegmentOffset finds the file offset of the first executable segment
+// or the .text section in an ELF file.
+func findStrippedExecutableSegmentOffset(path string) (uint64, error) {
+	f, err := elf.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("elf.Open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	// Prefer .text section offset when available
+	if sec := f.Section(".text"); sec != nil && sec.Offset != 0 {
+		return sec.Offset, nil
+	}
+
+	// Otherwise, pick the first executable PT_LOAD
+	for _, prog := range f.Progs {
+		if prog.Type == elf.PT_LOAD && (prog.Flags&elf.PF_X) != 0 {
+			return prog.Off, nil
+		}
+	}
+	return 0, errors.New("no executable segment or .text section found")
 }
