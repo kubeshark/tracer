@@ -4,6 +4,8 @@ go 1.24.0
 
 toolchain go1.24.3
 
+//replace github.com/kubeshark/api2 => ../api2
+
 require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/cilium/ebpf v0.18.0
@@ -109,5 +111,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
-
-replace github.com/kubeshark/api2 => ../api2
