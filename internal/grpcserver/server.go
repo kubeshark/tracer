@@ -1,3 +1,4 @@
+// TODO: replace gRPC server implementation withc https://github.com/kubeshark/api2/blob/dev-vol/
 package grpcserver
 
 import (
@@ -5,11 +6,28 @@ import (
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kubeshark/api2/pkg/proto/tracer_service"
 	v1 "github.com/kubeshark/api2/pkg/proto/tracer_service/v1"
+	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+const (
+	// LRUCacheSize is the size of the LRU cache for container info
+	LRUCacheSize = 1024
+	// SendChannelSize is the size of the buffered channel for each stream
+	SendChannelSize = 1000
+)
+
+// StreamInfo represents information about a stream and its send channel
+type StreamInfo struct {
+	stream     tracer_service.TracerService_StreamContainerInfoServer
+	sendChan   chan *tracer_service.ContainerInfo
+	cancelFunc context.CancelFunc
+}
 
 // ContainerInfo represents information about a container
 type ContainerInfo struct {
@@ -24,56 +42,101 @@ type GRPCServer struct {
 	isRunning bool
 	// Channel to notify about service stop
 	stopCh chan struct{}
-	// Channel for container updates
-	updateCh chan ContainerInfo
+	// Map to store active streams
+	streams map[tracer_service.TracerService_StreamContainerInfoServer]*StreamInfo
+	// LRU cache for container info
+	cache *lru.Cache[string, *tracer_service.ContainerInfo]
 }
 
 // NewGRPCServer creates a new instance of GRPCServer
 func NewGRPCServer() *GRPCServer {
+	cache, err := lru.New[string, *tracer_service.ContainerInfo](LRUCacheSize)
+	if err != nil {
+		log.Fatal().Msgf("Failed to create LRU cache: %v", err)
+	}
+
 	return &GRPCServer{
-		stopCh:   make(chan struct{}),
-		updateCh: make(chan ContainerInfo, 100),
+		stopCh:  make(chan struct{}),
+		streams: make(map[tracer_service.TracerService_StreamContainerInfoServer]*StreamInfo),
+		cache:   cache,
+	}
+}
+
+// handleStreamSends processes messages for a single stream
+func (s *GRPCServer) handleStreamSends(streamInfo *StreamInfo) {
+	defer func() {
+		close(streamInfo.sendChan)
+		streamInfo.cancelFunc()
+	}()
+
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case info, ok := <-streamInfo.sendChan:
+			if !ok {
+				return
+			}
+			if err := streamInfo.stream.Send(info); err != nil {
+				log.Error().Msgf("Failed to send to stream: %v", err)
+				return
+			}
+		}
 	}
 }
 
 // StreamContainerInfo implements the gRPC StreamContainerInfo method
 func (s *GRPCServer) StreamContainerInfo(empty *emptypb.Empty, stream tracer_service.TracerService_StreamContainerInfoServer) error {
+	// Get client metadata from the context
+	// Log client information
+	if clientAddr, ok := peer.FromContext(stream.Context()); ok {
+		log.Info().Msgf("Client connected from address: %v", clientAddr.Addr)
+	}
+
 	// Create a context that will be canceled when the stream ends
 	ctx, cancel := context.WithCancel(stream.Context())
-	defer cancel()
 
-	// Start a goroutine to watch for service stop or stream context cancellation
-	go func() {
-		select {
-		case <-s.stopCh:
-			cancel()
-		case <-ctx.Done():
-			return
-		}
-	}()
+	// Create stream info with buffered channel
+	streamInfo := &StreamInfo{
+		stream:     stream,
+		sendChan:   make(chan *tracer_service.ContainerInfo, SendChannelSize),
+		cancelFunc: cancel,
+	}
 
-	// Start streaming container info
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case info := <-s.updateCh:
-			// Convert internal ContainerInfo to proto ContainerInfo
-			protoInfo := &tracer_service.ContainerInfo{
-				V: &tracer_service.ContainerInfo_V1{
-					V1: &v1.ContainerInfo{
-						Created:     timestamppb.New(time.Now()),
-						ContainerId: info.ContainerID,
-						CgroupId:    info.CgroupID,
-					},
-				},
-			}
+	// Register the stream
+	s.mu.Lock()
+	s.streams[stream] = streamInfo
+	s.mu.Unlock()
 
-			if err := stream.Send(protoInfo); err != nil {
-				return err
+	// Start the send handler goroutine
+	go s.handleStreamSends(streamInfo)
+
+	// Send cached container info to the new client
+	s.mu.RLock()
+	for _, key := range s.cache.Keys() {
+		if info, ok := s.cache.Get(key); ok {
+			select {
+			case streamInfo.sendChan <- info:
+			default:
+				log.Warn().Msgf("Stream send channel full, dropping cached container info")
 			}
 		}
 	}
+	s.mu.RUnlock()
+
+	// Cleanup when the stream ends
+	defer func() {
+		s.mu.Lock()
+		if si, exists := s.streams[stream]; exists {
+			close(si.sendChan)
+			delete(s.streams, stream)
+		}
+		s.mu.Unlock()
+	}()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 // Start starts the gRPC server service
@@ -83,7 +146,14 @@ func (s *GRPCServer) Start() error {
 
 	// Reset channels and state
 	s.stopCh = make(chan struct{})
-	s.updateCh = make(chan ContainerInfo, 100)
+	s.streams = make(map[tracer_service.TracerService_StreamContainerInfoServer]*StreamInfo)
+
+	// Create a new cache
+	cache, err := lru.New[string, *tracer_service.ContainerInfo](LRUCacheSize)
+	if err != nil {
+		return err
+	}
+	s.cache = cache
 	s.isRunning = true
 
 	return nil
@@ -96,7 +166,11 @@ func (s *GRPCServer) Stop() error {
 
 	// Signal all streams to stop
 	close(s.stopCh)
-	close(s.updateCh)
+	for _, si := range s.streams {
+		si.cancelFunc()
+	}
+	s.streams = make(map[tracer_service.TracerService_StreamContainerInfoServer]*StreamInfo)
+	s.cache.Purge()
 	s.isRunning = false
 
 	return nil
@@ -104,15 +178,32 @@ func (s *GRPCServer) Stop() error {
 
 // AddContainerInfo broadcasts container information to all active streams
 func (s *GRPCServer) AddContainerInfo(info ContainerInfo) error {
-	// Send the update to all active streams
-	select {
-	case s.updateCh <- info:
-		// TODO: add stats counters
-		// Successfully sent the update
-	default:
-		// TODO: add stats counters
-		// Channel is full or closed, skip this update
+	// Convert internal ContainerInfo to proto ContainerInfo
+	protoInfo := &tracer_service.ContainerInfo{
+		V: &tracer_service.ContainerInfo_V1{
+			V1: &v1.ContainerInfo{
+				Created:     timestamppb.New(time.Now()),
+				ContainerId: info.ContainerID,
+				CgroupId:    info.CgroupID,
+			},
+		},
 	}
+
+	// Add to cache
+	s.mu.Lock()
+	s.cache.Add(info.ContainerID, protoInfo)
+	s.mu.Unlock()
+
+	// Send to all active streams
+	s.mu.RLock()
+	for _, streamInfo := range s.streams {
+		select {
+		case streamInfo.sendChan <- protoInfo:
+		default:
+			log.Warn().Msgf("Stream send channel full, dropping container info")
+		}
+	}
+	s.mu.RUnlock()
 
 	return nil
 }
