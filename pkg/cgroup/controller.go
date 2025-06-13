@@ -15,6 +15,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/kubeshark/tracer/internal/grpcservice"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 )
@@ -49,6 +50,8 @@ type CgroupsControllerImpl struct {
 
 	actualCgroupVersion CgroupVersion
 	cgroupSupported     bool
+
+	grpcServer *grpcservice.GRPCService
 }
 
 func (e *CgroupsControllerImpl) EbpfCapturePossible() bool {
@@ -93,6 +96,16 @@ func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint6
 		if !found {
 			v = append(v, item)
 			e.containerToCgroup.Add(containerID, v)
+		}
+	}
+
+	// Notify gRPC server about new container info
+	if e.grpcServer != nil {
+		if err := e.grpcServer.AddContainerInfo(grpcservice.ContainerInfo{
+			ContainerID: containerID,
+			CgroupID:    cgroupID,
+		}); err != nil {
+			log.Error().Err(err).Msg("Failed to notify gRPC server about new container")
 		}
 	}
 
@@ -244,7 +257,7 @@ func (e *CgroupsControllerImpl) Close() error {
 	return nil
 }
 
-func NewCgroupsController(procfs string) (CgroupsController, error) {
+func NewCgroupsController(procfs string, grpcServer *grpcservice.GRPCService) (CgroupsController, error) {
 	var err error
 	cgroupToContainer, err := lru.New[uint64, string](16384)
 	if err != nil {
@@ -294,5 +307,6 @@ func NewCgroupsController(procfs string) (CgroupsController, error) {
 		cgroup:              cgroupV2.(*CgroupV2),
 		actualCgroupVersion: actualCgroupVersion,
 		cgroupSupported:     cgroupSupported,
+		grpcServer:          grpcServer,
 	}, nil
 }

@@ -7,9 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"path/filepath"
+
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/go-errors/errors"
+	"github.com/kubeshark/tracer/internal/grpcservice"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/cgroup"
@@ -21,7 +24,6 @@ import (
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"path/filepath"
 )
 
 const GlobalWorkerPid = 0
@@ -55,6 +57,7 @@ func (t *Tracer) Init(
 	logBufferSize int,
 	procfs string,
 	isCgroupsV2 bool,
+	grpcService *grpcservice.GRPCService,
 ) error {
 	var err error
 
@@ -65,7 +68,7 @@ func (t *Tracer) Init(
 		return fmt.Errorf("setup rlimit failed: %v", err)
 	}
 
-	if t.cgroupsController, err = cgroup.NewCgroupsController(procfs); err != nil {
+	if t.cgroupsController, err = cgroup.NewCgroupsController(procfs, grpcService); err != nil {
 		return fmt.Errorf("cgroups controller create failed: %v", err)
 	}
 
@@ -283,7 +286,7 @@ type tracerAllStats struct {
 	bpf.TracerAllStats
 	TracerStats tracerStats
 
-	Updated     time.Time
+	Updated time.Time
 }
 
 func (t *Tracer) collectStatItem() {
