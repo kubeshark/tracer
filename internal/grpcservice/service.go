@@ -1,5 +1,5 @@
 // TODO: replace gRPC server implementation withc https://github.com/kubeshark/api2/blob/dev-vol/
-package grpcserver
+package grpcservice
 
 import (
 	"context"
@@ -35,8 +35,8 @@ type ContainerInfo struct {
 	CgroupID    uint64
 }
 
-// GRPCServer implements the TracerService gRPC server
-type GRPCServer struct {
+// GRPCService implements the TracerService gRPC server
+type GRPCService struct {
 	tracer_service.UnimplementedTracerServiceServer
 	mu        sync.RWMutex
 	isRunning bool
@@ -48,14 +48,14 @@ type GRPCServer struct {
 	cache *lru.Cache[string, *tracer_service.ContainerInfo]
 }
 
-// NewGRPCServer creates a new instance of GRPCServer
-func NewGRPCServer() *GRPCServer {
+// NewGRPCService creates a new instance of GRPCServer
+func NewGRPCService() *GRPCService {
 	cache, err := lru.New[string, *tracer_service.ContainerInfo](LRUCacheSize)
 	if err != nil {
 		log.Fatal().Msgf("Failed to create LRU cache: %v", err)
 	}
 
-	return &GRPCServer{
+	return &GRPCService{
 		stopCh:  make(chan struct{}),
 		streams: make(map[tracer_service.TracerService_StreamContainerInfoServer]*StreamInfo),
 		cache:   cache,
@@ -63,7 +63,7 @@ func NewGRPCServer() *GRPCServer {
 }
 
 // handleStreamSends processes messages for a single stream
-func (s *GRPCServer) handleStreamSends(streamInfo *StreamInfo) {
+func (s *GRPCService) handleStreamSends(streamInfo *StreamInfo) {
 	defer func() {
 		close(streamInfo.sendChan)
 		streamInfo.cancelFunc()
@@ -86,7 +86,7 @@ func (s *GRPCServer) handleStreamSends(streamInfo *StreamInfo) {
 }
 
 // StreamContainerInfo implements the gRPC StreamContainerInfo method
-func (s *GRPCServer) StreamContainerInfo(empty *emptypb.Empty, stream tracer_service.TracerService_StreamContainerInfoServer) error {
+func (s *GRPCService) StreamContainerInfo(empty *emptypb.Empty, stream tracer_service.TracerService_StreamContainerInfoServer) error {
 	// Get client metadata from the context
 	// Log client information
 	if clientAddr, ok := peer.FromContext(stream.Context()); ok {
@@ -140,9 +140,12 @@ func (s *GRPCServer) StreamContainerInfo(empty *emptypb.Empty, stream tracer_ser
 }
 
 // Start starts the gRPC server service
-func (s *GRPCServer) Start() error {
+func (s *GRPCService) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.isRunning {
+		return nil
+	}
 
 	// Reset channels and state
 	s.stopCh = make(chan struct{})
@@ -160,9 +163,12 @@ func (s *GRPCServer) Start() error {
 }
 
 // Stop stops the gRPC server service
-func (s *GRPCServer) Stop() error {
+func (s *GRPCService) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.isRunning {
+		return nil
+	}
 
 	// Signal all streams to stop
 	close(s.stopCh)
@@ -177,7 +183,7 @@ func (s *GRPCServer) Stop() error {
 }
 
 // AddContainerInfo broadcasts container information to all active streams
-func (s *GRPCServer) AddContainerInfo(info ContainerInfo) error {
+func (s *GRPCService) AddContainerInfo(info ContainerInfo) error {
 	// Convert internal ContainerInfo to proto ContainerInfo
 	protoInfo := &tracer_service.ContainerInfo{
 		V: &tracer_service.ContainerInfo_V1{

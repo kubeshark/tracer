@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net"
 	_ "net/http/pprof" // Blank import to pprof
 	"os"
 	"os/signal"
@@ -14,7 +13,7 @@ import (
 	"time"
 
 	"github.com/kubeshark/api2/pkg/proto/tracer_service"
-	"github.com/kubeshark/tracer/internal/grpcserver"
+	"github.com/kubeshark/tracer/internal/grpcservice"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/pkg/resolver"
@@ -31,6 +30,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
+	streamer "github.com/kubeshark/api2/grpcstreamer"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
@@ -40,7 +40,7 @@ import (
 
 var (
 	port                  = flag.Int("port", 80, "Port number of the HTTP server")
-	grpcAddr              = flag.String("grpc-server", "127.0.0.1:50052", "gRPC server address in format IP:PORT")
+	grpcPort              = flag.Int("grpc-port", 50059, "gRPC server port")
 	procfs                = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
 	logLevel              = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
 	disableTlsLog         = flag.Bool("disable-tls-log", false, "Disable tls logging")
@@ -49,8 +49,9 @@ var (
 	initBPFDEPRECATED            = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
 	disableEbpfCaptureDEPRECATED = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
 
-	grpcServer       *grpc.Server
-	grpcTracerServer *grpcserver.GRPCServer
+	//grpcServer       *grpc.Server
+	//grpcTracerServer *grpcserver.GRPCServer
+	grpcServer *streamer.GRPCServer
 )
 
 var tracer *Tracer
@@ -149,8 +150,9 @@ func run() {
 	}
 
 	// Create gRPC server first
-	grpcTracerServer = grpcserver.NewGRPCServer()
-	if err := startGRPCServer(); err != nil {
+
+	grpcService := grpcservice.NewGRPCService()
+	if err := startGRPCServer(*grpcPort, grpcService); err != nil {
 		log.Error().Err(err).Msg("Failed to start gRPC server")
 		return
 	}
@@ -193,7 +195,7 @@ func run() {
 	}
 	misc.InitDataDir()
 
-	err = createTracer(isCgroupsV2)
+	err = createTracer(grpcService, isCgroupsV2)
 	if err != nil {
 		log.Error().Err(err).Msg("Couldn't initialize the tracer. To disable tracer permanently, pass 'tap.tls=false' in command line")
 		// Stop here to prevent pod respawning
@@ -217,45 +219,74 @@ func run() {
 	}
 }
 
-func startGRPCServer() error {
-	lis, err := net.Listen("tcp", *grpcAddr)
-	if err != nil {
-		return fmt.Errorf("failed to listen: %v", err)
+func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
+	/*
+		lis, err := net.Listen("tcp", *grpcAddr)
+		if err != nil {
+			return fmt.Errorf("failed to listen: %v", err)
+		}
+
+		// Create the gRPC server
+		grpcService = grpc.NewServer()
+
+		// Start the tracer service
+		if err := grpcTracerServer.Start(); err != nil {
+			return fmt.Errorf("failed to start tracer service: %v", err)
+		}
+
+		// Register the service with the gRPC server
+		tracer_service.RegisterTracerServiceServer(grpcService, grpcTracerServer)
+
+		// Start the gRPC server in a goroutine
+		go func() {
+			log.Info().Str("address", *grpcAddr).Msg("Starting gRPC server")
+			if err := grpcService.Serve(lis); err != nil {
+				log.Error().Err(err).Msg("Failed to serve gRPC")
+			}
+		}()
+	*/
+	var serverConfig streamer.ServerConfig
+
+	serverConfig.Callbacks = streamer.ServerCallbacks{
+		OnConnect: func(info streamer.ClientInfo, ctx context.Context) {
+			log.Debug().Str("addr", info.Addr).Msg("New client connected")
+		},
+		OnDisconnect: func(info streamer.ClientInfo, ctx context.Context) {
+			log.Debug().Str("addr", info.Addr).Msg("Client disconnected")
+		},
 	}
-
-	// Create the gRPC server
-	grpcServer = grpc.NewServer()
-
-	// Start the tracer service
-	if err := grpcTracerServer.Start(); err != nil {
-		return fmt.Errorf("failed to start tracer service: %v", err)
+	serverConfig.RegisterFunc = func(s *grpc.Server) {
+		tracer_service.RegisterTracerServiceServer(s, grpcService)
 	}
+	serverConfig.Addr = fmt.Sprintf(":%d", port)
 
-	// Register the service with the gRPC server
-	tracer_service.RegisterTracerServiceServer(grpcServer, grpcTracerServer)
+	grpcServer = streamer.NewServer(serverConfig)
 
-	// Start the gRPC server in a goroutine
 	go func() {
-		log.Info().Str("address", *grpcAddr).Msg("Starting gRPC server")
-		if err := grpcServer.Serve(lis); err != nil {
-			log.Error().Err(err).Msg("Failed to serve gRPC")
+		if err := grpcServer.Serve(); err != nil {
+			log.Error().Err(err).Msg("Failed to start server")
 		}
 	}()
+	log.Info().Msg("Capture gRPC server started at :50051")
 
 	return nil
 }
 
 func stop() {
-	if grpcServer != nil {
-		log.Info().Msg("Stopping gRPC server")
-		grpcServer.GracefulStop()
-	}
-
-	if grpcTracerServer != nil {
-		if err := grpcTracerServer.Stop(); err != nil {
-			log.Error().Err(err).Msg("Failed to stop tracer service")
+	/*
+		if grpcServer != nil {
+			log.Info().Msg("Stopping gRPC server")
+			grpcServer.Close()
 		}
-	}
+	*/
+
+	/*
+		if grpcTracerServer != nil {
+			if err := grpcTracerServer.Stop(); err != nil {
+				log.Error().Err(err).Msg("Failed to stop tracer service")
+			}
+		}
+	*/
 
 	if tracer != nil {
 		if err := tracer.Deinit(); err != nil {
@@ -264,7 +295,7 @@ func stop() {
 	}
 }
 
-func createTracer(isCgroupsV2 bool) (err error) {
+func createTracer(grpcService *grpcservice.GRPCService, isCgroupsV2 bool) (err error) {
 	chunksBufferSize := os.Getpagesize() * 10000
 	logBufferSize := os.Getpagesize()
 
@@ -273,7 +304,7 @@ func createTracer(isCgroupsV2 bool) (err error) {
 		logBufferSize,
 		*procfs,
 		isCgroupsV2,
-		grpcTracerServer,
+		grpcService,
 	); err != nil {
 		log.Error().Err(err).Msg("Initialize tracer failed.")
 		if errors.Is(err, bpf.ErrBpfMountFailed) {

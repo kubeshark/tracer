@@ -4,8 +4,6 @@ go 1.24.0
 
 toolchain go1.24.3
 
-//replace github.com/kubeshark/api2 => ../api2
-
 require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/cilium/ebpf v0.18.0
@@ -21,8 +19,8 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
-	github.com/kubeshark/api v1.2.2-0.20250610152041-1c18de4ea73b
-	github.com/kubeshark/api2 v0.0.0-20250610151912-2a2c5746a82f
+	github.com/kubeshark/api v1.2.2-0.20250613175359-c41a1e38153b
+	github.com/kubeshark/api2 v0.0.0-20250613175225-65be260e56f6
 	github.com/kubeshark/gopacket v1.1.42
 	github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324
 	github.com/kubeshark/tracerproto v1.0.2
