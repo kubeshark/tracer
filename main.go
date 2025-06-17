@@ -49,8 +49,6 @@ var (
 	initBPFDEPRECATED            = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
 	disableEbpfCaptureDEPRECATED = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
 
-	//grpcServer       *grpc.Server
-	//grpcTracerServer *grpcserver.GRPCServer
 	grpcServer *streamer.GRPCServer
 )
 
@@ -220,31 +218,6 @@ func run() {
 }
 
 func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
-	/*
-		lis, err := net.Listen("tcp", *grpcAddr)
-		if err != nil {
-			return fmt.Errorf("failed to listen: %v", err)
-		}
-
-		// Create the gRPC server
-		grpcService = grpc.NewServer()
-
-		// Start the tracer service
-		if err := grpcTracerServer.Start(); err != nil {
-			return fmt.Errorf("failed to start tracer service: %v", err)
-		}
-
-		// Register the service with the gRPC server
-		tracer_service.RegisterTracerServiceServer(grpcService, grpcTracerServer)
-
-		// Start the gRPC server in a goroutine
-		go func() {
-			log.Info().Str("address", *grpcAddr).Msg("Starting gRPC server")
-			if err := grpcService.Serve(lis); err != nil {
-				log.Error().Err(err).Msg("Failed to serve gRPC")
-			}
-		}()
-	*/
 	var serverConfig streamer.ServerConfig
 
 	serverConfig.Callbacks = streamer.ServerCallbacks{
@@ -258,12 +231,11 @@ func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
 	serverConfig.RegisterFunc = func(s *grpc.Server) {
 		tracer_service.RegisterTracerServiceServer(s, grpcService)
 	}
-	serverConfig.Addr = fmt.Sprintf(":%d", port)
 
 	grpcServer = streamer.NewServer(serverConfig)
 
 	go func() {
-		if err := grpcServer.Serve(); err != nil {
+		if err := grpcServer.ServeAddress(fmt.Sprintf(":%d", port)); err != nil {
 			log.Error().Err(err).Msg("Failed to start server")
 		}
 	}()
@@ -273,21 +245,6 @@ func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
 }
 
 func stop() {
-	/*
-		if grpcServer != nil {
-			log.Info().Msg("Stopping gRPC server")
-			grpcServer.Close()
-		}
-	*/
-
-	/*
-		if grpcTracerServer != nil {
-			if err := grpcTracerServer.Stop(); err != nil {
-				log.Error().Err(err).Msg("Failed to stop tracer service")
-			}
-		}
-	*/
-
 	if tracer != nil {
 		if err := tracer.Deinit(); err != nil {
 			log.Error().Err(err).Msg("Tracer stop failed")
