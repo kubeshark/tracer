@@ -26,11 +26,9 @@ jobs:
 
       - name: Configure private token
         env:
-          GH_ACCESS_TOKEN: ${{ secrets.KUBESHARK_GO_MOD }}
+          GH_ACCESS_TOKEN: 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
         run: |
           git config --global url."https://${GH_ACCESS_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
-          go env -w GOPRIVATE=github.com/kubeshark/*
-          go env -w GOPROXY=direct
 
       - name: Install dependencies
         run: |
