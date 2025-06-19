@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/kubeshark/api"
+	common "github.com/kubeshark/api2/pkg/proto/common/v1"
 	"github.com/rs/zerolog/log"
 
 	"github.com/kubeshark/tracer/pkg/cgroup"
@@ -32,7 +34,9 @@ type ResolverImpl struct {
 	udpMap     connectionsMap
 }
 
-func NewResolver(procfs string) (Resolver, error) {
+type addFlowEntryFunc func(localIp, remoteIp net.IP, localPort, remotePort uint16, ipProto uint8, sysProps *common.SystemProperties)
+
+func NewResolver(procfs string, addFlowEntry addFlowEntryFunc) (Resolver, error) {
 	isCgroupV2, err := utils.IsCgroupV2()
 	if err != nil {
 		return nil, errors.New("get cgroupv2 failed")
@@ -45,8 +49,8 @@ func NewResolver(procfs string) (Resolver, error) {
 		udpMap:     make(connectionsMap),
 	}
 
-	res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp")
-	res.udpMap = getAllFlows(procfs, isCgroupV2, "udp")
+	res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp", addFlowEntry)
+	res.udpMap = getAllFlows(procfs, isCgroupV2, "udp", addFlowEntry)
 
 	return res, nil
 }
@@ -131,7 +135,7 @@ func (r *ResolverImpl) ResolveDestUDP(cInfo *api.ConnectionInfo) *api.Resolution
 	return r.resolveUDP(cInfo.ServerIP, cInfo.ServerPort, cInfo.ClientIP, cInfo.ClientPort)
 }
 
-func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
+func getAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry addFlowEntryFunc) connectionsMap {
 	res := make(connectionsMap)
 	cgroups, err := getAllCgroups(procfs, isCgroupV2)
 	if err != nil {
@@ -206,6 +210,25 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string) connectionsMap {
 
 			key := getIpPortKey(conn.LocalAddr.String(), fmt.Sprintf("%v", conn.LocalPort), conn.RemAddr.String(), fmt.Sprintf("%v", conn.RemPort))
 			res[key] = resolution
+			if addFlowEntry != nil {
+				var ipProto uint8
+				if proto == "tcp" {
+					ipProto = 6
+				} else {
+					ipProto = 17
+				}
+				socketId := uint32(conn.Inode)
+				sysProps := &common.SystemProperties{
+					CgroupId:    &cgroupID,
+					Pid:         &pidFound.pid,
+					Ppid:        &pidFound.parentPid,
+					HostPid:     &pidFound.hostPid,
+					HostPpid:    &pidFound.hostParentPid,
+					SocketId:    &socketId,
+					ProcessName: []byte(pidFound.name),
+				}
+				addFlowEntry(conn.LocalAddr, conn.RemAddr, uint16(conn.LocalPort), uint16(conn.RemPort), ipProto, sysProps)
+			}
 			log.Debug().Str("Cgroup", cgroup).Str("proto", proto).Str("local IP", conn.LocalAddr.String()).Uint64("local Port", conn.LocalPort).Str("remote IP", conn.RemAddr.String()).Uint64("remote Port", conn.RemPort).Interface("resolution", resolution).Msg("saved static resolution")
 
 			if conn.LocalAddr[0] != 127 { // save non-loopback locals

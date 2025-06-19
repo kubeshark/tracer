@@ -1,4 +1,3 @@
-// TODO: replace gRPC server implementation withc https://github.com/kubeshark/api2/blob/dev-vol/
 package grpcservice
 
 import (
@@ -27,6 +26,7 @@ type StreamInfo struct {
 	stream     tracer_service.TracerService_StreamContainerInfoServer
 	sendChan   chan *tracer_service.ContainerInfo
 	cancelFunc context.CancelFunc
+	closeOnce  sync.Once // Ensures channel is closed only once
 }
 
 // ContainerInfo represents information about a container
@@ -65,7 +65,10 @@ func NewGRPCService() *GRPCService {
 // handleStreamSends processes messages for a single stream
 func (s *GRPCService) handleStreamSends(streamInfo *StreamInfo) {
 	defer func() {
-		close(streamInfo.sendChan)
+		// Use sync.Once to ensure channel is closed only once
+		streamInfo.closeOnce.Do(func() {
+			close(streamInfo.sendChan)
+		})
 		streamInfo.cancelFunc()
 	}()
 
@@ -128,7 +131,10 @@ func (s *GRPCService) StreamContainerInfo(empty *emptypb.Empty, stream tracer_se
 	defer func() {
 		s.mu.Lock()
 		if si, exists := s.streams[stream]; exists {
-			close(si.sendChan)
+			// Use sync.Once to ensure channel is closed only once
+			si.closeOnce.Do(func() {
+				close(si.sendChan)
+			})
 			delete(s.streams, stream)
 		}
 		s.mu.Unlock()
