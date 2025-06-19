@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubeshark/api2/pkg/proto/tracer_service"
+	"github.com/kubeshark/tracer/internal/grpcservice"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/kubernetes"
 	"github.com/kubeshark/tracer/pkg/resolver"
@@ -19,6 +21,7 @@ import (
 	"github.com/kubeshark/utils/race"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 
@@ -27,6 +30,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
+	streamer "github.com/kubeshark/api2/grpcstreamer"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
@@ -34,14 +38,19 @@ import (
 	"github.com/kubeshark/tracer/pkg/bpf"
 )
 
-var port = flag.Int("port", 80, "Port number of the HTTP server")
-var procfs = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
-var logLevel = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
-var disableTlsLog = flag.Bool("disable-tls-log", false, "Disable tls logging")
-var preferCgroupV1Capture = flag.Bool("ebpf1", false, "On systems with Cgroup V2 use Cgroup V1 method for packet capturing")
+var (
+	port                  = flag.Int("port", 80, "Port number of the HTTP server")
+	grpcPort              = flag.Int("grpc-port", 50059, "gRPC server port")
+	procfs                = flag.String("procfs", "/proc", "The procfs directory, used when mapping host volumes into a container")
+	logLevel              = flag.String("loglevel", "warning", "The minimum log level to output. Possible values: debug, info, warning")
+	disableTlsLog         = flag.Bool("disable-tls-log", false, "Disable tls logging")
+	preferCgroupV1Capture = flag.Bool("ebpf1", false, "On systems with Cgroup V2 use Cgroup V1 method for packet capturing")
 
-var initBPFDEPRECATED = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
-var disableEbpfCaptureDEPRECATED = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
+	initBPFDEPRECATED            = flag.Bool("init-bpf", false, "Use to initialize bpf filesystem. Common usage is from init containers. DEPRECATED")
+	disableEbpfCaptureDEPRECATED = flag.Bool("disable-ebpf", false, "Disable capture packet via eBPF. DEPRECATED")
+
+	grpcServer *streamer.GRPCServer
+)
 
 var tracer *Tracer
 
@@ -138,6 +147,14 @@ func run() {
 		return
 	}
 
+	// Create gRPC server first
+
+	grpcService := grpcservice.NewGRPCService()
+	if err := startGRPCServer(*grpcPort, grpcService); err != nil {
+		log.Error().Err(err).Msg("Failed to start gRPC server")
+		return
+	}
+
 	tcpMap, err := resolver.GatherPidsTCPMap(*procfs, isCgroupsV2)
 	if err != nil {
 		log.Error().Err(err).Msg("tcp map lookup failed")
@@ -176,7 +193,7 @@ func run() {
 	}
 	misc.InitDataDir()
 
-	err = createTracer(isCgroupsV2)
+	err = createTracer(grpcService, isCgroupsV2)
 	if err != nil {
 		log.Error().Err(err).Msg("Couldn't initialize the tracer. To disable tracer permanently, pass 'tap.tls=false' in command line")
 		// Stop here to prevent pod respawning
@@ -200,6 +217,33 @@ func run() {
 	}
 }
 
+func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
+	var serverConfig streamer.ServerConfig
+
+	serverConfig.Callbacks = streamer.ServerCallbacks{
+		OnConnect: func(info streamer.ClientInfo, ctx context.Context) {
+			log.Debug().Str("addr", info.Addr).Msg("New client connected")
+		},
+		OnDisconnect: func(info streamer.ClientInfo, ctx context.Context) {
+			log.Debug().Str("addr", info.Addr).Msg("Client disconnected")
+		},
+	}
+	serverConfig.RegisterFunc = func(s *grpc.Server) {
+		tracer_service.RegisterTracerServiceServer(s, grpcService)
+	}
+
+	grpcServer = streamer.NewServer(serverConfig)
+
+	go func() {
+		if err := grpcServer.ServeAddress(fmt.Sprintf(":%d", port)); err != nil {
+			log.Error().Err(err).Msg("Failed to start server")
+		}
+	}()
+	log.Info().Msg("Capture gRPC server started at :50051")
+
+	return nil
+}
+
 func stop() {
 	if tracer != nil {
 		if err := tracer.Deinit(); err != nil {
@@ -208,7 +252,7 @@ func stop() {
 	}
 }
 
-func createTracer(isCgroupsV2 bool) (err error) {
+func createTracer(grpcService *grpcservice.GRPCService, isCgroupsV2 bool) (err error) {
 	chunksBufferSize := os.Getpagesize() * 10000
 	logBufferSize := os.Getpagesize()
 
@@ -217,6 +261,7 @@ func createTracer(isCgroupsV2 bool) (err error) {
 		logBufferSize,
 		*procfs,
 		isCgroupsV2,
+		grpcService,
 	); err != nil {
 		log.Error().Err(err).Msg("Initialize tracer failed.")
 		if errors.Is(err, bpf.ErrBpfMountFailed) {
