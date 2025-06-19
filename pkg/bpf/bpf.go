@@ -62,13 +62,12 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, mapRe
 		return err
 	}
 
-	consts := make(map[string]interface{})
 	for k, v := range bpfConstants {
-		consts[k] = v
-	}
-	err = objs.specs.RewriteConstants(consts)
-	if err != nil {
-		return err
+		if spec, exists := objs.specs.Variables[k]; exists {
+			if err := spec.Set(v); err != nil {
+				return err
+			}
+		}
 	}
 
 	opts := ebpf.CollectionOptions{
