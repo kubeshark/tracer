@@ -48,6 +48,9 @@ jobs:
       - name: Generate eBPF object files and Go bindings
         run: make bpf
 
+      - name: Install go dependencies
+        run: go mod download
+
       - name: Go lint
         uses: golangci/golangci-lint-action@v6
         with:
