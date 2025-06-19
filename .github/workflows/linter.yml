@@ -24,6 +24,12 @@ jobs:
         with:
           go-version: '^1.22'
 
+      - name: Configure private token
+        env:
+          GH_ACCESS_TOKEN: ${{ secrets.KUBESHARK_GO_MOD }}
+        run: |
+          git config --global url."https://${GH_ACCESS_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+
       - name: Install dependencies
         run: |
           sudo apt update
@@ -41,6 +47,9 @@ jobs:
 
       - name: Generate eBPF object files and Go bindings
         run: make bpf
+
+      - name: Install go dependencies
+        run: go mod download
 
       - name: Go lint
         uses: golangci/golangci-lint-action@v6
