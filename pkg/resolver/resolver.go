@@ -107,7 +107,7 @@ func resolvePair(connMap connectionsMap, localIP, localPort, remoteIP, remotePor
 		ProcessName:         res.ProcessName,
 		ProcessPath:         res.ProcessPath,
 	}
-	log.Debug().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Interface("resolution", r).Msg("found resolution")
+	log.Debug().Str("local IP", localIP).Str("local Port", localPort).Str("remote IP", remoteIP).Str("remote Port", remotePort).Interface("resolution", &r).Msg("found resolution")
 	return &r
 }
 
