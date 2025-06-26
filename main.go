@@ -234,12 +234,32 @@ func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
 
 	grpcServer = streamer.NewServer(serverConfig)
 
+	log.Info().Int("port", port).Msg("Starting gRPC server")
 	go func() {
-		if err := grpcServer.ServeAddress(fmt.Sprintf(":%d", port)); err != nil {
-			log.Error().Err(err).Msg("Failed to start server")
+		maxRetries := 10
+		retryDelay := time.Second * 1
+		currentPort := port
+
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			err := grpcServer.ServeAddress(fmt.Sprintf(":%d", currentPort))
+			if err == nil {
+				log.Info().Int("port", currentPort).Msg("gRPC server started")
+				return
+			}
+
+			// Check if the error is about address already in use
+			if strings.Contains(err.Error(), "address already in use") || strings.Contains(err.Error(), "bind: address already in use") {
+				log.Error().Err(err).Int("attempts", attempt+1).Msg("gRPC server address already in use, retrying...")
+				time.Sleep(retryDelay)
+				retryDelay *= 2
+				continue
+			}
+
+			// If it's not an address-in-use error or we've exhausted retries
+			log.Error().Err(err).Int("attempts", attempt+1).Msg("Failed to start gRPC server")
+			break
 		}
 	}()
-	log.Info().Msg("Capture gRPC server started at :50051")
 
 	return nil
 }
