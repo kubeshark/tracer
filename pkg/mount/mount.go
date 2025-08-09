@@ -66,7 +66,7 @@ func NewMountHostOnce(source, fstype, data, where string) (*MountHostOnce, error
 	}
 
 	m.mounted = true
-	log.Info().Bool("managed", m.managed).Str("source", m.source).Str("target", m.target).Str("fstype", m.fsType).Str("data", m.data).Msg("created mount object")
+	log.Info().Bool("managed", m.managed).Str("source", m.source).Str("target", m.target).Str("fstype", m.fsType).Str("data", m.data).Bool("already mounted", alreadyMounted).Msg("created mount object")
 
 	return m, nil
 }
@@ -75,6 +75,18 @@ func (m *MountHostOnce) Mount() error {
 	path, err := os.MkdirTemp(os.TempDir(), tmpPathPrefix) // create temp dir
 	if err != nil {
 		return errfmt.WrapError(err)
+	}
+	// Ensure the temp directory has owner write permissions regardless of umask
+	if fi, statErr := os.Stat(path); statErr != nil {
+		log.Warn().Str("path", path).Msg("failed to stat temp directory")
+	} else {
+		mode := fi.Mode()
+		newMode := mode | 0o200 // ensure owner write bit
+		if newMode != mode {
+			if chmodErr := os.Chmod(path, newMode); chmodErr != nil {
+				log.Warn().Str("path", path).Msg("failed to chmod temp directory")
+			}
+		}
 	}
 	mp, err := filepath.Abs(path) // pick mountpoint path
 	if err != nil {

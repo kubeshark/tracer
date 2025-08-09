@@ -287,19 +287,6 @@ func NewCgroupsController(procfs string, grpcServer *grpcservice.GRPCService) (C
 		}
 	}
 
-	// add write permissions to user:
-	info, err := os.Stat(cgroupV2.GetMountPoint())
-	if err != nil {
-		return nil, fmt.Errorf("get stat cgroup2 failed")
-	}
-
-	mode := info.Mode()
-	newMode := mode | 0200
-
-	if err := os.Chmod(cgroupV2.GetMountPoint(), newMode); err != nil {
-		return nil, fmt.Errorf("chmod cgroup2 failed")
-	}
-
 	return &CgroupsControllerImpl{
 		procfs:              procfs,
 		cgroupToContainer:   cgroupToContainer,
