@@ -24,8 +24,10 @@ const (
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
 
-type RawWriter func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
-type GopacketWriter func(packet gopacket.Packet)
+type (
+	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
+	GopacketWriter func(packet gopacket.Packet)
+)
 
 type TlsPoller struct {
 	streams         map[string]*TlsStream
@@ -72,7 +74,6 @@ func NewTlsPoller(
 	poller.fdCache = fdCache
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
-
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
@@ -147,7 +148,6 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 		}
 
 		record, err := p.chunksReader.Read()
-
 		if err != nil {
 			close(chunks)
 

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -64,13 +63,13 @@ func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint6
 	containerID, _ = GetContainerIdByCgroupPath(cgroupPath)
 	if containerID == "" {
 		log.Debug().Str("path", cgroupPath).Msg("Can not get container id")
-		return
+		return cgroupID, containerID, ok
 	}
 
 	cgroupID, err = getCgroupIdByPath(cgroupPath)
 	if err != nil {
 		log.Warn().Str("path", cgroupPath).Msg(fmt.Sprintf("Can not get container Cgroup ID: %v", err))
-		return
+		return cgroupID, containerID, ok
 	}
 
 	e.cgroupToContainer.Add(cgroupID, containerID)
@@ -110,7 +109,7 @@ func (e *CgroupsControllerImpl) AddCgroupPath(cgroupPath string) (cgroupID uint6
 	}
 
 	ok = true
-	return
+	return cgroupID, containerID, ok
 }
 
 func (e *CgroupsControllerImpl) DelCgroupID(cgroup uint64) {
@@ -128,17 +127,17 @@ func (e *CgroupsControllerImpl) GetContainerID(cgroup uint64) string {
 func (e *CgroupsControllerImpl) GetCgroupsV2(containerID string) (info []CgroupInfo) {
 	info, _ = e.containerToCgroup.Get(containerID)
 	if e.actualCgroupVersion == CgroupVersion2 {
-		return
+		return info
 	}
-	return
+	return info
 
-	//TODO: check if cgroup has unified inside and it already has existing cgroup V2
+	// TODO: check if cgroup has unified inside and it already has existing cgroup V2
 }
 
 func (e *CgroupsControllerImpl) GetExistingCgroupsByCgroupPath(cgroupPath string) (info []CgroupInfo) {
 	containerID, _ := GetContainerIdByCgroupPath(cgroupPath)
 	if containerID == "" {
-		return
+		return info
 	}
 
 	info, _ = e.containerToCgroup.Get(containerID)
@@ -213,7 +212,6 @@ func (e *CgroupsControllerImpl) PopulateSocketsInodes(isCgroupV2 bool, inodeMap 
 				extractInode(isCgroupsV2, match[1], cgroups)
 			}
 		}
-
 	}
 
 	procDir, err := os.Open(e.procfs)

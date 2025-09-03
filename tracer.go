@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
-
-	"path/filepath"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -210,7 +209,6 @@ func (t *Tracer) Deinit() error {
 
 func setupRLimit() error {
 	err := rlimit.RemoveMemlock()
-
 	if err != nil {
 		return errors.New(fmt.Sprintf("%s: %v", "SYS_RESOURCE is required to change rlimits for eBPF", err))
 	}
@@ -354,7 +352,7 @@ func (t *Tracer) collectStatItem() {
 		return
 	}
 
-	if err := os.WriteFile(filepath.Join(misc.GetDataDir(), "stats_tracer.json"), jsonData, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(misc.GetDataDir(), "stats_tracer.json"), jsonData, 0o644); err != nil {
 		log.Error().Err(err).Msg("Failed to write stats")
 		return
 	}

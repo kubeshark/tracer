@@ -54,7 +54,6 @@ func (t *SyscallEventsTracer) pollEvents() {
 
 	for {
 		record, err := t.eventReader.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				return
@@ -120,5 +119,4 @@ func (t *SyscallEventsTracer) pollEvents() {
 
 		t.eventSocket.WriteObject(e)
 	}
-
 }

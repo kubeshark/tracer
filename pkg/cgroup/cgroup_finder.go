@@ -56,7 +56,7 @@ func GetContainerIdByCgroupPath(cgroupPath string) (id string, runtime RuntimeId
 		}
 
 		if runtime != runtimeUnknown {
-			return
+			return id, runtime
 		}
 
 		if matched := containerIdFromCgroupRegex.MatchString(id); matched && i > 0 {
@@ -71,17 +71,17 @@ func GetContainerIdByCgroupPath(cgroupPath string) (id string, runtime RuntimeId
 				runtime = runtimeContainerd
 			}
 
-			return
+			return id, runtime
 		}
 
 		if matched := gardenContainerIdFromCgroupRegex.MatchString(id); matched {
 			runtime = runtimeGarden
-			return
+			return id, runtime
 		}
 	}
 
 	id = ""
-	return
+	return id, runtime
 }
 
 func getCgroupIdByPath(filepath string) (uint64, error) {

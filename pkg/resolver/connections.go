@@ -20,7 +20,7 @@ func GatherPidsTCPMap(procfs string, isCgroupV2 bool) (tcpMap map[uint64]bool, e
 	cgroups, err := getAllCgroups(procfs, isCgroupV2)
 	if err != nil {
 		log.Error().Err(err).Msg("get all cgroups failed")
-		return
+		return tcpMap, err
 	}
 	log.Info().Int("cgroups", len(cgroups)).Msg("got cgroups")
 	for cgroup := range cgroups {
@@ -87,5 +87,5 @@ func GatherPidsTCPMap(procfs string, isCgroupV2 bool) (tcpMap map[uint64]bool, e
 			}
 		}
 	}
-	return
+	return tcpMap, err
 }

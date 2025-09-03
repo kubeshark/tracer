@@ -16,9 +16,7 @@ import (
 	"github.com/shirou/gopsutil/v3/host"
 )
 
-var (
-	ErrNotReady = errors.New("flows not ready")
-)
+var ErrNotReady = errors.New("flows not ready")
 
 type FlowKey struct {
 	bpf.TracerFlowKeyT
@@ -151,5 +149,4 @@ func (f *FlowsReaderImpl) openFlows(dataDir string) {
 	}
 
 	f.ready.Store(true)
-
 }

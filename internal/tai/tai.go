@@ -1,10 +1,11 @@
 package tai
 
 import (
-	"github.com/rs/zerolog/log"
-	"golang.org/x/sys/unix"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
+	"golang.org/x/sys/unix"
 )
 
 func SetTimestamp(ti TaiInfo, tp uint64) (t time.Time) {
@@ -13,7 +14,7 @@ func SetTimestamp(ti TaiInfo, tp uint64) (t time.Time) {
 	} else {
 		t = time.Now()
 	}
-	return
+	return t
 }
 
 type TaiInfo interface {

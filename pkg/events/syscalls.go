@@ -4,7 +4,6 @@ import (
 	"bytes"
 )
 
-
 // must match tracer/bpf/include/events.h SYSCALL_EVENT_ID_*
 const (
 	EventIdConnect      = 0
@@ -14,10 +13,10 @@ const (
 )
 
 type SyscallEventStats struct {
-	PacketsSent uint64
-	BytesSent uint64
+	PacketsSent     uint64
+	BytesSent       uint64
 	PacketsReceived uint64
-	BytesReceived uint64
+	BytesReceived   uint64
 }
 
 type SyscallEventMessage struct {
@@ -52,5 +51,5 @@ func (ev *SyscallEventMessage) CmdPath() (cmd string) {
 	} else {
 		cmd = string(ev.Command[:nullIndex])
 	}
-	return
+	return cmd
 }

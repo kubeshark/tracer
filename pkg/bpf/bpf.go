@@ -2,12 +2,11 @@ package bpf
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
-
-	"bytes"
-	"os"
 	"syscall"
 
 	"github.com/cilium/ebpf"
@@ -103,22 +102,22 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	mounted, err = isMounted(procfs, "/sys/fs/bpf")
 	if err != nil {
 		err = fmt.Errorf("%w: mount check failed: %v", ErrBpfMountFailed, err)
-		return
+		return pObjs, tlsEnabled, plainEnabled, err
 	}
 	if !mounted {
 		err = fmt.Errorf("%w: /sys/fs/bpf is not mounted", ErrBpfMountFailed)
-		return
+		return pObjs, tlsEnabled, plainEnabled, err
 	}
 
-	if err = os.MkdirAll(PinPath, 0700); err != nil {
+	if err = os.MkdirAll(PinPath, 0o700); err != nil {
 		err = fmt.Errorf("%w: mkdir pin path failed: %v", ErrBpfOperationFailed, err)
-		return
+		return pObjs, tlsEnabled, plainEnabled, err
 	}
 
 	var files []string
 	if files, err = utils.RemoveAllFilesInDir(PinPath); err != nil {
 		err = fmt.Errorf("%w: bpf fs directory cleanup failed: %v", ErrBpfOperationFailed, err)
-		return
+		return pObjs, tlsEnabled, plainEnabled, err
 	} else {
 		for _, file := range files {
 			log.Debug().Str("path", file).Msg("removed bpf entry")
@@ -143,7 +142,6 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	}
 
 	defer func() {
-
 		if errLoadPlain != nil {
 			log.Warn().Msg(fmt.Sprintf("eBPF plain load error: %v", errLoadPlain))
 		}
@@ -161,7 +159,7 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 			tlsEnabled = true
 		} else {
 			err = fmt.Errorf("%w: load tracer 4.6 objects failed", ErrBpfOperationFailed)
-			return
+			return pObjs, tlsEnabled, plainEnabled, err
 		}
 	} else {
 		var procIno uint64
@@ -204,28 +202,28 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 		loadTracer := func(obj *TracerObjects) (err error) {
 			if err = objects.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerBytes)); err != nil {
 				err = fmt.Errorf("load tracer objects failed: %v", err)
-				return
+				return err
 			}
 			*obj = *objects.bpfObjs.(*TracerObjects)
-			return
+			return err
 		}
 
 		loadTracerNoEbpf := func(obj *TracerObjects) (err error) {
 			if err = objectsNoEbpf.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
 				err = fmt.Errorf("load tracer noBpf objects failed: %v", err)
-				return
+				return err
 			}
 
 			o := objectsNoEbpf.bpfObjs.(*TracerNoEbpfObjects)
 			if err = copier.Copy(&obj.TracerPrograms, &o.TracerNoEbpfPrograms); err != nil {
 				err = fmt.Errorf("copy program objects failed: %v", err)
-				return
+				return err
 			}
 			if err = copier.Copy(&obj.TracerMaps, &o.TracerNoEbpfMaps); err != nil {
 				err = fmt.Errorf("copy map objects failed: %v", err)
-				return
+				return err
 			}
-			return
+			return err
 		}
 
 		if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
@@ -234,7 +232,7 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 				tlsEnabled = true
 			} else {
 				err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
-				return
+				return pObjs, tlsEnabled, plainEnabled, err
 			}
 		} else {
 			plainEnabled = true
@@ -245,31 +243,31 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	if plainEnabled {
 		if err = pinMap(PinNamePlainPackets, objs.BpfObjs.PktsBuffer); err != nil {
 			err = fmt.Errorf("%w: pin packets buffer failed: %v", ErrBpfOperationFailed, err)
-			return
+			return pObjs, tlsEnabled, plainEnabled, err
 		}
 
 		if err = pinMap(PinNameFlows, objs.BpfObjs.AllFlowsStats); err != nil {
 			err = fmt.Errorf("%w: pin flows failed: %v", ErrBpfOperationFailed, err)
-			return
+			return pObjs, tlsEnabled, plainEnabled, err
 		}
 	}
 
 	if tlsEnabled {
 		if err = pinMap(PinNameTLSPackets, objs.BpfObjs.ChunksBuffer); err != nil {
 			err = fmt.Errorf("%w: pin tls buffer failed: %v", ErrBpfOperationFailed, err)
-			return
+			return pObjs, tlsEnabled, plainEnabled, err
 		}
 	}
 
 	if plainEnabled || tlsEnabled {
 		if err = pinMap(PinNameProgramsConfiguration, objs.BpfObjs.ProgramsConfiguration); err != nil {
 			err = fmt.Errorf("%w: pin programs configuration failed: %v", ErrBpfOperationFailed, err)
-			return
+			return pObjs, tlsEnabled, plainEnabled, err
 		}
 	}
 
 	pObjs = &objs
-	return
+	return pObjs, tlsEnabled, plainEnabled, err
 }
 
 func isMounted(procfs string, target string) (bool, error) {
