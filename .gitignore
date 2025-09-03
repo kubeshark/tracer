@@ -21,7 +21,9 @@
 go.work
 
 # Editors/IDEs
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 
 # The executable
 tracer

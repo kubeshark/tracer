@@ -54,7 +54,7 @@ func getPodArrayDiff(oldPods []*v1.Pod, newPods []*v1.Pod) (added []*v1.Pod, rem
 func getMissingPods(pods1 []*v1.Pod, pods2 []*v1.Pod) []*v1.Pod {
 	missingPods := make([]*v1.Pod, 0)
 	for _, pod1 := range pods1 {
-		var found = false
+		found := false
 		for _, pod2 := range pods2 {
 			if pod1.UID == pod2.UID {
 				found = true
@@ -72,7 +72,6 @@ func updateCurrentlyTargetedPods(
 	callback callbackPodsChanged,
 	settings uint32,
 ) (err error) {
-
 	newAllTargetPods, targetingEnabled, err := getAllTargetPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get all targeted pods")
@@ -87,7 +86,7 @@ func updateCurrentlyTargetedPods(
 	if !targetingEnabled {
 		log.Info().Msg("Targeting is disabled, watch all pods")
 		err = callback(nil, nil, settings)
-		return
+		return err
 	}
 
 	newSelectedTargetPods, _, err := getSelectedTargetedPodsFromHub()
@@ -102,7 +101,7 @@ func updateCurrentlyTargetedPods(
 
 	err = callback(addedTargetedPods, removedTargetedPods, settings)
 
-	return
+	return err
 }
 
 func getAllTargetPodsFromHub() (targetPods []*v1.Pod, targetingEnabled bool, err error) {
@@ -114,7 +113,6 @@ func getSelectedTargetedPodsFromHub() (targetPods []*v1.Pod, targetingEnabled bo
 }
 
 func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, targetingEnabled bool, err error) {
-
 	url := hubAddr + endpoint
 
 	var content []byte
@@ -168,5 +166,5 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, targetingEnabl
 	targetingEnabled = data.TargetingEnabled
 	targetPods = data.TargetPods
 
-	return
+	return targetPods, targetingEnabled, err
 }

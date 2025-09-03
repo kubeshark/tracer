@@ -12,23 +12,58 @@ permissions:
   contents: read
 
 jobs:
-  golint:
-    name: Golint
+  lint:
     runs-on: ubuntu-latest
+    env:
+      GOPRIVATE: github.com/kubeshark
+      GH_ACCESS_TOKEN: ${{ secrets.KUBESHARK_GO_MOD }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - uses: actions/setup-go@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
         with:
-          go-version: '^1.22'
+          go-version: '^1.24'
+          cache: true
 
-      - name: Configure private token
-        env:
-          GH_ACCESS_TOKEN: ${{ secrets.KUBESHARK_GO_MOD }}
+      - name: Install goimports
+        run: go install golang.org/x/tools/cmd/goimports@latest
+
+      - name: Install gofumpt
+        run: go install mvdan.cc/gofumpt@latest
+
+      - name: Check formatting (gofmt)
         run: |
-          git config --global url."https://${GH_ACCESS_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"
+          if [ "$(gofmt -l . | wc -l)" -gt 0 ]; then
+            echo "The following files are not formatted properly:"
+            gofmt -l .
+            echo "Please run 'gofmt -w .' to fix formatting issues"
+            exit 1
+          fi
+
+      - name: Check imports (goimports)
+        run: |
+          if [ "$(goimports -l . | wc -l)" -gt 0 ]; then
+            echo "The following files have import issues:"
+            goimports -l .
+            echo "Please run 'goimports -w .' to fix import issues"
+            exit 1
+          fi
+
+      - name: Check enhanced formatting (gofumpt)
+        run: |
+          if [ "$(gofumpt -l . | wc -l)" -gt 0 ]; then
+            echo "The following files need enhanced formatting:"
+            gofumpt -l .
+            echo "Please run 'gofumpt -w .' to fix formatting issues"
+            exit 1
+          fi
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.8
 
       - name: Install dependencies
         run: |
@@ -48,12 +83,15 @@ jobs:
       - name: Generate eBPF object files and Go bindings
         run: make bpf
 
-      - name: Install go dependencies
-        run: go mod download
+      - run: git config --global url.https://$GH_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+      - name: Run golangci-lint
+        run: |
+          $(go env GOPATH)/bin/golangci-lint run --timeout=10m --verbose
 
-      - name: Go lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          args: --timeout=10m
-          go-version: '^1.21'
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code go.mod go.sum; then
+            echo "go mod tidy resulted in changes. Please run 'go mod tidy' and commit the results."
+            exit 1
+          fi

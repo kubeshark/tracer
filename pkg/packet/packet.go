@@ -15,9 +15,7 @@ import (
 	"github.com/kubeshark/tracer/pkg/poller/packets"
 )
 
-var (
-	ErrNotSupported = errors.New("source is not supported")
-)
+var ErrNotSupported = errors.New("source is not supported")
 
 type PacketData struct {
 	Timestamp uint64
@@ -113,7 +111,6 @@ func enableCapture(programsConfiguration *ebpf.Map, feature uint32) error {
 		return fmt.Errorf("programs configuration update failed: %v", err)
 	}
 	return nil
-
 }
 
 func getPacketsPerfBufferSize() int {
@@ -153,7 +150,7 @@ func (p *PacketSourceImpl) Stop() error {
 func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost, chunksLost uint64) {
 	packetsGot = p.poller.GetReceivedPackets()
 	chunksLost = p.poller.GetLostChunks()
-	return
+	return packetsGot, packetsLost, chunksLost
 }
 
 func (p *PacketSourceImpl) NextPacket() (gopacket.Packet, error) {
@@ -171,21 +168,21 @@ func IsPlainPacketCaptureSupported(pathSupported, pathNotSupported string) (supp
 		var file *os.File
 		if file, err = os.Open(pathNotSupported); err == nil {
 			file.Close()
-			return
+			return supported, err
 		} else if !errors.Is(err, os.ErrNotExist) {
 			err = fmt.Errorf("check file %v existence failed: %w", pathNotSupported, err)
-			return
+			return supported, err
 		}
 
 		if file, err = os.Open(pathSupported); err == nil {
 			file.Close()
 			supported = true
-			return
+			return supported, err
 		} else if !errors.Is(err, os.ErrNotExist) {
 			err = fmt.Errorf("check file %v existence failed: %w", pathSupported, err)
-			return
+			return supported, err
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return
+	return supported, err
 }

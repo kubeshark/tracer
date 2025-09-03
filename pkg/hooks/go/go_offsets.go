@@ -55,7 +55,6 @@ const (
 )
 
 func FindGoOffsets(fpath string) (goOffsets, error) {
-
 	offsets := map[string]*goExtendedOffset{
 		goVersionSymbol: nil,
 		goWriteSymbol:   nil,
@@ -131,7 +130,7 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 		tlsg, _ = getSymbol(exe, "runtime.tlsg")
 		if tlsg == nil || tls == nil {
 			gStructOffset = ^uint64(PtrSize) + 1 //-ptrSize
-			return
+			return gStructOffset, err
 		}
 
 		// According to https://reviews.llvm.org/D61824, linkers must pad the actual
@@ -148,7 +147,7 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 		tlsg, _ = getSymbol(exe, "runtime.tls_g")
 		if tlsg == nil || tls == nil {
 			gStructOffset = 2 * uint64(PtrSize)
-			return
+			return gStructOffset, err
 		}
 
 		gStructOffset = tlsg.Value + uint64(PtrSize*2) + ((tls.Vaddr - uint64(PtrSize*2)) & (tls.Align - 1))
@@ -158,7 +157,7 @@ func getGStructOffset(exe *elf.File) (gStructOffset uint64, err error) {
 		err = fmt.Errorf("architecture not supported")
 	}
 
-	return
+	return gStructOffset, err
 }
 
 func populateNetConnOffset(dwarfData *dwarf.Data, entry *dwarf.Entry, netConnOffsets map[string]*netConnOffset) {
@@ -203,7 +202,7 @@ func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) 
 	var dwarfData *dwarf.Data
 	dwarfData, err = elfFile.DWARF()
 	if err != nil {
-		return
+		return goidOffset, gStructOffset, err
 	}
 
 	entryReader := dwarfData.Reader()
@@ -248,7 +247,7 @@ func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) 
 						goidOffset = uint64(entry.Offset) - runtimeGOffset - 0x4b
 						gStructOffset, err = getGStructOffset(elfFile)
 						if err != nil {
-							return
+							return goidOffset, gStructOffset, err
 						}
 						seenGoid = true
 					}
@@ -260,7 +259,7 @@ func getGoidOffset(elfFile *elf.File, netConnOffsets map[string]*netConnOffset) 
 	if !seenGoid {
 		err = fmt.Errorf("goid not found in DWARF")
 	}
-	return
+	return goidOffset, gStructOffset, err
 }
 
 var regexpNetConn = regexp.MustCompile(`go:itab\.\*([^,]+),net.Conn`)
@@ -282,7 +281,7 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 		err = fmt.Errorf("Unsupported architecture: %v", runtime.GOARCH)
 	}
 	if err != nil {
-		return
+		return goidOffset, gStructOffset, netConnOffsets, err
 	}
 
 	engineMajor, engineMinor := engine.Version()
@@ -298,20 +297,20 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 	var fd *os.File
 	fd, err = os.Open(fpath)
 	if err != nil {
-		return
+		return goidOffset, gStructOffset, netConnOffsets, err
 	}
 	defer fd.Close()
 
 	var elfFile *elf.File
 	elfFile, err = elf.NewFile(fd)
 	if err != nil {
-		return
+		return goidOffset, gStructOffset, netConnOffsets, err
 	}
 
 	textSection := elfFile.Section(".text")
 	if textSection == nil {
 		err = fmt.Errorf("No text section")
-		return
+		return goidOffset, gStructOffset, netConnOffsets, err
 	}
 
 	textSectionFile := textSection.Open()
@@ -319,7 +318,7 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 	var syms []elf.Symbol
 	syms, err = elfFile.Symbols()
 	if err != nil {
-		return
+		return goidOffset, gStructOffset, netConnOffsets, err
 	}
 
 	netConnOffsets = make(map[string]*netConnOffset)
@@ -373,25 +372,25 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 			continue
 		}
 		if _, err = textSectionFile.Seek(int64(symStartingIndex), io.SeekStart); err != nil {
-			return
+			return goidOffset, gStructOffset, netConnOffsets, err
 		}
 		num := int(symEndingIndex - symStartingIndex)
 		var numRead int
 		symBytes := make([]byte, num)
 		numRead, err = textSectionFile.Read(symBytes)
 		if err != nil {
-			return
+			return goidOffset, gStructOffset, netConnOffsets, err
 		}
 		if numRead != num {
 			err = errors.New("Text section read failed")
-			return
+			return goidOffset, gStructOffset, netConnOffsets, err
 		}
 
 		// disassemble the symbol
 		var instructions []gapstone.Instruction
 		instructions, err = engine.Disasm(symBytes, sym.Value, 0)
 		if err != nil {
-			return
+			return goidOffset, gStructOffset, netConnOffsets, err
 		}
 
 		// iterate over each instruction and if the mnemonic is `ret` then that's an exit offset
@@ -406,7 +405,7 @@ func getOffsets(fpath string, offsets map[string]*goExtendedOffset) (goidOffset 
 
 	goidOffset, gStructOffset, err = getGoidOffset(elfFile, netConnOffsets)
 
-	return
+	return goidOffset, gStructOffset, netConnOffsets, err
 }
 
 func getOffset(offsets map[string]*goExtendedOffset, symbol string) (*goExtendedOffset, error) {

@@ -11,7 +11,6 @@ import (
 
 func findLibraryByPid(procfs string, pid uint32, libraryName string) (string, error) {
 	file, err := os.Open(fmt.Sprintf("%v/%v/maps", procfs, pid))
-
 	if err != nil {
 		return "", err
 	}

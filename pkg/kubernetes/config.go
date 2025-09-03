@@ -55,14 +55,14 @@ func SetAllCgroupsOff(settings *uint32) {
 func GetThisNodeName(watcher *Watcher) (name string, err error) {
 	if watcher.clientSet == nil {
 		err = errors.New("K8s API is not available!")
-		return
+		return name, err
 	}
 
 	pod, err := watcher.clientSet.CoreV1().Pods(GetSelfNamespace()).Get(context.TODO(), GetSelfPodName(), metav1.GetOptions{})
 	if err != nil {
-		return
+		return name, err
 	}
 
 	name = pod.Spec.NodeName
-	return
+	return name, err
 }

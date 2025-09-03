@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
 	"unsafe"
 
 	"github.com/cilium/ebpf/link"
@@ -138,7 +137,6 @@ func (p *pids) untargetCgroup(cgroupId uint64) {
 func (p *pids) handleFoundNewPIDs() {
 	for {
 		record, err := p.readerFoundPid.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				log.Info().Msg("found pid handler is closed")
@@ -226,7 +224,7 @@ func (p *pids) installHooks(e foundPidEvent) {
 func (p *pids) installGoHook(e foundPidEvent) (goHook *goHooks.GoHooks, goPath, envoyPath string) {
 	path, err := findLibraryByPid(p.procfs, e.pid, "")
 	if err != nil {
-		return
+		return goHook, goPath, envoyPath
 	}
 
 	if filepath.Base(path) == "envoy" {
@@ -236,31 +234,31 @@ func (p *pids) installGoHook(e foundPidEvent) (goHook *goHooks.GoHooks, goPath, 
 	ex, err := link.OpenExecutable(path)
 	if err != nil {
 		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("Open executable failed")
-		return
+		return goHook, goPath, envoyPath
 	}
 
 	offsets, err := goHooks.FindGoOffsets(path)
 	if err != nil {
 		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("find offsets failed")
-		return
+		return goHook, goPath, envoyPath
 	}
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("gotls found")
 	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
 		goPath = path
-		return
+		return goHook, goPath, envoyPath
 	}
 	hook := goHooks.GoHooks{}
 
 	err = hook.InstallHooks(p.bpfObjs, ex, offsets)
 	if err != nil {
 		log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg(fmt.Sprintf("install go hook failed: %v", err))
-		return
+		return goHook, goPath, envoyPath
 	}
 
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Msg("go hook installed")
 	goHook = &hook
 	goPath = path
-	return
+	return goHook, goPath, envoyPath
 }
 
 func (p *pids) installOpensslHook(e foundPidEvent) (*sslHooks.SslHooks, string) {

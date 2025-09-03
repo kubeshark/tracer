@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -63,7 +62,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 	if proto == "tcp" {
 		if err = getTcpConns(pid); err != nil {
 			err = fmt.Errorf("execute tcp in ns failed for pid: %v error: %v", pid, err)
-			return
+			return lines, err
 		}
 		for _, c := range tcpConns {
 			d := IpSocketLine{
@@ -102,7 +101,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 	} else if proto == "udp" {
 		if err = getUdpConns(pid); err != nil {
 			err = fmt.Errorf("execute udp in ns failed for pid: %v error: %v", pid, err)
-			return
+			return lines, err
 		}
 		for _, c := range udpConns {
 			d := IpSocketLine{
@@ -143,7 +142,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		}
 	}
 
-	return
+	return lines, err
 }
 
 func getPidStatus(proc string, hostPid uint32) (status map[string]string, err error) {
@@ -152,7 +151,7 @@ func getPidStatus(proc string, hostPid uint32) (status map[string]string, err er
 	var file *os.File
 	file, err = os.Open(path)
 	if err != nil {
-		return
+		return status, err
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -162,9 +161,9 @@ func getPidStatus(proc string, hostPid uint32) (status map[string]string, err er
 
 	scanner := bufio.NewScanner(file)
 	checkFields := map[string]struct{}{
-		"Name:":  struct{}{},
-		"PPid:":  struct{}{},
-		"NSpid:": struct{}{},
+		"Name:":  {},
+		"PPid:":  {},
+		"NSpid:": {},
 	}
 
 	for scanner.Scan() {
@@ -179,11 +178,11 @@ func getPidStatus(proc string, hostPid uint32) (status map[string]string, err er
 	for f := range checkFields {
 		if _, ok := status[f]; !ok {
 			err = fmt.Errorf("process status field %q not found, pid: %v", f, hostPid)
-			return
+			return status, err
 		}
 	}
 
-	return
+	return status, err
 }
 
 func getPidCgroup(proc string, hostPid uint32, isCgroupV2 bool) (cgroup string, err error) {
@@ -191,7 +190,7 @@ func getPidCgroup(proc string, hostPid uint32, isCgroupV2 bool) (cgroup string, 
 	var file *os.File
 	file, err = os.Open(path)
 	if err != nil {
-		return
+		return cgroup, err
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -208,11 +207,11 @@ func getPidCgroup(proc string, hostPid uint32, isCgroupV2 bool) (cgroup string, 
 		}
 		if isCgroupV2 || strings.Contains(line[1], "cpuset") {
 			cgroup = line[2]
-			return
+			return cgroup, err
 		}
 	}
 
-	return
+	return cgroup, err
 }
 
 func getPidSocketInodes(proc string, pid uint32) (map[uint64]uint32, error) {

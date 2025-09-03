@@ -1,14 +1,13 @@
 package discoverer
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
-
-	"bufio"
-	"strconv"
 
 	"github.com/go-errors/errors"
 	"github.com/kubeshark/tracer/pkg/bpf"

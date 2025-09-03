@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -244,7 +243,7 @@ func getAllCgroups(procfs string, isCgroupV2 bool) (ret map[string]uint64, err e
 	ret = make(map[string]uint64)
 	procDir, err := os.Open(procfs)
 	if err != nil {
-		return
+		return ret, err
 	}
 	defer procDir.Close()
 
@@ -303,7 +302,7 @@ func findPIDsInCgroup(procfs string, isCgroupV2 bool, cgroupEntry string) ([]pid
 			if ok {
 				pi, err := getPidInfo(procfs, uint32(hostPid), isCgroupV2)
 				if err != nil {
-					//TODO: handle case when pid was terminated
+					// TODO: handle case when pid was terminated
 					log.Debug().Err(err).Int("pid", hostPid).Msg("get pid info failed")
 					continue
 				}
@@ -318,28 +317,28 @@ func findPIDsInCgroup(procfs string, isCgroupV2 bool, cgroupEntry string) ([]pid
 func getPidInfo(proc string, hostPid uint32, isCgroupV2 bool) (pi pidInfo, err error) {
 	status, err := getPidStatus(proc, hostPid)
 	if err != nil {
-		return
+		return pi, err
 	}
 	cgroup, err := getPidCgroup(proc, hostPid, isCgroupV2)
 	if err != nil {
-		return
+		return pi, err
 	}
 
 	name := status["Name:"]
 
 	hostParentPid, err := strconv.Atoi(status["PPid:"])
 	if err != nil {
-		return
+		return pi, err
 	}
 
 	nspid, err := strconv.Atoi(status["NSpid:"])
 	if err != nil {
-		return
+		return pi, err
 	}
 
 	cgroupPpid, err := getPidCgroup(proc, uint32(hostParentPid), isCgroupV2)
 	if err != nil {
-		return
+		return pi, err
 	}
 
 	var parentNspid int
@@ -359,11 +358,11 @@ func getPidInfo(proc string, hostPid uint32, isCgroupV2 bool) (pi pidInfo, err e
 
 	inodes, err := getPidSocketInodes(proc, hostPid)
 	if err != nil {
-		return
+		return pi, err
 	}
 
 	if pi.path, err = ResolveSymlinkWithoutValidation(filepath.Join(proc, fmt.Sprintf("%v", hostPid), "exe")); err != nil {
-		return
+		return pi, err
 	}
 
 	pi.hostPid = hostPid
@@ -373,7 +372,7 @@ func getPidInfo(proc string, hostPid uint32, isCgroupV2 bool) (pi pidInfo, err e
 	pi.name = name
 	pi.socketInodes = inodes
 
-	return
+	return pi, err
 }
 
 func pidInCgroup(procfs string, isCgroupV2 bool, pid, cgroupEntry string) (bool, error) {
@@ -489,7 +488,7 @@ func findCgroupsEndWith(isCgroupsV2 bool, pidPaths map[string]struct{}) (paths m
 		return nil
 	})
 
-	return
+	return paths, err
 }
 
 func getTCPConnections(pid string) (lines []IpSocketLine, err error) {
