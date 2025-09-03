@@ -7,8 +7,8 @@ Copyright (C) Kubeshark
 #define __GO_TYPES__
 
 struct go_interface {
-    __s64 type;
-    void* ptr;
+  __s64 type;
+  void *ptr;
 };
 
 #endif /* __GO_TYPES__ */

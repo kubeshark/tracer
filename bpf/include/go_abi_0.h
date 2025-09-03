@@ -10,8 +10,8 @@ Copyright (C) Kubeshark
 Go ABI0 (<=1.16) specification
 https://go.dev/doc/asm
 
-Since ABI0 is a stack-based calling convention we only need the stack pointer and
-if it's applicable the Goroutine pointer
+Since ABI0 is a stack-based calling convention we only need the stack pointer
+and if it's applicable the Goroutine pointer
 */
 
 #include "target_arch.h"

@@ -4,31 +4,31 @@
 #if defined(bpf_target_x86)
 
 struct thread_struct___v46 {
-	struct desc_struct tls_array[3];
-	unsigned long sp0;
-	unsigned long sp;
-	unsigned short es;
-	unsigned short ds;
-	unsigned short fsindex;
-	unsigned short gsindex;
-	unsigned long fs;
-	unsigned long gs;
-	struct perf_event ptrace_bps[4];
-	unsigned long debugreg6;
-	unsigned long ptrace_dr7;
-	unsigned long cr2;
-	unsigned long trap_nr;
-	unsigned long error_code;
-	unsigned long io_bitmap_ptr;
-	unsigned long iopl;
-	unsigned io_bitmap_max;
-    long: 63;
-	long: 64;
-	long: 64;
-	long: 64;
-	long: 64;
-	long: 64;
-	struct fpu fpu;
+  struct desc_struct tls_array[3];
+  unsigned long sp0;
+  unsigned long sp;
+  unsigned short es;
+  unsigned short ds;
+  unsigned short fsindex;
+  unsigned short gsindex;
+  unsigned long fs;
+  unsigned long gs;
+  struct perf_event ptrace_bps[4];
+  unsigned long debugreg6;
+  unsigned long ptrace_dr7;
+  unsigned long cr2;
+  unsigned long trap_nr;
+  unsigned long error_code;
+  unsigned long io_bitmap_ptr;
+  unsigned long iopl;
+  unsigned io_bitmap_max;
+  long : 63;
+  long : 64;
+  long : 64;
+  long : 64;
+  long : 64;
+  long : 64;
+  struct fpu fpu;
 };
 
 #elif defined(bpf_target_arm)
