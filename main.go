@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kubeshark/api2/pkg/proto/raw_capture"
 	"github.com/kubeshark/api2/pkg/proto/tracer_service"
 	"github.com/kubeshark/tracer/internal/grpcservice"
 	"github.com/kubeshark/tracer/misc"
@@ -230,6 +231,7 @@ func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
 	}
 	serverConfig.RegisterFunc = func(s *grpc.Server) {
 		tracer_service.RegisterTracerServiceServer(s, grpcService)
+		raw_capture.RegisterRawCaptureServer(s, &grpcservice.RawCaptureServer{GRPCService: grpcService})
 	}
 
 	grpcServer = streamer.NewServer(serverConfig)
