@@ -200,6 +200,7 @@ BPF_PERF_OUTPUT(log_buffer);
 BPF_ARRAY(settings, __u32, struct configuration, 1);
 BPF_ARRAY(programs_configuration, __u32, __u32, 1);
 BPF_LRU_HASH(cgroup_ids, __u64, __u32);
+BPF_LRU_HASH(excluded_cgroup_ids, __u64, __u32);
 
 // OpenSSL specific
 BPF_LRU_HASH(openssl_write_context, __u64, struct ssl_info);

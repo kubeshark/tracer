@@ -135,10 +135,45 @@ func (t *Tracer) Init(
 	return nil
 }
 
-func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) error {
-	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Msg("Update targets")
+func (t *Tracer) updateTargets(addPods, removePods, excludedPods []*v1.Pod, settings uint32) error {
+	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Int("Excluded pods", len(excludedPods)).Msg("Update targets")
 	if err := t.bpfObjects.BpfObjs.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
 		log.Error().Err(err).Msg("Update capture settings failed:")
+	}
+
+	// Get existing cgroup IDs before update
+	existingIds := make(map[uint64]struct{})
+	var key uint64
+	var value uint32
+	entries := t.bpfObjects.BpfObjs.ExcludedCgroupIds.Iterate()
+	for entries.Next(&key, &value) {
+		existingIds[key] = struct{}{}
+	}
+	if err := entries.Err(); err != nil {
+		log.Error().Err(err).Msg("Error occurred while iterating ExcludedCgroupIds")
+	}
+
+	// Track newly added IDs during update
+	newIds := make(map[uint64]struct{})
+	for _, pod := range excludedPods {
+		for _, containerId := range getContainerIDs(pod) {
+			for _, value := range t.cgroupsController.GetCgroupsV2(containerId) {
+				cgroupId := uint64(value.CgroupID)
+				if err := t.bpfObjects.BpfObjs.ExcludedCgroupIds.Update(cgroupId, uint32(0), ebpf.UpdateAny); err != nil {
+					log.Error().Err(err).Uint64("Cgroup ID", cgroupId).Msg("Cgroup IDs update failed")
+				}
+				newIds[cgroupId] = struct{}{}
+			}
+		}
+	}
+
+	// Remove IDs that weren't part of this update
+	for id := range existingIds {
+		if _, exists := newIds[id]; !exists {
+			if err := t.bpfObjects.BpfObjs.ExcludedCgroupIds.Delete(id); err != nil {
+				log.Error().Err(err).Uint64("Cgroup ID", id).Msg("Cgroup IDs delete failed")
+			}
+		}
 	}
 
 	for _, pod := range removePods {
