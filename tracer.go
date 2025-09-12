@@ -149,6 +149,9 @@ func (t *Tracer) updateTargets(addPods, removePods, excludedPods []*v1.Pod, sett
 	for entries.Next(&key, &value) {
 		existingIds[key] = struct{}{}
 	}
+	if err := entries.Err(); err != nil {
+		log.Error().Err(err).Msg("Error occurred while iterating ExcludedCgroupIds")
+	}
 
 	// Track newly added IDs during update
 	newIds := make(map[uint64]struct{})
