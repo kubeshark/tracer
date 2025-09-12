@@ -156,7 +156,9 @@ func (t *Tracer) updateTargets(addPods, removePods, excludedPods []*v1.Pod, sett
 		for _, containerId := range getContainerIDs(pod) {
 			for _, value := range t.cgroupsController.GetCgroupsV2(containerId) {
 				cgroupId := uint64(value.CgroupID)
-				t.bpfObjects.BpfObjs.ExcludedCgroupIds.Update(cgroupId, uint32(0), ebpf.UpdateAny)
+				if err := t.bpfObjects.BpfObjs.ExcludedCgroupIds.Update(cgroupId, uint32(0), ebpf.UpdateAny); err != nil {
+					log.Error().Err(err).Uint64("Cgroup ID", cgroupId).Msg("Cgroup IDs update failed")
+				}
 				newIds[cgroupId] = struct{}{}
 			}
 		}
@@ -165,7 +167,9 @@ func (t *Tracer) updateTargets(addPods, removePods, excludedPods []*v1.Pod, sett
 	// Remove IDs that weren't part of this update
 	for id := range existingIds {
 		if _, exists := newIds[id]; !exists {
-			t.bpfObjects.BpfObjs.ExcludedCgroupIds.Delete(id)
+			if err := t.bpfObjects.BpfObjs.ExcludedCgroupIds.Delete(id); err != nil {
+				log.Error().Err(err).Uint64("Cgroup ID", id).Msg("Cgroup IDs delete failed")
+			}
 		}
 	}
 
