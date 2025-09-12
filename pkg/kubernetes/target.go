@@ -114,7 +114,6 @@ func getSelectedTargetedPodsFromHub() (targetPods, excludedPods []*v1.Pod, targe
 	return getTargetPodsFromHub(selectedTargetPodsEndpoint)
 }
 
-
 func getTargetPodsFromHub(endpoint string) (targetPods, excludedPods []*v1.Pod, targetingEnabled bool, err error) {
 	url := hubAddr + endpoint
 
