@@ -3,12 +3,13 @@ package utils
 
 import (
 	"fmt"
-	"github.com/go-errors/errors"
-	"github.com/rs/zerolog/log"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"github.com/go-errors/errors"
+	"github.com/rs/zerolog/log"
+	"golang.org/x/sys/unix"
 )
 
 func LogError(err error) {
@@ -44,18 +45,18 @@ func RemoveAllFilesInDir(dir string) (removedFiles []string, err error) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		err = fmt.Errorf("failed to read directory %s: %w", dir, err)
-		return
+		return removedFiles, err
 	}
 
 	for _, file := range files {
 		filePath := filepath.Join(dir, file.Name())
 		if err = os.Remove(filePath); err != nil {
 			err = fmt.Errorf("failed to remove %s: %w", filePath, err)
-			return
+			return removedFiles, err
 		} else {
 			removedFiles = append(removedFiles, filePath)
 		}
 	}
 
-	return
+	return removedFiles, err
 }

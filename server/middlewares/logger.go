@@ -23,7 +23,6 @@ func DefaultStructuredLogger() gin.HandlerFunc {
 // logger for testing purposes.
 func StructuredLogger(logger *zerolog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-
 		start := time.Now() // Start timer
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery

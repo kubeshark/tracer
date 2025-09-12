@@ -77,11 +77,10 @@ func addFilter(link netlink.Link, prog *ebpf.Program, parent uint32) (filter *ne
 		return nil, fmt.Errorf("replacing tc filter ingress for interface %v: %w", link.Attrs().Name, err)
 	}
 
-	return
+	return filter, err
 }
 
 func (t *TcClientImpl) SetupTC(link netlink.Link, progFDIngress, progFDEgress *ebpf.Program) error {
-
 	filter, err := addFilter(link, progFDIngress, netlink.HANDLE_MIN_INGRESS)
 	if err != nil {
 		return err

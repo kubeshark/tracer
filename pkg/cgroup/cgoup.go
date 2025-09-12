@@ -4,7 +4,6 @@ package cgroup
 import (
 	"bufio"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/kubeshark/tracer/pkg/mount"
 	errfmt "github.com/kubeshark/tracer/pkg/utils"

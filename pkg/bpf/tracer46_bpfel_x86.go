@@ -294,6 +294,7 @@ type Tracer46MapSpecs struct {
 	ConnectSyscallInfo       *ebpf.MapSpec `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.MapSpec `ebpf:"do_mkdir_context"`
+	ExcludedCgroupIds        *ebpf.MapSpec `ebpf:"excluded_cgroup_ids"`
 	FileProbeHeap            *ebpf.MapSpec `ebpf:"file_probe_heap"`
 	ForkInfo                 *ebpf.MapSpec `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.MapSpec `ebpf:"go_kernel_read_context"`
@@ -350,6 +351,7 @@ type Tracer46Maps struct {
 	ConnectSyscallInfo       *ebpf.Map `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.Map `ebpf:"do_mkdir_context"`
+	ExcludedCgroupIds        *ebpf.Map `ebpf:"excluded_cgroup_ids"`
 	FileProbeHeap            *ebpf.Map `ebpf:"file_probe_heap"`
 	ForkInfo                 *ebpf.Map `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.Map `ebpf:"go_kernel_read_context"`
@@ -389,6 +391,7 @@ func (m *Tracer46Maps) Close() error {
 		m.ConnectSyscallInfo,
 		m.ConnectionContext,
 		m.DoMkdirContext,
+		m.ExcludedCgroupIds,
 		m.FileProbeHeap,
 		m.ForkInfo,
 		m.GoKernelReadContext,

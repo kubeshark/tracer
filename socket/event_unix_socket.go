@@ -16,7 +16,6 @@ type SocketEvent struct {
 }
 
 func NewSocketEvent(unixSocketFileName string) *SocketEvent {
-
 	se := SocketEvent{
 		unixSocketFileName: unixSocketFileName,
 		events:             make(chan any, 1024),

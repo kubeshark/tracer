@@ -17,7 +17,6 @@ func (s *syscallHooks) addTracepoint(group, name string, program *ebpf.Program) 
 		return nil
 	}
 	l, err := link.Tracepoint(group, name, program, nil)
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -34,7 +33,6 @@ func (s *syscallHooks) addRawTracepoint(name string, program *ebpf.Program) erro
 		Name:    name,
 		Program: program,
 	})
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -48,7 +46,6 @@ func (s *syscallHooks) addKprobe(name string, program *ebpf.Program) error {
 		return nil
 	}
 	l, err := link.Kprobe(name, program, nil)
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -62,7 +59,6 @@ func (s *syscallHooks) addKretprobe(name string, program *ebpf.Program) error {
 		return nil
 	}
 	l, err := link.Kretprobe(name, program, nil)
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}

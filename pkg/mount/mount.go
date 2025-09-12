@@ -4,7 +4,6 @@ package mount
 import (
 	"bufio"
 	"fmt"
-
 	"io"
 	"os"
 	"path/filepath"
@@ -97,7 +96,6 @@ func (m *MountHostOnce) Mount() error {
 
 	// mount the filesystem to the target dir
 	err = syscall.Mount(m.fsType, m.target, m.fsType, 0, m.data)
-
 	if err != nil {
 		// remove created target directory on errors
 		empty, _ := isDirEmpty(m.target)
@@ -159,7 +157,7 @@ func (m *MountHostOnce) isMountedByOS(where string) (bool, error) {
 	}
 	if mp == "" {
 		return false, nil
-		//return false, fmt.Errorf("mount point not found")
+		// return false, fmt.Errorf("mount point not found")
 	}
 	if where != "" && !strings.Contains(mp, where) {
 		return false, nil

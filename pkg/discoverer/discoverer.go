@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
 	"unsafe"
 
 	"github.com/cilium/ebpf"
@@ -59,8 +58,7 @@ func NewInternalEventsDiscoverer(procfs string, bpfObjects *bpf.BpfObjects, cgro
 	return &impl, nil
 }
 
-//TODO: Stop method
-
+// TODO: Stop method
 func (e *InternalEventsDiscovererImpl) Start() error {
 	var err error
 
@@ -149,7 +147,6 @@ func (e *InternalEventsDiscovererImpl) scanExistingCgroups(isCgroupsV2 bool) {
 func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 	for {
 		record, err := e.readerFoundOpenssl.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				log.Warn().Msg("found openssl handler is closed")
@@ -185,7 +182,6 @@ func (e *InternalEventsDiscovererImpl) handleFoundOpenssl() {
 func (e *InternalEventsDiscovererImpl) handleCgroupSignal() {
 	for {
 		record, err := e.readerCgroupSignal.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				log.Warn().Msg("cgroup signal handler is closed")
@@ -215,7 +211,6 @@ func (e *InternalEventsDiscovererImpl) handleCgroupSignal() {
 func (e *InternalEventsDiscovererImpl) handleFoundCgroup(isCgroupsV2 bool) {
 	for {
 		record, err := e.readerFoundCgroup.Read()
-
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				log.Error().Msg("found cgroupv2 handler is closed")

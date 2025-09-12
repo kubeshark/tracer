@@ -41,7 +41,7 @@ func SetSelectedTargetPods(pods []*v1.Pod) {
 	selectedTargetPods = pods
 }
 
-type callbackPodsChanged func(addPods []*v1.Pod, removePods []*v1.Pod, settings uint32) error
+type callbackPodsChanged func(addPods []*v1.Pod, removePods []*v1.Pod, excludedPods []*v1.Pod, settings uint32) error
 
 func getPodArrayDiff(oldPods []*v1.Pod, newPods []*v1.Pod) (added []*v1.Pod, removed []*v1.Pod) {
 	added = getMissingPods(newPods, oldPods)
@@ -54,7 +54,7 @@ func getPodArrayDiff(oldPods []*v1.Pod, newPods []*v1.Pod) (added []*v1.Pod, rem
 func getMissingPods(pods1 []*v1.Pod, pods2 []*v1.Pod) []*v1.Pod {
 	missingPods := make([]*v1.Pod, 0)
 	for _, pod1 := range pods1 {
-		var found = false
+		found := false
 		for _, pod2 := range pods2 {
 			if pod1.UID == pod2.UID {
 				found = true
@@ -72,8 +72,7 @@ func updateCurrentlyTargetedPods(
 	callback callbackPodsChanged,
 	settings uint32,
 ) (err error) {
-
-	newAllTargetPods, targetingEnabled, err := getAllTargetPodsFromHub()
+	newAllTargetPods, excludedPods, targetingEnabled, err := getAllTargetPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get all targeted pods")
 	}
@@ -86,11 +85,11 @@ func updateCurrentlyTargetedPods(
 
 	if !targetingEnabled {
 		log.Info().Msg("Targeting is disabled, watch all pods")
-		err = callback(nil, nil, settings)
-		return
+		err = callback(nil, nil, excludedPods, settings)
+		return err
 	}
 
-	newSelectedTargetPods, _, err := getSelectedTargetedPodsFromHub()
+	newSelectedTargetPods, _, _, err := getSelectedTargetedPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get selected targeted pods")
 	}
@@ -100,21 +99,20 @@ func updateCurrentlyTargetedPods(
 	SetAllTargetPods(newAllTargetPods)
 	SetSelectedTargetPods(newSelectedTargetPods)
 
-	err = callback(addedTargetedPods, removedTargetedPods, settings)
+	err = callback(addedTargetedPods, removedTargetedPods, excludedPods, settings)
 
-	return
+	return err
 }
 
-func getAllTargetPodsFromHub() (targetPods []*v1.Pod, targetingEnabled bool, err error) {
+func getAllTargetPodsFromHub() (targetPods, excludedPods []*v1.Pod, targetingEnabled bool, err error) {
 	return getTargetPodsFromHub(allTargetPodsEndpoint)
 }
 
-func getSelectedTargetedPodsFromHub() (targetPods []*v1.Pod, targetingEnabled bool, err error) {
+func getSelectedTargetedPodsFromHub() (targetPods, excludedPods []*v1.Pod, targetingEnabled bool, err error) {
 	return getTargetPodsFromHub(selectedTargetPodsEndpoint)
 }
 
-func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, targetingEnabled bool, err error) {
-
+func getTargetPodsFromHub(endpoint string) (targetPods, excludedPods []*v1.Pod, targetingEnabled bool, err error) {
 	url := hubAddr + endpoint
 
 	var content []byte
@@ -128,7 +126,7 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, targetingEnabl
 	retryClient.Logger = nil
 	req, err := retryablehttp.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to make GET build request on url=%s: %w",
+		return nil, nil, false, fmt.Errorf("failed to make GET build request on url=%s: %w",
 			url, err)
 	}
 	req.Header.Set("X-Kubeshark-Capture", "ignore")
@@ -137,36 +135,38 @@ func getTargetPodsFromHub(endpoint string) (targetPods []*v1.Pod, targetingEnabl
 
 	res, err := retryClient.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to make GET request on url=%s: %w",
+		return nil, nil, false, fmt.Errorf("failed to make GET request on url=%s: %w",
 			url, err)
 	}
 
 	defer res.Body.Close()
 	content, err = io.ReadAll(res.Body)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed reading the response body from url=%s: %w",
+		return nil, nil, false, fmt.Errorf("failed reading the response body from url=%s: %w",
 			url, err)
 	}
 
 	if content == nil {
-		return nil, false, fmt.Errorf("failed to get response after retries on url=%s: %w",
+		return nil, nil, false, fmt.Errorf("failed to get response after retries on url=%s: %w",
 			url, err)
 	}
 
 	type targetPodsResponse struct {
 		TargetingEnabled bool      `json:"targetingEnabled"`
 		TargetPods       []*v1.Pod `json:"targets"`
+		ExcludedPods     []*v1.Pod `json:"excluded"`
 	}
 
 	var data targetPodsResponse
 	err = json.Unmarshal(content, &data)
 	if err != nil {
 		log.Warn().Str("url", url).Err(err).Msg("Failed unmarshalling list of target pods:")
-		return nil, false, fmt.Errorf("failed unmarshalling list of target pod from url=%s: %w",
+		return nil, nil, false, fmt.Errorf("failed unmarshalling list of target pod from url=%s: %w",
 			url, err)
 	}
 	targetingEnabled = data.TargetingEnabled
 	targetPods = data.TargetPods
+	excludedPods = data.ExcludedPods
 
-	return
+	return targetPods, excludedPods, targetingEnabled, err
 }

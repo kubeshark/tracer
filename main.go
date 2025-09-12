@@ -296,7 +296,7 @@ func createTracer(grpcService *grpcservice.GRPCService, isCgroupsV2 bool) (err e
 	}
 	go tracer.collectStats()
 
-	return
+	return err
 }
 
 func enrichSentryContext(watcher *kubernetes.Watcher) {

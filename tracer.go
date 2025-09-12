@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
-
-	"path/filepath"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -136,10 +135,38 @@ func (t *Tracer) Init(
 	return nil
 }
 
-func (t *Tracer) updateTargets(addPods, removePods []*v1.Pod, settings uint32) error {
+func (t *Tracer) updateTargets(addPods, removePods, excludedPods []*v1.Pod, settings uint32) error {
 	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Msg("Update targets")
 	if err := t.bpfObjects.BpfObjs.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
 		log.Error().Err(err).Msg("Update capture settings failed:")
+	}
+
+	// Get existing cgroup IDs before update
+	existingIds := make(map[uint64]struct{})
+	var key uint64
+	var value uint32
+	entries := t.bpfObjects.BpfObjs.ExcludedCgroupIds.Iterate()
+	for entries.Next(&key, &value) {
+		existingIds[key] = struct{}{}
+	}
+
+	// Track newly added IDs during update
+	newIds := make(map[uint64]struct{})
+	for _, pod := range excludedPods {
+		for _, containerId := range getContainerIDs(pod) {
+			for _, value := range t.cgroupsController.GetCgroupsV2(containerId) {
+				cgroupId := uint64(value.CgroupID)
+				t.bpfObjects.BpfObjs.ExcludedCgroupIds.Update(cgroupId, uint32(0), ebpf.UpdateAny)
+				newIds[cgroupId] = struct{}{}
+			}
+		}
+	}
+
+	// Remove IDs that weren't part of this update
+	for id := range existingIds {
+		if _, exists := newIds[id]; !exists {
+			t.bpfObjects.BpfObjs.ExcludedCgroupIds.Delete(id)
+		}
 	}
 
 	for _, pod := range removePods {
@@ -210,7 +237,6 @@ func (t *Tracer) Deinit() error {
 
 func setupRLimit() error {
 	err := rlimit.RemoveMemlock()
-
 	if err != nil {
 		return errors.New(fmt.Sprintf("%s: %v", "SYS_RESOURCE is required to change rlimits for eBPF", err))
 	}
@@ -354,7 +380,7 @@ func (t *Tracer) collectStatItem() {
 		return
 	}
 
-	if err := os.WriteFile(filepath.Join(misc.GetDataDir(), "stats_tracer.json"), jsonData, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(misc.GetDataDir(), "stats_tracer.json"), jsonData, 0o644); err != nil {
 		log.Error().Err(err).Msg("Failed to write stats")
 		return
 	}

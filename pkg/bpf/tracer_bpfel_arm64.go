@@ -358,6 +358,7 @@ type TracerMapSpecs struct {
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.MapSpec `ebpf:"do_mkdir_context"`
 	Entrymap                 *ebpf.MapSpec `ebpf:"entrymap"`
+	ExcludedCgroupIds        *ebpf.MapSpec `ebpf:"excluded_cgroup_ids"`
 	FileProbeHeap            *ebpf.MapSpec `ebpf:"file_probe_heap"`
 	ForkInfo                 *ebpf.MapSpec `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.MapSpec `ebpf:"go_kernel_read_context"`
@@ -426,6 +427,7 @@ type TracerMaps struct {
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
 	DoMkdirContext           *ebpf.Map `ebpf:"do_mkdir_context"`
 	Entrymap                 *ebpf.Map `ebpf:"entrymap"`
+	ExcludedCgroupIds        *ebpf.Map `ebpf:"excluded_cgroup_ids"`
 	FileProbeHeap            *ebpf.Map `ebpf:"file_probe_heap"`
 	ForkInfo                 *ebpf.Map `ebpf:"fork_info"`
 	GoKernelReadContext      *ebpf.Map `ebpf:"go_kernel_read_context"`
@@ -477,6 +479,7 @@ func (m *TracerMaps) Close() error {
 		m.ConnectionContext,
 		m.DoMkdirContext,
 		m.Entrymap,
+		m.ExcludedCgroupIds,
 		m.FileProbeHeap,
 		m.ForkInfo,
 		m.GoKernelReadContext,

@@ -15,21 +15,19 @@ type GoHooks struct {
 
 func (s *GoHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, fpath string) (offsets goOffsets, err error) {
 	ex, err := link.OpenExecutable(fpath)
-
 	if err != nil {
 		err = errors.Wrap(err, 0)
-		return
+		return offsets, err
 	}
 
 	offsets, err = FindGoOffsets(fpath)
-
 	if err != nil {
 		err = errors.Wrap(err, 0)
-		return
+		return offsets, err
 	}
 
 	err = s.InstallHooks(bpfObjects, ex, offsets)
-	return
+	return offsets, err
 }
 
 func (s *GoHooks) InstallHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, offsets goOffsets) error {
@@ -63,7 +61,6 @@ func (s *GoHooks) InstallHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, 
 	s.goWriteProbe, err = ex.Uprobe(goWriteSymbol, goCryptoTlsWrite, &link.UprobeOptions{
 		Address: offsets.GoWriteOffset.enter,
 	})
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -72,7 +69,6 @@ func (s *GoHooks) InstallHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, 
 		probe, err := ex.Uprobe(goWriteSymbol, goCryptoTlsWriteEx, &link.UprobeOptions{
 			Address: offset,
 		})
-
 		if err != nil {
 			return errors.Wrap(err, 0)
 		}
@@ -85,7 +81,6 @@ func (s *GoHooks) InstallHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, 
 	s.goReadProbe, err = ex.Uprobe(goReadSymbol, goCryptoTlsRead, &link.UprobeOptions{
 		Address: offsets.GoReadOffset.enter,
 	})
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
@@ -94,7 +89,6 @@ func (s *GoHooks) InstallHooks(bpfObjects *bpf.BpfObjects, ex *link.Executable, 
 		probe, err := ex.Uprobe(goReadSymbol, goCryptoTlsReadEx, &link.UprobeOptions{
 			Address: offset,
 		})
-
 		if err != nil {
 			return errors.Wrap(err, 0)
 		}

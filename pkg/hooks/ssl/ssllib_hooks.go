@@ -32,7 +32,6 @@ func (s *SslHooks) InstallUprobes(bpfObjects *bpf.BpfObjects, sslLibraryPath str
 	}
 
 	sslLibrary, err := link.OpenExecutable(sslLibraryPath)
-
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
