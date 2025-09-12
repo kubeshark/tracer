@@ -72,6 +72,7 @@ func updateCurrentlyTargetedPods(
 	callback callbackPodsChanged,
 	settings uint32,
 ) (err error) {
+
 	newAllTargetPods, excludedPods, targetingEnabled, err := getAllTargetPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get all targeted pods")
@@ -85,6 +86,7 @@ func updateCurrentlyTargetedPods(
 
 	if !targetingEnabled {
 		log.Info().Msg("Targeting is disabled, watch all pods")
+
 		err = callback(nil, nil, excludedPods, settings)
 		return err
 	}
@@ -111,6 +113,7 @@ func getAllTargetPodsFromHub() (targetPods, excludedPods []*v1.Pod, targetingEna
 func getSelectedTargetedPodsFromHub() (targetPods, excludedPods []*v1.Pod, targetingEnabled bool, err error) {
 	return getTargetPodsFromHub(selectedTargetPodsEndpoint)
 }
+
 
 func getTargetPodsFromHub(endpoint string) (targetPods, excludedPods []*v1.Pod, targetingEnabled bool, err error) {
 	url := hubAddr + endpoint
