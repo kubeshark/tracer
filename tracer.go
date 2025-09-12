@@ -136,7 +136,7 @@ func (t *Tracer) Init(
 }
 
 func (t *Tracer) updateTargets(addPods, removePods, excludedPods []*v1.Pod, settings uint32) error {
-	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Msg("Update targets")
+	log.Info().Int("Add pods", len(addPods)).Int("Remove pods", len(removePods)).Int("Excluded pods", len(excludedPods)).Msg("Update targets")
 	if err := t.bpfObjects.BpfObjs.Settings.Update(uint32(0), settings, ebpf.UpdateAny); err != nil {
 		log.Error().Err(err).Msg("Update capture settings failed:")
 	}
