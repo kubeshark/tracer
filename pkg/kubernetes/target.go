@@ -72,7 +72,6 @@ func updateCurrentlyTargetedPods(
 	callback callbackPodsChanged,
 	settings uint32,
 ) (err error) {
-
 	newAllTargetPods, excludedPods, targetingEnabled, err := getAllTargetPodsFromHub()
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get all targeted pods")
