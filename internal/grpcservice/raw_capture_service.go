@@ -32,19 +32,30 @@ func (s *RawCaptureServer) Start(ctx context.Context, req *raw.StartRequest) (*r
 
 	switch req.GetTarget() {
 	case raw.Target_TARGET_SYSCALLS:
-		dir := systemstore.SyscallBaseDir()
+		id := strings.TrimSpace(req.GetId())
+		if id == "" {
+			// generate a sane default id if not provided
+			id = time.Now().UTC().Format("20060102T150405.000000000Z07:00")
+		}
+
+		dir := systemstore.SyscallBaseDirFor(id)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return &raw.StartResponse{
 				Target:    req.GetTarget(),
+				Id:        id,
 				Dir:       dir,
 				Config:    cfg,
 				StartedAt: timestamppb.New(time.Now().UTC()),
 				Error:     err.Error(),
-			}, err
+			}, nil
 		}
-		systemstore.GetManager().Ensure("syscall_events", dir, true, rotateBytes, rotateInterval, maxBytes, policy)
+
+		key := "syscall_events:" + id
+		systemstore.GetManager().Ensure(key, dir, true, rotateBytes, rotateInterval, maxBytes, policy)
+
 		return &raw.StartResponse{
 			Target:    req.GetTarget(),
+			Id:        id,
 			Dir:       dir,
 			Config:    cfg,
 			StartedAt: timestamppb.New(time.Now().UTC()),
@@ -62,11 +73,16 @@ func (s *RawCaptureServer) Start(ctx context.Context, req *raw.StartRequest) (*r
 func (s *RawCaptureServer) Stop(ctx context.Context, req *raw.StopRequest) (*raw.StopResponse, error) {
 	switch req.GetTarget() {
 	case raw.Target_TARGET_SYSCALLS:
-		stats := gatherSyscallStats()
-		systemstore.GetManager().Destroy("syscall_events")
-
+		id := strings.TrimSpace(req.GetId())
+		if id == "" {
+			id = "default"
+		}
+		stats := gatherSyscallStats(id)
+		key := "syscall_events:" + id
+		systemstore.GetManager().Destroy(key)
 		return &raw.StopResponse{
 			Target: req.GetTarget(),
+			Id:     id,
 			Stats:  stats,
 		}, nil
 
@@ -81,13 +97,18 @@ func (s *RawCaptureServer) Stop(ctx context.Context, req *raw.StopRequest) (*raw
 func (s *RawCaptureServer) GetStatus(ctx context.Context, req *raw.GetStatusRequest) (*raw.Status, error) {
 	switch req.GetTarget() {
 	case raw.Target_TARGET_SYSCALLS:
-		st := systemstore.GetManager().StatusFor("syscall_events")
-		if st == nil {
-			return &raw.Status{Target: req.GetTarget(), Active: false}, nil
+		id := strings.TrimSpace(req.GetId())
+		if id == "" {
+			id = "default"
 		}
-		// Drops are now exposed in the API
+		key := "syscall_events:" + id
+		st := systemstore.GetManager().StatusFor(key)
+		if st == nil {
+			return &raw.Status{Target: req.GetTarget(), Id: id, Active: false}, nil
+		}
 		return &raw.Status{
 			Target:          req.GetTarget(),
+			Id:              id,
 			Active:          st.Writing,
 			Dir:             st.BaseDir,
 			ActiveFile:      st.ActiveFile,
@@ -148,26 +169,27 @@ func fromPolicy(p systemstore.TTLPolicy) raw.TTLPolicy {
 
 // gatherSyscallStats scans the syscall dir for basic totals and first/last timestamps.
 // File names are RFC3339 nano with zone (e.g. 2006-01-02T15:04:05.000000000Z07:00.bin)
-func gatherSyscallStats() *raw.CaptureStats {
-	st := systemstore.GetManager().StatusFor("syscall_events")
-	dir := ""
+func gatherSyscallStats(id string) *raw.CaptureStats {
+	if strings.TrimSpace(id) == "" {
+		id = "default"
+	}
+	key := "syscall_events:" + id
+	st := systemstore.GetManager().StatusFor(key)
+
+	dir := systemstore.SyscallBaseDirFor(id)
 	drops := uint64(0)
 	syscalls := uint64(0)
 	if st != nil {
-		dir = st.BaseDir
 		drops = st.Drops
-		syscalls = st.Records // number of written syscall records
+		syscalls = st.Records
 	}
+
 	stats := &raw.CaptureStats{
 		FilesCount:       0,
 		TotalBytes:       0,
 		CapturedPackets:  0,        // not applicable for SYSCALLS
 		CapturedSyscalls: syscalls, // from writer counter
 		Drops:            drops,
-	}
-
-	if dir == "" {
-		return stats
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -199,19 +221,15 @@ func gatherSyscallStats() *raw.CaptureStats {
 		return stats
 	}
 
-	// Lexicographic order == chronological order by our naming
 	sort.Strings(names)
-
 	first := strings.TrimSuffix(names[0], ".bin")
 	last := strings.TrimSuffix(names[len(names)-1], ".bin")
 
-	// Filenames are RFC3339Nano with zone
 	if t, e := time.Parse(time.RFC3339Nano, first); e == nil {
 		stats.FirstTs = timestamppb.New(t.UTC())
 	}
 	if t, e := time.Parse(time.RFC3339Nano, last); e == nil {
 		stats.LastTs = timestamppb.New(t.UTC())
 	}
-
 	return stats
 }
