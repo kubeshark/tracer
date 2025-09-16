@@ -378,3 +378,11 @@ func (w *Writer) closeActiveLocked() {
 
 // Paths
 func SyscallBaseDir() string { return filepath.Join(misc.GetDataDir(), "system", "syscall_events") }
+
+// SyscallBaseDirFor returns the directory for a specific capture instance id.
+func SyscallBaseDirFor(id string) string {
+	if id == "" {
+		id = "default"
+	}
+	return filepath.Join(misc.GetDataDir(), "system", "syscall_events", id)
+}
