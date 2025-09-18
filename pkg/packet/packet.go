@@ -44,7 +44,7 @@ type PacketSourceImpl struct {
 	pktCh      chan gopacket.Packet
 }
 
-type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter) (PacketsPoller, error)
+type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter, bpf.RawPacketWriter) (PacketsPoller, error)
 
 type enableCaptureFunc func(programsConfiguration *ebpf.Map, feature uint32) error
 
@@ -78,7 +78,7 @@ func newPacketSource(perfName string, enableCaptureName string, createPoller cre
 		pktCh:      make(chan gopacket.Packet),
 	}
 
-	if p.poller, err = createPoller(p.perfBuffer, nil, p.WritePacket); err != nil {
+	if p.poller, err = createPoller(p.perfBuffer, nil, p.WritePacket, p.WriteRawPacket); err != nil {
 		return nil, fmt.Errorf("poller create failed: %v", err)
 	}
 
@@ -119,16 +119,16 @@ func getPacketsPerfBufferSize() int {
 }
 
 func NewTLSPacketSource(dataDir string) (PacketSource, error) {
-	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
-		return bpf.NewTlsPoller(m, wr, goWr, getPacketsPerfBufferSize())
+	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr bpf.RawPacketWriter) (PacketsPoller, error) {
+		return bpf.NewTlsPoller(m, wr, goWr, rawWr, getPacketsPerfBufferSize())
 	}
 
 	return newPacketSource(bpf.PinNameTLSPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCaptureTls, filepath.Join(dataDir, bpf.TlsBackendSupportedFile), filepath.Join(dataDir, bpf.TlsBackendNotSupportedFile))
 }
 
 func NewPlainPacketSource(dataDir string) (PacketSource, error) {
-	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter) (PacketsPoller, error) {
-		return packets.NewPacketsPoller(m, wr, goWr, getPacketsPerfBufferSize())
+	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr bpf.RawPacketWriter) (PacketsPoller, error) {
+		return packets.NewPacketsPoller(m, wr, goWr, rawWr, getPacketsPerfBufferSize())
 	}
 
 	return newPacketSource(bpf.PinNamePlainPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCapturePlain, filepath.Join(dataDir, bpf.PlainBackendSupportedFile), filepath.Join(dataDir, bpf.PlainBackendNotSupportedFile))
@@ -136,6 +136,10 @@ func NewPlainPacketSource(dataDir string) (PacketSource, error) {
 
 func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) {
 	p.pktCh <- pkt
+}
+
+func (p *PacketSourceImpl) WriteRawPacket(timestamp uint64, pkt []byte) {
+	// TODO:
 }
 
 func (p *PacketSourceImpl) Start() error {

@@ -140,6 +140,10 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 		}
 	}
 
+	if t.poller.rawPacketWriter != nil {
+		t.poller.rawPacketWriter(timestamp, data)
+	}
+
 	if t.poller.gopacketWriter != nil {
 		buf := gopacket.NewSerializeBuffer()
 

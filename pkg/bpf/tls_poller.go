@@ -25,18 +25,21 @@ const (
 )
 
 type (
-	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
-	GopacketWriter func(packet gopacket.Packet)
+	RawWriter       func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
+	GopacketWriter  func(packet gopacket.Packet)
+	RawPacketWriter func(timestamp uint64, pkt []byte)
 )
 
 type TlsPoller struct {
-	streams         map[string]*TlsStream
-	closeStreams    chan string
-	chunksReader    *perf.Reader
-	fdCache         *simplelru.LRU // Actual type is map[string]addressPair
-	evictedCounter  int
+	streams        map[string]*TlsStream
+	closeStreams   chan string
+	chunksReader   *perf.Reader
+	fdCache        *simplelru.LRU // Actual type is map[string]addressPair
+	evictedCounter int
+	// TODO: remove?
 	rawWriter       RawWriter
 	gopacketWriter  GopacketWriter
+	rawPacketWriter RawPacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
 	lastLostChunks  uint64
@@ -56,15 +59,17 @@ func NewTlsPoller(
 	perfBuffer *ebpf.Map,
 	rawWriter RawWriter,
 	gopacketWriter GopacketWriter,
+	rawPacketWriter RawPacketWriter,
 	perfBufferSize int,
 ) (*TlsPoller, error) {
 	poller := &TlsPoller{
-		streams:        make(map[string]*TlsStream),
-		closeStreams:   make(chan string, misc.TlsCloseChannelBufferSize),
-		chunksReader:   nil,
-		rawWriter:      rawWriter,
-		gopacketWriter: gopacketWriter,
-		tai:            tai.NewTaiInfo(),
+		streams:         make(map[string]*TlsStream),
+		closeStreams:    make(chan string, misc.TlsCloseChannelBufferSize),
+		chunksReader:    nil,
+		rawWriter:       rawWriter,
+		gopacketWriter:  gopacketWriter,
+		rawPacketWriter: rawPacketWriter,
+		tai:             tai.NewTaiInfo(),
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)

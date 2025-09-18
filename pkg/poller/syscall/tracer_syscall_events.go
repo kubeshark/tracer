@@ -11,7 +11,7 @@ import (
 
 	commonv1 "github.com/kubeshark/api2/pkg/proto/common/v1"
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
-	"github.com/kubeshark/tracer/pkg/systemstore"
+	"github.com/kubeshark/tracer/pkg/rawcapture"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/cilium/ebpf/perf"
@@ -25,21 +25,23 @@ import (
 )
 
 type SyscallEventsTracer struct {
-	cgroupController cgroup.CgroupsController
-	eventReader      *perf.Reader
-	eventSocket      *socket.SocketEvent
+	cgroupController   cgroup.CgroupsController
+	eventReader        *perf.Reader
+	eventSocket        *socket.SocketEvent
+	systemStoreManager *rawcapture.Manager
 }
 
-func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController) (*SyscallEventsTracer, error) {
+func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
 	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize())
 	if err != nil {
 		return nil, fmt.Errorf("open events perf buffer failed")
 	}
 
 	return &SyscallEventsTracer{
-		cgroupController: cgroupController,
-		eventReader:      reader,
-		eventSocket:      socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
+		cgroupController:   cgroupController,
+		eventReader:        reader,
+		eventSocket:        socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
+		systemStoreManager: systemStoreManager,
 	}, nil
 }
 
@@ -140,7 +142,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 			Command:       e.CmdPath(),
 			ProcessPath:   e.ProcessPath,
 		}
-		systemstore.EnqueueSyscall(bin)
+		rawcapture.EnqueueSyscall(t.systemStoreManager, bin)
 	}
 }
 

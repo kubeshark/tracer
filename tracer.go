@@ -19,6 +19,7 @@ import (
 	packetHooks "github.com/kubeshark/tracer/pkg/hooks/packet"
 	syscallHooks "github.com/kubeshark/tracer/pkg/hooks/syscall"
 	"github.com/kubeshark/tracer/pkg/poller"
+	"github.com/kubeshark/tracer/pkg/rawcapture"
 	"github.com/moby/moby/pkg/parsers/kernel"
 	"github.com/rs/zerolog/log"
 	v1 "k8s.io/api/core/v1"
@@ -57,6 +58,7 @@ func (t *Tracer) Init(
 	procfs string,
 	isCgroupsV2 bool,
 	grpcService *grpcservice.GRPCService,
+	systemStoreManager *rawcapture.Manager,
 ) error {
 	var err error
 
@@ -119,7 +121,7 @@ func (t *Tracer) Init(
 		}
 	}
 
-	allPollers, err := poller.NewBpfPoller(t.bpfObjects, t.cgroupsController, *disableTlsLog)
+	allPollers, err := poller.NewBpfPoller(t.bpfObjects, t.cgroupsController, systemStoreManager, *disableTlsLog)
 	if err != nil {
 		return fmt.Errorf("create eBPF poler failed failed: %v", err)
 	}

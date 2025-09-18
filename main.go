@@ -37,6 +37,7 @@ import (
 	sentrypkg "github.com/kubeshark/utils/sentry"
 
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/rawcapture"
 )
 
 var (
@@ -149,9 +150,10 @@ func run() {
 	}
 
 	// Create gRPC server first
-
+	captureManager := rawcapture.NewManager(raw_capture.Target_TARGET_SYSCALLS)
 	grpcService := grpcservice.NewGRPCService()
-	if err := startGRPCServer(*grpcPort, grpcService); err != nil {
+
+	if err := startGRPCServer(*grpcPort, grpcService, captureManager); err != nil {
 		log.Error().Err(err).Msg("Failed to start gRPC server")
 		return
 	}
@@ -194,7 +196,7 @@ func run() {
 	}
 	misc.InitDataDir()
 
-	err = createTracer(grpcService, isCgroupsV2)
+	err = createTracer(grpcService, isCgroupsV2, captureManager)
 	if err != nil {
 		log.Error().Err(err).Msg("Couldn't initialize the tracer. To disable tracer permanently, pass 'tap.tls=false' in command line")
 		// Stop here to prevent pod respawning
@@ -218,7 +220,7 @@ func run() {
 	}
 }
 
-func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
+func startGRPCServer(port int, grpcService *grpcservice.GRPCService, systemStoreManager *rawcapture.Manager) error {
 	var serverConfig streamer.ServerConfig
 
 	serverConfig.Callbacks = streamer.ServerCallbacks{
@@ -231,7 +233,7 @@ func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
 	}
 	serverConfig.RegisterFunc = func(s *grpc.Server) {
 		tracer_service.RegisterTracerServiceServer(s, grpcService)
-		raw_capture.RegisterRawCaptureServer(s, &grpcservice.RawCaptureServer{GRPCService: grpcService})
+		raw_capture.RegisterRawCaptureServer(s, &rawcapture.RawCaptureServer{Manager: systemStoreManager})
 	}
 
 	grpcServer = streamer.NewServer(serverConfig)
@@ -243,7 +245,7 @@ func startGRPCServer(port int, grpcService *grpcservice.GRPCService) error {
 		currentPort := port
 
 		for attempt := 0; attempt < maxRetries; attempt++ {
-			err := grpcServer.ServeAddress(fmt.Sprintf(":%d", currentPort))
+			err := grpcServer.Serve()
 			if err == nil {
 				log.Info().Int("port", currentPort).Msg("gRPC server started")
 				return
@@ -274,7 +276,7 @@ func stop() {
 	}
 }
 
-func createTracer(grpcService *grpcservice.GRPCService, isCgroupsV2 bool) (err error) {
+func createTracer(grpcService *grpcservice.GRPCService, isCgroupsV2 bool, captureManager *rawcapture.Manager) (err error) {
 	chunksBufferSize := os.Getpagesize() * 10000
 	logBufferSize := os.Getpagesize()
 
@@ -284,6 +286,7 @@ func createTracer(grpcService *grpcservice.GRPCService, isCgroupsV2 bool) (err e
 		*procfs,
 		isCgroupsV2,
 		grpcService,
+		captureManager,
 	); err != nil {
 		log.Error().Err(err).Msg("Initialize tracer failed.")
 		if errors.Is(err, bpf.ErrBpfMountFailed) {

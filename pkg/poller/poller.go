@@ -7,6 +7,7 @@ import (
 	"github.com/kubeshark/tracer/pkg/cgroup"
 	logPoller "github.com/kubeshark/tracer/pkg/poller/log"
 	syscallPoller "github.com/kubeshark/tracer/pkg/poller/syscall"
+	"github.com/kubeshark/tracer/pkg/rawcapture"
 )
 
 type BpfPoller interface {
@@ -19,11 +20,11 @@ type BpfPollerImpl struct {
 	logPoller     *logPoller.BpfLogger
 }
 
-func NewBpfPoller(bpfObjs *bpf.BpfObjects, cgroupsController cgroup.CgroupsController, tlsLogDisabled bool) (BpfPoller, error) {
+func NewBpfPoller(bpfObjs *bpf.BpfObjects, cgroupsController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager, tlsLogDisabled bool) (BpfPoller, error) {
 	var err error
 	p := BpfPollerImpl{}
 
-	if p.syscallPoller, err = syscallPoller.NewSyscallEventsTracer(bpfObjs, cgroupsController); err != nil {
+	if p.syscallPoller, err = syscallPoller.NewSyscallEventsTracer(bpfObjs, cgroupsController, systemStoreManager); err != nil {
 		return nil, fmt.Errorf("create syscall poller failed: %v", err)
 	}
 

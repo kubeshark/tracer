@@ -52,8 +52,10 @@ type PacketsPoller struct {
 	ethhdrContent   []byte
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
+	// TODO: remove?
 	rawWriter       bpf.RawWriter
 	gopacketWriter  bpf.GopacketWriter
+	rawPacketWriter bpf.RawPacketWriter
 	pktsMap         map[uint64]*pktBuffer // packet id to packet
 	receivedPackets uint64
 	lostChunks      uint64
@@ -74,6 +76,7 @@ func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
 	rawWriter bpf.RawWriter,
 	gopacketWriter bpf.GopacketWriter,
+	rawPacketWriter bpf.RawPacketWriter,
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
 	var err error
@@ -90,6 +93,7 @@ func NewPacketsPoller(
 		ethhdrContent:   ethhdrContent,
 		rawWriter:       rawWriter,
 		gopacketWriter:  gopacketWriter,
+		rawPacketWriter: rawPacketWriter,
 		pktsMap:         make(map[uint64]*pktBuffer),
 		tai:             tai.NewTaiInfo(),
 	}
@@ -175,6 +179,9 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 
 		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
 
+		if p.rawPacketWriter != nil {
+			p.rawPacketWriter(ptr.Timestamp, pkts.buf[:pkts.len])
+		}
 		if p.gopacketWriter != nil {
 			pktBuf := append(p.ethhdrContent, pkts.buf[:pkts.len]...)
 			pkt := gopacket.NewPacket(pktBuf, p.ethernetDecoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))

@@ -1,16 +1,20 @@
-package systemstore
+package rawcapture
 
 import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
+	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
+	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/gopacket/layers"
+	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -33,8 +37,9 @@ const (
 type Writer struct {
 	mu sync.Mutex
 
-	target  string
+	target  raw.Target
 	baseDir string
+	id      string
 
 	enabled        bool
 	rotateBytes    uint64
@@ -46,6 +51,7 @@ type Writer struct {
 	activePath     string
 	activeSize     uint64
 	activeOpenedAt time.Time
+	pcapWriter     *pcapgo.Writer // PCAP writer for packet data
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -57,58 +63,58 @@ type Writer struct {
 
 type Manager struct {
 	mu      sync.RWMutex
+	target  raw.Target
 	writers map[string]*Writer
 }
 
-var defaultManager = &Manager{writers: make(map[string]*Writer)}
+func NewManager(target raw.Target) *Manager {
+	return &Manager{target: target, writers: make(map[string]*Writer)}
+}
 
-func GetManager() *Manager { return defaultManager }
-
-func (m *Manager) Ensure(target, baseDir string, enabled bool, rotateBytes uint64, rotateInterval time.Duration, maxBytes uint64, policy TTLPolicy) *Writer {
+func (m *Manager) StartCapturing(baseDir string, id string, enabled bool, rotateBytes uint64, rotateInterval time.Duration, maxBytes uint64, policy TTLPolicy) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	w := m.writers[target]
-	if w == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		w = &Writer{
-			target:         target,
-			baseDir:        baseDir,
-			rotateBytes:    DefaultRotateBytes,
-			maxBytes:       DefaultMaxBytes,
-			policy:         TTLPolicyDeleteOldest,
-			ctx:            ctx,
-			cancel:         cancel,
-			queue:          make(chan []byte, 8192),
-			activeOpenedAt: time.Time{},
-		}
-		_ = os.MkdirAll(baseDir, 0o755)
-		go w.loop()
-		m.writers[target] = w
+	w := m.writers[id]
+	if w != nil {
+		return fmt.Errorf("capture already started for id: %s", id)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	w = &Writer{
+		target:         m.target,
+		baseDir:        baseDir,
+		id:             id,
+		rotateBytes:    DefaultRotateBytes,
+		maxBytes:       DefaultMaxBytes,
+		policy:         TTLPolicyDeleteOldest,
+		ctx:            ctx,
+		cancel:         cancel,
+		queue:          make(chan []byte, 8192),
+		activeOpenedAt: time.Time{},
+	}
+	go w.loop()
+	m.writers[id] = w
 	w.applyConfig(enabled, rotateBytes, rotateInterval, maxBytes, policy)
-	return w
+	return nil
 }
 
-func (m *Manager) Get(target string) *Writer {
+func (m *Manager) Get(id string) *Writer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.writers[target]
+	return m.writers[id]
 }
 
 // Destroy stops and removes the writer (calls cancel()).
-func (m *Manager) Destroy(target string) {
+func (m *Manager) Destroy() {
 	m.mu.Lock()
-	w := m.writers[target]
-	if w != nil {
-		w.mu.Lock()
-		w.enabled = false
-		w.closeActiveLocked()
-		w.cancel() // stop loop
-		w.mu.Unlock()
-		delete(m.writers, target)
+	defer m.mu.Unlock()
+
+	for id, w := range m.writers {
+		if w != nil {
+			w.Destroy()
+		}
+		delete(m.writers, id)
 	}
-	m.mu.Unlock()
 }
 
 func (w *Writer) applyConfig(enabled bool, rotateBytes uint64, rotateInterval time.Duration, maxBytes uint64, policy TTLPolicy) {
@@ -135,6 +141,14 @@ func (w *Writer) applyConfig(enabled bool, rotateBytes uint64, rotateInterval ti
 
 func (w *Writer) Enable(v bool) {
 	w.applyConfig(v, w.rotateBytes, w.rotateInterval, w.maxBytes, w.policy)
+}
+
+func (w *Writer) Destroy() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.enabled = false
+	w.closeActiveLocked()
+	w.cancel()
 }
 
 func (w *Writer) loop() {
@@ -169,7 +183,7 @@ func (w *Writer) loop() {
 				}
 			}
 			if err := w.ensureQuotaLocked(uint64(len(frame))); err != nil {
-				log.Warn().Err(err).Str("target", w.target).Msg("systemstore: quota handling")
+				log.Warn().Err(err).Str("target", w.target.String()).Str("id", w.id).Msg("systemstore: quota handling")
 				if errors.Is(err, ErrQuotaStop) {
 					w.enabled = false
 					w.closeActiveLocked()
@@ -177,12 +191,44 @@ func (w *Writer) loop() {
 				w.mu.Unlock()
 				continue
 			}
-			n, err := w.activeFile.Write(frame)
-			if err != nil {
-				log.Error().Err(err).Str("file", w.activePath).Msg("systemstore: write failed")
+
+			// Handle packet data
+			if w.target == raw.Target_TARGET_PACKETS {
+				// Parse packet data from queue format (timestamp + length + data)
+				if len(frame) >= 12 {
+					timestamp := binary.BigEndian.Uint64(frame[0:8])
+					length := binary.BigEndian.Uint32(frame[8:12])
+					packetData := frame[12:]
+
+					if len(packetData) == int(length) {
+						ci := gopacket.CaptureInfo{
+							Timestamp:     time.Unix(0, int64(timestamp)),
+							CaptureLength: len(packetData),
+							Length:        len(packetData),
+						}
+						if err := w.pcapWriter.WritePacket(ci, packetData); err != nil {
+							log.Error().Err(err).Str("file", w.activePath).Msg("systemstore: pcap write failed")
+						} else {
+							w.recordCount++
+							w.activeSize += uint64(len(frame))
+						}
+					} else {
+						log.Error().Int("expected", int(length)).Int("actual", len(packetData)).Msg("systemstore: packet length mismatch")
+					}
+				} else {
+					log.Error().Int("frame_len", len(frame)).Msg("systemstore: invalid packet frame format")
+				}
+			} else if w.target == raw.Target_TARGET_SYSCALLS {
+				// Regular protobuf data write
+				n, err := w.activeFile.Write(frame)
+				if err != nil {
+					log.Error().Err(err).Str("file", w.activePath).Msg("systemstore: write failed")
+				} else {
+					w.recordCount++
+					w.activeSize += uint64(n)
+				}
 			} else {
-				w.recordCount++
-				w.activeSize += uint64(n)
+				log.Fatal().Str("target", w.target.String()).Msg("systemstore: invalid target")
 			}
 			w.mu.Unlock()
 		}
@@ -205,19 +251,17 @@ func (w *Writer) ensureQuotaLocked(incoming uint64) error {
 			continue
 		}
 		name := de.Name()
-		if strings.HasSuffix(name, ".bin") {
-			path := filepath.Join(w.baseDir, name)
-			if info, e := de.Info(); e == nil {
-				total += uint64(info.Size())
+		path := filepath.Join(w.baseDir, name)
+		if info, e := de.Info(); e == nil {
+			total += uint64(info.Size())
+			files = append(files, path)
+		} else {
+			// fall back – try stat and log if still failing
+			if fi, se := os.Stat(path); se == nil {
+				total += uint64(fi.Size())
 				files = append(files, path)
 			} else {
-				// fall back – try stat and log if still failing
-				if fi, se := os.Stat(path); se == nil {
-					total += uint64(fi.Size())
-					files = append(files, path)
-				} else {
-					log.Error().Err(se).Str("file", path).Msg("systemstore: unable to stat file during quota scan")
-				}
+				log.Error().Err(se).Str("file", path).Msg("systemstore: unable to stat file during quota scan")
 			}
 		}
 	}
@@ -259,7 +303,7 @@ func (w *Writer) rotateLocked() error {
 	if w.activeFile != nil {
 		_ = w.activeFile.Close()
 	}
-	name := time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z07:00") + ".bin"
+	name := time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
 	full := filepath.Join(w.baseDir, name)
 	f, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -269,11 +313,21 @@ func (w *Writer) rotateLocked() error {
 	w.activePath = full
 	w.activeSize = 0
 	w.activeOpenedAt = time.Now().UTC()
+
+	// Initialize PCAP writer for packet data and write header for new file
+	if w.target == raw.Target_TARGET_PACKETS {
+		w.pcapWriter = pcapgo.NewWriter(f)
+		// Write PCAP header with standard parameters
+		if err := w.pcapWriter.WriteFileHeader(65536, layers.LinkTypeEthernet); err != nil {
+			return fmt.Errorf("failed to write PCAP header: %v", err)
+		}
+	}
+
 	return nil
 }
 
 // length-prefixed write
-func (w *Writer) WriteProtoLengthPrefixed(b []byte) {
+func (w *Writer) writeProtoLengthPrefixed(b []byte) {
 	if b == nil || !w.enabled {
 		return
 	}
@@ -287,10 +341,60 @@ func (w *Writer) WriteProtoLengthPrefixed(b []byte) {
 		// drop on backpressure
 		w.dropCount++
 		log.Debug().
-			Str("target", w.target).
+			Str("target", w.target.String()).
+			Str("id", w.id).
 			Uint64("drops", w.dropCount).
 			Msg("systemstore: dropped frame due to backpressure")
 	}
+}
+
+// writePacketToPcapFile writes a packet to a PCAP file with proper formatting
+func (w *Writer) writePacketToPcapFile(timestamp uint64, pkt []byte) {
+	if pkt == nil || !w.enabled {
+		return
+	}
+
+	// Create capture info with timestamp and packet length
+	ci := gopacket.CaptureInfo{
+		CaptureLength: len(pkt),
+		Length:        len(pkt),
+	}
+
+	// Convert nanosecond timestamp to time.Time
+	if timestamp != 0 {
+		ci.Timestamp = time.Unix(0, int64(timestamp))
+	} else {
+		ci.Timestamp = time.Now()
+	}
+
+	select {
+	case w.queue <- w.formatPacketForQueue(ci, pkt):
+	default:
+		// drop on backpressure
+		w.dropCount++
+		log.Debug().
+			Str("target", w.target.String()).
+			Str("id", w.id).
+			Uint64("drops", w.dropCount).
+			Msg("systemstore: dropped packet due to backpressure")
+	}
+}
+
+// formatPacketForQueue formats packet data with capture info for the queue
+func (w *Writer) formatPacketForQueue(ci gopacket.CaptureInfo, pkt []byte) []byte {
+	// Create a buffer with timestamp (8 bytes) + length (4 bytes) + packet data
+	buf := make([]byte, 12+len(pkt))
+
+	// Write timestamp (nanoseconds)
+	binary.BigEndian.PutUint64(buf[0:8], uint64(ci.Timestamp.UnixNano()))
+
+	// Write packet length
+	binary.BigEndian.PutUint32(buf[8:12], uint32(len(pkt)))
+
+	// Copy packet data
+	copy(buf[12:], pkt)
+
+	return buf
 }
 
 // Status snapshot for gRPC (internal). NOTE: Drops is exposed here;
@@ -311,9 +415,9 @@ type Status struct {
 	Records         uint64
 }
 
-func (m *Manager) StatusFor(target string) *Status {
+func (m *Manager) StatusFor(id string) *Status {
 	m.mu.RLock()
-	w := m.writers[target]
+	w := m.writers[id]
 	m.mu.RUnlock()
 	if w == nil {
 		return nil
@@ -332,16 +436,14 @@ func (m *Manager) StatusFor(target string) *Status {
 				continue
 			}
 			name := de.Name()
-			if strings.HasSuffix(name, ".bin") {
-				if info, e := de.Info(); e == nil {
-					total += uint64(info.Size())
-					count++
-				} else if fi, se := os.Stat(filepath.Join(w.baseDir, name)); se == nil {
-					total += uint64(fi.Size())
-					count++
-				} else {
-					log.Error().Err(se).Str("file", name).Msg("systemstore: stat failed computing status")
-				}
+			if info, e := de.Info(); e == nil {
+				total += uint64(info.Size())
+				count++
+			} else if fi, se := os.Stat(filepath.Join(w.baseDir, name)); se == nil {
+				total += uint64(fi.Size())
+				count++
+			} else {
+				log.Error().Err(se).Str("file", name).Msg("systemstore: stat failed computing status")
 			}
 		}
 	} else {
@@ -374,15 +476,26 @@ func (w *Writer) closeActiveLocked() {
 	}
 	w.activePath = ""
 	w.activeSize = 0
+	w.pcapWriter = nil
 }
 
 // Paths
-func SyscallBaseDir() string { return filepath.Join(misc.GetDataDir(), "system", "syscall_events") }
+func captureBaseDir() string { return filepath.Join(misc.GetDataDir(), "capture") }
 
-// SyscallBaseDirFor returns the directory for a specific capture instance id.
+// SyscallBaseDir returns the directory for syscall events.
+func SyscallBaseDir() string {
+	return filepath.Join(captureBaseDir(), "syscall_events")
+}
+
 func SyscallBaseDirFor(id string) string {
-	if id == "" {
-		id = "default"
-	}
-	return filepath.Join(misc.GetDataDir(), "system", "syscall_events", id)
+	return filepath.Join(SyscallBaseDir(), id)
+}
+
+// PcapBaseDir returns the directory for pcap files.
+func PcapBaseDir() string {
+	return filepath.Join(captureBaseDir(), "pcap")
+}
+
+func PcapBaseDirFor(id string) string {
+	return filepath.Join(PcapBaseDir(), id)
 }
