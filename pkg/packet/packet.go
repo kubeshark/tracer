@@ -13,6 +13,7 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/poller/packets"
+	"github.com/kubeshark/tracer/pkg/rawpacket"
 )
 
 var ErrNotSupported = errors.New("source is not supported")
@@ -44,7 +45,7 @@ type PacketSourceImpl struct {
 	pktCh      chan gopacket.Packet
 }
 
-type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter, bpf.RawPacketWriter) (PacketsPoller, error)
+type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter, rawpacket.RawPacketWriter) (PacketsPoller, error)
 
 type enableCaptureFunc func(programsConfiguration *ebpf.Map, feature uint32) error
 
@@ -119,7 +120,7 @@ func getPacketsPerfBufferSize() int {
 }
 
 func NewTLSPacketSource(dataDir string) (PacketSource, error) {
-	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr bpf.RawPacketWriter) (PacketsPoller, error) {
+	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr rawpacket.RawPacketWriter) (PacketsPoller, error) {
 		return bpf.NewTlsPoller(m, wr, goWr, rawWr, getPacketsPerfBufferSize())
 	}
 
@@ -127,7 +128,7 @@ func NewTLSPacketSource(dataDir string) (PacketSource, error) {
 }
 
 func NewPlainPacketSource(dataDir string) (PacketSource, error) {
-	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr bpf.RawPacketWriter) (PacketsPoller, error) {
+	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr rawpacket.RawPacketWriter) (PacketsPoller, error) {
 		return packets.NewPacketsPoller(m, wr, goWr, rawWr, getPacketsPerfBufferSize())
 	}
 

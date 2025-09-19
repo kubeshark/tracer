@@ -15,6 +15,7 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 )
@@ -25,9 +26,8 @@ const (
 )
 
 type (
-	RawWriter       func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
-	GopacketWriter  func(packet gopacket.Packet)
-	RawPacketWriter func(timestamp uint64, pkt []byte)
+	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
+	GopacketWriter func(packet gopacket.Packet)
 )
 
 type TlsPoller struct {
@@ -39,7 +39,7 @@ type TlsPoller struct {
 	// TODO: remove?
 	rawWriter       RawWriter
 	gopacketWriter  GopacketWriter
-	rawPacketWriter RawPacketWriter
+	rawPacketWriter rawpacket.RawPacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
 	lastLostChunks  uint64
@@ -59,7 +59,7 @@ func NewTlsPoller(
 	perfBuffer *ebpf.Map,
 	rawWriter RawWriter,
 	gopacketWriter GopacketWriter,
-	rawPacketWriter RawPacketWriter,
+	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*TlsPoller, error) {
 	poller := &TlsPoller{

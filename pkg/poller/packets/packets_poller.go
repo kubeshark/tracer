@@ -17,6 +17,7 @@ import (
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc/ethernet"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracerproto/pkg/unixpacket"
 	"github.com/rs/zerolog/log"
 )
@@ -55,7 +56,7 @@ type PacketsPoller struct {
 	// TODO: remove?
 	rawWriter       bpf.RawWriter
 	gopacketWriter  bpf.GopacketWriter
-	rawPacketWriter bpf.RawPacketWriter
+	rawPacketWriter rawpacket.RawPacketWriter
 	pktsMap         map[uint64]*pktBuffer // packet id to packet
 	receivedPackets uint64
 	lostChunks      uint64
@@ -76,7 +77,7 @@ func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
 	rawWriter bpf.RawWriter,
 	gopacketWriter bpf.GopacketWriter,
-	rawPacketWriter bpf.RawPacketWriter,
+	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
 	var err error
