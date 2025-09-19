@@ -37,8 +37,8 @@ func FromPolicy(p TTLPolicy) raw.TTLPolicy {
 	}
 }
 
-// startCapture starts a new syscall capture session
-func startCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartResponse, error) {
+// StartCapture starts a new syscall capture session
+func StartCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartResponse, error) {
 	if cfg == nil {
 		cfg = &raw.Config{}
 	}
@@ -84,11 +84,14 @@ func startCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartRespo
 	}, nil
 }
 
-// stopCapture stops a syscall capture session
-func stopCapture(manager *Manager, id string) (*raw.StopResponse, error) {
+// StopCapture stops a syscall capture session
+func StopCapture(manager *Manager, id string) (*raw.StopResponse, error) {
 	id = strings.TrimSpace(id)
 	stats := gatherStats(manager, id)
-	manager.Get(id).Destroy()
+	writer := manager.Get(id)
+	if writer != nil {
+		writer.Destroy()
+	}
 	return &raw.StopResponse{
 		Target: raw.Target_TARGET_SYSCALLS,
 		Id:     id,
@@ -96,8 +99,8 @@ func stopCapture(manager *Manager, id string) (*raw.StopResponse, error) {
 	}, nil
 }
 
-// getCaptureStatus returns the status of a syscall capture session
-func getCaptureStatus(manager *Manager, target raw.Target, id string) (*raw.Status, error) {
+// GetCaptureStatus returns the status of a syscall capture session
+func GetCaptureStatus(manager *Manager, target raw.Target, id string) (*raw.Status, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		id = "default"
@@ -126,8 +129,8 @@ func getCaptureStatus(manager *Manager, target raw.Target, id string) (*raw.Stat
 	}, nil
 }
 
-// cleanupCaptures cleans up all syscall capture data
-func cleanupCaptures(manager *Manager) (*raw.CleanupResponse, error) {
+// CleanupCaptures cleans up all syscall capture data
+func CleanupCaptures(manager *Manager) (*raw.CleanupResponse, error) {
 	manager.Destroy()
 	dir := captureBaseDir()
 	if dir != "" {
