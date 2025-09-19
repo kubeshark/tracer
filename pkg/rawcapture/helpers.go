@@ -3,7 +3,6 @@ package rawcapture
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -170,7 +169,9 @@ func gatherStats(manager *Manager, id string) *raw.CaptureStats {
 		return stats
 	}
 
-	var names []string
+	var first, last string
+	hasFiles := false
+
 	for _, de := range entries {
 		if de.IsDir() {
 			continue
@@ -180,21 +181,43 @@ func gatherStats(manager *Manager, id string) *raw.CaptureStats {
 		if info, e := de.Info(); e == nil {
 			stats.TotalBytes += uint64(info.Size())
 			stats.FilesCount++
-			names = append(names, name)
+
+			// Track first and last filenames (lexicographically)
+			if !hasFiles {
+				first = name
+				last = name
+				hasFiles = true
+			} else {
+				if name < first {
+					first = name
+				}
+				if name > last {
+					last = name
+				}
+			}
 		} else if fi, se := os.Stat(path); se == nil {
 			stats.TotalBytes += uint64(fi.Size())
 			stats.FilesCount++
-			names = append(names, name)
+
+			// Track first and last filenames (lexicographically)
+			if !hasFiles {
+				first = name
+				last = name
+				hasFiles = true
+			} else {
+				if name < first {
+					first = name
+				}
+				if name > last {
+					last = name
+				}
+			}
 		}
 	}
 
-	if len(names) == 0 {
+	if !hasFiles {
 		return stats
 	}
-
-	sort.Strings(names)
-	first := names[0]
-	last := names[len(names)-1]
 
 	if t, e := time.Parse(time.RFC3339Nano, first); e == nil {
 		stats.FirstTs = timestamppb.New(t.UTC())

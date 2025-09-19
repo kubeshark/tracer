@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -274,63 +274,103 @@ func (w *Writer) loop() {
 
 var ErrQuotaStop = errors.New("quota exceeded and policy=STOP")
 
-func (w *Writer) ensureQuotaLocked(incoming uint64) error {
-	// Compute total size and collect file list lexicographically
+// collectOldestFiles collects up to maxFiles of the oldest files (lexicographically first)
+// and returns them along with the total size of all files processed
+func (w *Writer) collectOldestFiles(maxFiles int) ([]string, uint64, error) {
 	var total uint64
-	files := []string{}
+	var oldestFiles []string
 
 	entries, err := os.ReadDir(w.baseDir)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
+
 	for _, de := range entries {
 		if de.IsDir() {
 			continue
 		}
 		name := de.Name()
 		path := filepath.Join(w.baseDir, name)
+
+		var size uint64
 		if info, e := de.Info(); e == nil {
-			total += uint64(info.Size())
-			files = append(files, path)
+			size = uint64(info.Size())
 		} else {
 			// fall back – try stat and log if still failing
 			if fi, se := os.Stat(path); se == nil {
-				total += uint64(fi.Size())
-				files = append(files, path)
+				size = uint64(fi.Size())
 			} else {
 				log.Error().Err(se).Str("file", path).Msg("systemstore: unable to stat file during quota scan")
+				continue
 			}
 		}
-	}
 
-	if total+incoming <= w.maxBytes {
-		return nil
-	}
-	if w.policy == TTLPolicyStop {
-		return ErrQuotaStop
-	}
+		total += size
 
-	// Sort lexicographically: filenames are timestamps => lexicographic == chronological
-	sort.Slice(files, func(i, j int) bool {
-		return filepath.Base(files[i]) < filepath.Base(files[j])
-	})
-
-	// Prune oldest until we're within the limit (no 90% headroom)
-	for total+incoming > w.maxBytes && len(files) > 0 {
-		old := files[0]
-		files = files[1:]
-
-		fi, statErr := os.Stat(old)
-		if statErr != nil {
-			log.Error().Err(statErr).Str("file", old).Msg("systemstore: stat failed during prune")
-			continue
+		// Insert file into sorted position (maintaining lexicographic order)
+		// Create a slice of just the basenames for binary search
+		basenames := make([]string, len(oldestFiles))
+		for i, file := range oldestFiles {
+			basenames[i] = filepath.Base(file)
 		}
-		size := uint64(fi.Size())
-		if rmErr := os.Remove(old); rmErr != nil {
-			log.Error().Err(rmErr).Str("file", old).Msg("systemstore: remove failed during prune")
-			continue
+
+		// Use binary search to find insertion position
+		insertPos, _ := slices.BinarySearch(basenames, name)
+		oldestFiles = slices.Insert(oldestFiles, insertPos, path)
+
+		// Keep only the oldest files if we exceed maxFiles
+		if len(oldestFiles) > maxFiles {
+			oldestFiles = oldestFiles[:maxFiles]
 		}
-		total -= size
+	}
+
+	return oldestFiles, total, nil
+}
+
+func (w *Writer) ensureQuotaLocked(incoming uint64) error {
+	const maxFilesToCheck = 10
+
+	for {
+		// Collect oldest files and total size
+		oldestFiles, total, err := w.collectOldestFiles(maxFilesToCheck)
+		if err != nil {
+			return err
+		}
+
+		if total+incoming <= w.maxBytes {
+			return nil
+		}
+		if w.policy == TTLPolicyStop {
+			return ErrQuotaStop
+		}
+
+		// Try to remove files from the oldest list
+		removedAny := false
+		for len(oldestFiles) > 0 && total+incoming > w.maxBytes {
+			old := oldestFiles[0]
+			oldestFiles = oldestFiles[1:]
+
+			fi, statErr := os.Stat(old)
+			if statErr != nil {
+				log.Error().Err(statErr).Str("file", old).Msg("systemstore: stat failed during prune")
+				continue
+			}
+			size := uint64(fi.Size())
+			if rmErr := os.Remove(old); rmErr != nil {
+				log.Error().Err(rmErr).Str("file", old).Msg("systemstore: remove failed during prune")
+				continue
+			}
+			total -= size
+			removedAny = true
+		}
+
+		// If we couldn't remove any files or quota is satisfied, we're done
+		if !removedAny || total+incoming <= w.maxBytes {
+			break
+		}
+
+		// If we still need more space and have more files to check, repeat the process
+		// This handles cases where we have more than maxFilesToCheck files
 	}
 
 	return nil
