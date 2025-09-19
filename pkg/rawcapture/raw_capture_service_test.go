@@ -72,7 +72,9 @@ func TestRawCaptureServer_Start(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, resp)
-				assert.Equal(t, manager.target, resp.Target)
+				if resp != nil {
+					assert.Equal(t, manager.target, resp.Target)
+				}
 
 				// Clean up if capture was started
 				if resp != nil && resp.Error == "" {
@@ -145,8 +147,10 @@ func TestRawCaptureServer_Stop(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, resp)
-				assert.Equal(t, raw.Target_TARGET_SYSCALLS, resp.Target)
-				assert.NotNil(t, resp.Stats)
+				if resp != nil {
+					assert.Equal(t, raw.Target_TARGET_SYSCALLS, resp.Target)
+					assert.NotNil(t, resp.Stats)
+				}
 			}
 		})
 	}
@@ -227,16 +231,18 @@ func TestRawCaptureServer_GetStatus(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, resp)
-				assert.Equal(t, tt.request.Target, resp.Target)
+				if resp != nil {
+					assert.Equal(t, tt.request.Target, resp.Target)
 
-				// Check specific cases
-				if tt.request.Id == "status-test" {
-					// Writer is enabled but no active file yet, so not "active"
-					assert.False(t, resp.Active, "Capture without active file should show as inactive")
-				} else if tt.request.Id == "non-existent" {
-					assert.False(t, resp.Active, "Non-existent capture should show as inactive")
-				} else if tt.request.Id == "" {
-					assert.Equal(t, "default", resp.Id, "Empty ID should default to 'default'")
+					// Check specific cases
+					if tt.request.Id == "status-test" {
+						// Writer is enabled but no active file yet, so not "active"
+						assert.False(t, resp.Active, "Capture without active file should show as inactive")
+					} else if tt.request.Id == "non-existent" {
+						assert.False(t, resp.Active, "Non-existent capture should show as inactive")
+					} else if tt.request.Id == "" {
+						assert.Equal(t, "default", resp.Id, "Empty ID should default to 'default'")
+					}
 				}
 			}
 		})

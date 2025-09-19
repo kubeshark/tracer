@@ -293,7 +293,7 @@ func TestGetCaptureStatus(t *testing.T) {
 				t.Errorf("Expected active=%v, got %v", tt.expectedActive, status.Active)
 			}
 
-			expectedID := tt.statusID
+			expectedID := ""
 			if tt.statusID == "" {
 				expectedID = "default"
 			} else {
