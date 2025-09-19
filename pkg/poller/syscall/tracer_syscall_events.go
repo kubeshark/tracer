@@ -142,7 +142,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 			Command:       e.CmdPath(),
 			ProcessPath:   e.ProcessPath,
 		}
-		rawcapture.EnqueueSyscall(t.systemStoreManager, bin)
+		t.systemStoreManager.EnqueueSyscall(bin)
 	}
 }
 

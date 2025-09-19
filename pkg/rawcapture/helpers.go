@@ -8,44 +8,8 @@ import (
 	"time"
 
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// EnqueueSyscall marshals and enqueues a syscall event to the writer.
-func EnqueueSyscall(manager *Manager, ev *raw.SyscallEvent) {
-	manager.mu.RLock()
-	if len(manager.writers) == 0 {
-		manager.mu.RUnlock()
-		return
-	}
-	manager.mu.RUnlock()
-	b, err := proto.Marshal(ev)
-	if err != nil {
-		return
-	}
-
-	manager.mu.RLock()
-	defer manager.mu.RUnlock()
-	for _, w := range manager.writers {
-		w.writeProtoLengthPrefixed(b)
-	}
-}
-
-func EnqueuePacket(manager *Manager, timestamp uint64, pkt []byte) {
-	manager.mu.RLock()
-	if len(manager.writers) == 0 {
-		manager.mu.RUnlock()
-		return
-	}
-	manager.mu.RUnlock()
-
-	manager.mu.RLock()
-	defer manager.mu.RUnlock()
-	for _, w := range manager.writers {
-		w.writePacketToPcapFile(timestamp, pkt)
-	}
-}
 
 // PolicyConversion functions for converting between API and internal types
 

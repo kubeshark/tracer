@@ -17,6 +17,7 @@ import (
 	"github.com/kubeshark/gopacket/pcapgo"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -69,6 +70,42 @@ type Manager struct {
 
 func NewManager(target raw.Target) *Manager {
 	return &Manager{target: target, writers: make(map[string]*Writer)}
+}
+
+// EnqueueSyscall marshals and enqueues a syscall event to the writer.
+func (m *Manager) EnqueueSyscall(ev *raw.SyscallEvent) {
+	m.mu.RLock()
+	if len(m.writers) == 0 {
+		m.mu.RUnlock()
+		return
+	}
+	m.mu.RUnlock()
+	b, err := proto.Marshal(ev)
+	if err != nil {
+		return
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, w := range m.writers {
+		w.writeProtoLengthPrefixed(b)
+	}
+}
+
+// EnqueuePacket enqueues a packet to the writer.
+func (m *Manager) EnqueuePacket(timestamp uint64, pkt []byte) {
+	m.mu.RLock()
+	if len(m.writers) == 0 {
+		m.mu.RUnlock()
+		return
+	}
+	m.mu.RUnlock()
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, w := range m.writers {
+		w.writePacketToPcapFile(timestamp, pkt)
+	}
 }
 
 func (m *Manager) StartCapturing(baseDir string, id string, enabled bool, rotateBytes uint64, rotateInterval time.Duration, maxBytes uint64, policy TTLPolicy) error {

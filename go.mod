@@ -4,6 +4,8 @@ go 1.24.0
 
 toolchain go1.24.3
 
+replace github.com/kubeshark/api2 => /app/api2
+
 require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/cilium/ebpf v0.18.0
@@ -40,6 +42,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.18.1 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect

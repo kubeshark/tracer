@@ -1,3 +1,5 @@
+connectrpc.com/connect v1.18.1 h1:PAg7CjSAGvscaf6YZKUefjoih5Z/qYkyaTrBW8xvYPw=
+connectrpc.com/connect v1.18.1/go.mod h1:0292hj1rnx8oFrStN7cB4jjVBeqs+Yx5yDIC2prWDO8=
 github.com/Masterminds/semver v1.5.0 h1:H65muMkzWKEuNDnfl9d70GUjFniHKHRbFPGBuZ3QEww=
 github.com/Masterminds/semver v1.5.0/go.mod h1:MB6lktGJrhw8PrUyiEoblNEGEQ+RzHPF078ddwwvV3Y=
 github.com/buger/jsonparser v1.1.1 h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=
@@ -122,8 +124,6 @@ github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
 github.com/kubeshark/api v1.2.2-0.20250617143439-101885933817 h1:IdlCmIBpfomskM3oBUm9cJiRDPKw0Skur4+kXHi3HIs=
 github.com/kubeshark/api v1.2.2-0.20250617143439-101885933817/go.mod h1:jTq+eKUczqXIS1Ru7MD0u507kCzW/uTrhaEHeKLTCoI=
-github.com/kubeshark/api2 v0.0.0-20250916112227-0e876ddf9f1e h1:jeqgcKT91F5II0F1Llh/NeA4ERaa63tQNiilcpT8fxQ=
-github.com/kubeshark/api2 v0.0.0-20250916112227-0e876ddf9f1e/go.mod h1:u+RE/jKLCmogSqEVuTgV3/g5ae2g2Jr/Bz5L/w8rLZc=
 github.com/kubeshark/gopacket v1.1.42 h1:7wjx70aiZSYQ1OQ7Uqo2QmkzeHj7mWwx89D98nbZTLY=
 github.com/kubeshark/gopacket v1.1.42/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj7M/Arv8MKm8=
 github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324 h1:bkkaNmy70yebjPIPeZv5bDamFl0fmAKQn038NWf/GBU=

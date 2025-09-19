@@ -31,7 +31,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	sentryzerolog "github.com/getsentry/sentry-go/zerolog"
-	streamer "github.com/kubeshark/api2/grpcstreamer"
+	streamer "github.com/kubeshark/api2/rpcstreamer"
 	"github.com/kubeshark/tracer/pkg/version"
 	"github.com/kubeshark/tracer/server"
 	sentrypkg "github.com/kubeshark/utils/sentry"
