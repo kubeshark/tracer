@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -155,9 +156,9 @@ func TestCaptureSystemFlow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, "bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+	conn, err := grpc.NewClient("passthrough:///bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 		return lis.Dial()
-	}), grpc.WithInsecure())
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -514,9 +515,9 @@ func TestCaptureSystemFlowPCAP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(ctx, "bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+	conn, err := grpc.NewClient("passthrough:///bufconn", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 		return lis.Dial()
-	}), grpc.WithInsecure())
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 
