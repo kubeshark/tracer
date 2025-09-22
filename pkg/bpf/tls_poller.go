@@ -15,6 +15,7 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
 )
@@ -35,8 +36,8 @@ type TlsPoller struct {
 	chunksReader    *perf.Reader
 	fdCache         *simplelru.LRU // Actual type is map[string]addressPair
 	evictedCounter  int
-	rawWriter       RawWriter
 	gopacketWriter  GopacketWriter
+	rawPacketWriter rawpacket.RawPacketWriter
 	receivedPackets uint64
 	lostChunks      uint64
 	lastLostChunks  uint64
@@ -54,17 +55,17 @@ type TlsPollerStats struct {
 
 func NewTlsPoller(
 	perfBuffer *ebpf.Map,
-	rawWriter RawWriter,
 	gopacketWriter GopacketWriter,
+	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*TlsPoller, error) {
 	poller := &TlsPoller{
-		streams:        make(map[string]*TlsStream),
-		closeStreams:   make(chan string, misc.TlsCloseChannelBufferSize),
-		chunksReader:   nil,
-		rawWriter:      rawWriter,
-		gopacketWriter: gopacketWriter,
-		tai:            tai.NewTaiInfo(),
+		streams:         make(map[string]*TlsStream),
+		closeStreams:    make(chan string, misc.TlsCloseChannelBufferSize),
+		chunksReader:    nil,
+		gopacketWriter:  gopacketWriter,
+		rawPacketWriter: rawPacketWriter,
+		tai:             tai.NewTaiInfo(),
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)

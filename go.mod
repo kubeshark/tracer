@@ -20,7 +20,7 @@ require (
 	github.com/jinzhu/copier v0.4.0
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/api v1.2.2-0.20250617143439-101885933817
-	github.com/kubeshark/api2 v0.0.0-20250616171331-0bb2df0d448a
+	github.com/kubeshark/api2 v0.0.0-20250918141154-86a58bdbc53b
 	github.com/kubeshark/gopacket v1.1.42
 	github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324
 	github.com/kubeshark/tracerproto v1.0.2
@@ -40,6 +40,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.18.1 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect

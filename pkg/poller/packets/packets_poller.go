@@ -13,10 +13,9 @@ import (
 	"github.com/go-errors/errors"
 
 	"github.com/kubeshark/gopacket"
-	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
-	"github.com/kubeshark/tracer/misc/ethernet"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracerproto/pkg/unixpacket"
 	"github.com/rs/zerolog/log"
 )
@@ -52,8 +51,8 @@ type PacketsPoller struct {
 	ethhdrContent   []byte
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
-	rawWriter       bpf.RawWriter
 	gopacketWriter  bpf.GopacketWriter
+	rawPacketWriter rawpacket.RawPacketWriter
 	pktsMap         map[uint64]*pktBuffer // packet id to packet
 	receivedPackets uint64
 	lostChunks      uint64
@@ -72,8 +71,8 @@ type PacketsPollerStats struct {
 
 func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
-	rawWriter bpf.RawWriter,
 	gopacketWriter bpf.GopacketWriter,
+	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
 	var err error
@@ -88,8 +87,8 @@ func NewPacketsPoller(
 	poller := &PacketsPoller{
 		ethernetDecoder: ethernetDecoder,
 		ethhdrContent:   ethhdrContent,
-		rawWriter:       rawWriter,
 		gopacketWriter:  gopacketWriter,
+		rawPacketWriter: rawPacketWriter,
 		pktsMap:         make(map[uint64]*pktBuffer),
 		tai:             tai.NewTaiInfo(),
 	}
@@ -164,17 +163,11 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 	if ptr.Last != 0 {
 		p.receivedPackets++
 
-		ethhdr := ethernet.NewEthernetLayer(layers.EthernetType(ptr.IPHdrType))
-
-		if p.rawWriter != nil {
-			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
-			if err != nil {
-				return false, err
-			}
-		}
-
 		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
 
+		if p.rawPacketWriter != nil {
+			p.rawPacketWriter(ptr.Timestamp, pkts.buf[:pkts.len])
+		}
 		if p.gopacketWriter != nil {
 			pktBuf := append(p.ethhdrContent, pkts.buf[:pkts.len]...)
 			pkt := gopacket.NewPacket(pktBuf, p.ethernetDecoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))

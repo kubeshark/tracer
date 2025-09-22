@@ -9,6 +9,11 @@ import (
 	"path/filepath"
 	"unsafe"
 
+	commonv1 "github.com/kubeshark/api2/pkg/proto/common/v1"
+	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
+	"github.com/kubeshark/tracer/pkg/rawcapture"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/cilium/ebpf/perf"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/bpf"
@@ -20,21 +25,23 @@ import (
 )
 
 type SyscallEventsTracer struct {
-	cgroupController cgroup.CgroupsController
-	eventReader      *perf.Reader
-	eventSocket      *socket.SocketEvent
+	cgroupController   cgroup.CgroupsController
+	eventReader        *perf.Reader
+	eventSocket        *socket.SocketEvent
+	systemStoreManager *rawcapture.Manager
 }
 
-func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController) (*SyscallEventsTracer, error) {
+func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
 	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize())
 	if err != nil {
 		return nil, fmt.Errorf("open events perf buffer failed")
 	}
 
 	return &SyscallEventsTracer{
-		cgroupController: cgroupController,
-		eventReader:      reader,
-		eventSocket:      socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
+		cgroupController:   cgroupController,
+		eventReader:        reader,
+		eventSocket:        socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
+		systemStoreManager: systemStoreManager,
 	}, nil
 }
 
@@ -118,5 +125,31 @@ func (t *SyscallEventsTracer) pollEvents() {
 		))
 
 		t.eventSocket.WriteObject(e)
+
+		// persist syscall event to disk
+		bin := &raw.SyscallEvent{
+			Ts:            timestamppb.Now(),
+			EventId:       uint32(e.EventId),
+			IpSrc:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpSrc)},
+			IpDst:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpDst)},
+			PortSrc:       uint32(e.PortSrc),
+			PortDst:       uint32(e.PortDst),
+			CgroupId:      e.CgroupID,
+			HostPid:       uint32(e.HostPid),
+			HostParentPid: uint32(e.HostParentPid),
+			Pid:           uint32(e.Pid),
+			ParentPid:     uint32(e.ParentPid),
+			Command:       e.CmdPath(),
+			ProcessPath:   e.ProcessPath,
+		}
+		t.systemStoreManager.EnqueueSyscall(bin)
 	}
+}
+
+func ipv4ToIPv6Mapped(v uint32) []byte {
+	b := make([]byte, 16)
+	b[10] = 0xff
+	b[11] = 0xff
+	binary.BigEndian.PutUint32(b[12:], v)
+	return b
 }
