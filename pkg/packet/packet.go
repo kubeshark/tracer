@@ -13,6 +13,7 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/poller/packets"
+	"github.com/kubeshark/tracer/pkg/rawcapture"
 	"github.com/kubeshark/tracer/pkg/rawpacket"
 )
 
@@ -40,16 +41,17 @@ type PacketsPoller interface {
 }
 
 type PacketSourceImpl struct {
-	perfBuffer *ebpf.Map
-	poller     PacketsPoller
-	pktCh      chan gopacket.Packet
+	perfBuffer     *ebpf.Map
+	poller         PacketsPoller
+	pktCh          chan gopacket.Packet
+	captureManager *rawcapture.Manager
 }
 
-type createPollerFunc func(*ebpf.Map, bpf.RawWriter, bpf.GopacketWriter, rawpacket.RawPacketWriter) (PacketsPoller, error)
+type createPollerFunc func(*ebpf.Map, bpf.GopacketWriter, rawpacket.RawPacketWriter) (PacketsPoller, error)
 
 type enableCaptureFunc func(programsConfiguration *ebpf.Map, feature uint32) error
 
-func newPacketSource(perfName string, enableCaptureName string, createPoller createPollerFunc, enableCapture enableCaptureFunc, captureMask uint32, pathSupported string, pathNotSupported string) (PacketSource, error) {
+func newPacketSource(perfName string, enableCaptureName string, createPoller createPollerFunc, enableCapture enableCaptureFunc, captureMask uint32, pathSupported string, pathNotSupported string, captureManager *rawcapture.Manager) (PacketSource, error) {
 	perfPath := filepath.Join(bpf.PinPath, perfName)
 	enableCapturePath := filepath.Join(bpf.PinPath, enableCaptureName)
 
@@ -75,11 +77,12 @@ func newPacketSource(perfName string, enableCaptureName string, createPoller cre
 	defer enableCaptureMap.Close()
 
 	p := PacketSourceImpl{
-		perfBuffer: perfBuffer,
-		pktCh:      make(chan gopacket.Packet),
+		perfBuffer:     perfBuffer,
+		pktCh:          make(chan gopacket.Packet),
+		captureManager: captureManager,
 	}
 
-	if p.poller, err = createPoller(p.perfBuffer, nil, p.WritePacket, p.WriteRawPacket); err != nil {
+	if p.poller, err = createPoller(p.perfBuffer, p.WritePacket, p.WriteRawPacket); err != nil {
 		return nil, fmt.Errorf("poller create failed: %v", err)
 	}
 
@@ -119,20 +122,20 @@ func getPacketsPerfBufferSize() int {
 	return 64 * 1024 * 1024 / runtime.NumCPU()
 }
 
-func NewTLSPacketSource(dataDir string) (PacketSource, error) {
-	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr rawpacket.RawPacketWriter) (PacketsPoller, error) {
-		return bpf.NewTlsPoller(m, wr, goWr, rawWr, getPacketsPerfBufferSize())
+func NewTLSPacketSource(dataDir string, captureManager *rawcapture.Manager) (PacketSource, error) {
+	poller := func(m *ebpf.Map, goWr bpf.GopacketWriter, rawWr rawpacket.RawPacketWriter) (PacketsPoller, error) {
+		return bpf.NewTlsPoller(m, goWr, rawWr, getPacketsPerfBufferSize())
 	}
 
-	return newPacketSource(bpf.PinNameTLSPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCaptureTls, filepath.Join(dataDir, bpf.TlsBackendSupportedFile), filepath.Join(dataDir, bpf.TlsBackendNotSupportedFile))
+	return newPacketSource(bpf.PinNameTLSPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCaptureTls, filepath.Join(dataDir, bpf.TlsBackendSupportedFile), filepath.Join(dataDir, bpf.TlsBackendNotSupportedFile), captureManager)
 }
 
-func NewPlainPacketSource(dataDir string) (PacketSource, error) {
-	poller := func(m *ebpf.Map, wr bpf.RawWriter, goWr bpf.GopacketWriter, rawWr rawpacket.RawPacketWriter) (PacketsPoller, error) {
-		return packets.NewPacketsPoller(m, wr, goWr, rawWr, getPacketsPerfBufferSize())
+func NewPlainPacketSource(dataDir string, captureManager *rawcapture.Manager) (PacketSource, error) {
+	poller := func(m *ebpf.Map, goWr bpf.GopacketWriter, rawWr rawpacket.RawPacketWriter) (PacketsPoller, error) {
+		return packets.NewPacketsPoller(m, goWr, rawWr, getPacketsPerfBufferSize())
 	}
 
-	return newPacketSource(bpf.PinNamePlainPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCapturePlain, filepath.Join(dataDir, bpf.PlainBackendSupportedFile), filepath.Join(dataDir, bpf.PlainBackendNotSupportedFile))
+	return newPacketSource(bpf.PinNamePlainPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCapturePlain, filepath.Join(dataDir, bpf.PlainBackendSupportedFile), filepath.Join(dataDir, bpf.PlainBackendNotSupportedFile), captureManager)
 }
 
 func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) {
@@ -140,7 +143,9 @@ func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) {
 }
 
 func (p *PacketSourceImpl) WriteRawPacket(timestamp uint64, pkt []byte) {
-	// TODO:
+	if p.captureManager != nil {
+		p.captureManager.EnqueuePacket(timestamp, pkt)
+	}
 }
 
 func (p *PacketSourceImpl) Start() error {

@@ -123,22 +123,6 @@ func (t *TlsStream) writeData(timestamp uint64, cgroupId uint64, direction uint8
 
 func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uint8, data []byte, isClient bool, sentLen uint32) {
 	t.poller.receivedPackets++
-	if t.poller.rawWriter != nil {
-		err := t.poller.rawWriter(
-			timestamp,
-			cgroupId,
-			direction,
-			layers.LayerTypeEthernet,
-			t.layers.ethernet,
-			t.layers.network,
-			t.layers.tcp,
-			gopacket.Payload(data),
-		)
-		if err != nil {
-			log.Error().Err(err).Msg("Error writing PCAP:")
-			return
-		}
-	}
 
 	if t.poller.rawPacketWriter != nil {
 		t.poller.rawPacketWriter(timestamp, data)

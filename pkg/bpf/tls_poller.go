@@ -31,13 +31,11 @@ type (
 )
 
 type TlsPoller struct {
-	streams        map[string]*TlsStream
-	closeStreams   chan string
-	chunksReader   *perf.Reader
-	fdCache        *simplelru.LRU // Actual type is map[string]addressPair
-	evictedCounter int
-	// TODO: remove?
-	rawWriter       RawWriter
+	streams         map[string]*TlsStream
+	closeStreams    chan string
+	chunksReader    *perf.Reader
+	fdCache         *simplelru.LRU // Actual type is map[string]addressPair
+	evictedCounter  int
 	gopacketWriter  GopacketWriter
 	rawPacketWriter rawpacket.RawPacketWriter
 	receivedPackets uint64
@@ -57,7 +55,6 @@ type TlsPollerStats struct {
 
 func NewTlsPoller(
 	perfBuffer *ebpf.Map,
-	rawWriter RawWriter,
 	gopacketWriter GopacketWriter,
 	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
@@ -66,7 +63,6 @@ func NewTlsPoller(
 		streams:         make(map[string]*TlsStream),
 		closeStreams:    make(chan string, misc.TlsCloseChannelBufferSize),
 		chunksReader:    nil,
-		rawWriter:       rawWriter,
 		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
 		tai:             tai.NewTaiInfo(),

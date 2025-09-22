@@ -13,9 +13,7 @@ import (
 	"github.com/go-errors/errors"
 
 	"github.com/kubeshark/gopacket"
-	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
-	"github.com/kubeshark/tracer/misc/ethernet"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracerproto/pkg/unixpacket"
@@ -53,8 +51,6 @@ type PacketsPoller struct {
 	ethhdrContent   []byte
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
-	// TODO: remove?
-	rawWriter       bpf.RawWriter
 	gopacketWriter  bpf.GopacketWriter
 	rawPacketWriter rawpacket.RawPacketWriter
 	pktsMap         map[uint64]*pktBuffer // packet id to packet
@@ -75,7 +71,6 @@ type PacketsPollerStats struct {
 
 func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
-	rawWriter bpf.RawWriter,
 	gopacketWriter bpf.GopacketWriter,
 	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
@@ -92,7 +87,6 @@ func NewPacketsPoller(
 	poller := &PacketsPoller{
 		ethernetDecoder: ethernetDecoder,
 		ethhdrContent:   ethhdrContent,
-		rawWriter:       rawWriter,
 		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
 		pktsMap:         make(map[uint64]*pktBuffer),
@@ -168,15 +162,6 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 
 	if ptr.Last != 0 {
 		p.receivedPackets++
-
-		ethhdr := ethernet.NewEthernetLayer(layers.EthernetType(ptr.IPHdrType))
-
-		if p.rawWriter != nil {
-			err := p.rawWriter(ptr.Timestamp, ptr.CgroupID, ptr.Direction, layers.LayerTypeEthernet, ethhdr, gopacket.Payload(pkts.buf[:pkts.len]))
-			if err != nil {
-				return false, err
-			}
-		}
 
 		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
 
