@@ -222,6 +222,7 @@ func run() {
 
 func startGRPCServer(port int, grpcService *grpcservice.GRPCService, systemStoreManager *rawcapture.Manager) error {
 	var serverConfig streamer.ServerConfig
+	serverConfig.Addr = fmt.Sprintf(":%d", port)
 
 	serverConfig.Callbacks = streamer.ServerCallbacks{
 		OnConnect: func(info streamer.ClientInfo, ctx context.Context) {
