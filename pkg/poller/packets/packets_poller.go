@@ -21,14 +21,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Buffer pool for packet data to avoid per-packet allocations
-var packetBufferPool = sync.Pool{
-	New: func() interface{} {
-		// Allocate buffer large enough for max packet size (14 bytes ethernet header + 64KB payload)
-		return make([]byte, 14+64*1024)
-	},
-}
-
 // Buffer pool for pktBuffer objects to avoid large allocations
 var pktBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -253,7 +245,6 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 		}
 		if p.gopacketWriter != nil {
 			totalLen := 14 + int(pkts.len)
-			// pktBuf := packetBufferPool.Get().([]byte)
 			if cap(p.pktBuf) < totalLen {
 				// If pooled buffer is too small, allocate a new one
 				p.pktBuf = make([]byte, totalLen)
@@ -286,9 +277,6 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 			p.stats.PacketsGot++
 			p.gopacketWriter(pkt)
 		}
-
-		// Return buffer to pool for reuse
-		// packetBufferPool.Put(pktBuf)
 
 		// Return pktBuffer to pool for reuse
 		pktBufferPool.Put(pkts)

@@ -29,14 +29,6 @@ const (
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
 
-// Buffer pool for packet data to avoid per-packet allocations
-var tlsPacketDataPool = sync.Pool{
-	New: func() interface{} {
-		// Allocate buffer large enough for max packet size (14 bytes ethernet header + 64KB payload)
-		return make([]byte, 14+64*1024)
-	},
-}
-
 // Buffer pool for tlsPacketBuffer objects to avoid large allocations
 var tlsPacketBufferPool = sync.Pool{
 	New: func() interface{} {
