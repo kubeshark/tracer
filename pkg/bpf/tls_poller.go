@@ -28,25 +28,6 @@ const (
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
 
-type tlsPacketBuffer struct {
-	id  uint64
-	num uint16
-	len uint32
-	buf [64 * 1024]byte
-}
-
-// reset resets the tlsPacketBuffer for reuse
-func (p *tlsPacketBuffer) reset() {
-	p.id = 0
-	p.num = 0
-	// Only clear the portion of the buffer that was actually used
-	// This is more efficient than clearing the entire 64KB buffer
-	if p.len > 0 {
-		clear(p.buf[:p.len])
-		p.len = 0
-	}
-}
-
 type (
 	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
 	GopacketWriter func(packet gopacket.Packet)
