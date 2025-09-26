@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -28,21 +27,6 @@ const (
 	fdCachedItemAvgSize = 40
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
-
-// Buffer pool for tlsPacketBuffer objects to avoid large allocations
-var tlsPacketBufferPool = sync.Pool{
-	New: func() interface{} {
-		return &tlsPacketBuffer{}
-	},
-}
-
-// preWarmTlsPool pre-warms the tlsPacketBuffer pool with some initial objects
-func preWarmTlsPool() {
-	// Pre-allocate a few tlsPacketBuffer objects to reduce initial allocation pressure
-	for i := 0; i < 10; i++ {
-		tlsPacketBufferPool.Put(&tlsPacketBuffer{})
-	}
-}
 
 type tlsPacketBuffer struct {
 	id  uint64
@@ -156,9 +140,6 @@ func NewTlsPoller(
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
-
-	// Pre-warm the pool to reduce initial allocation pressure
-	preWarmTlsPool()
 
 	return poller, nil
 }
