@@ -3,9 +3,11 @@ package bpf
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -13,10 +15,12 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/hashicorp/golang-lru/simplelru"
 	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc"
 	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracer/pkg/utils"
+	"github.com/kubeshark/tracerproto/pkg/unixpacket"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,6 +28,48 @@ const (
 	fdCachedItemAvgSize = 40
 	fdCacheMaxItems     = 500000 / fdCachedItemAvgSize
 )
+
+// Buffer pool for packet data to avoid per-packet allocations
+var tlsPacketDataPool = sync.Pool{
+	New: func() interface{} {
+		// Allocate buffer large enough for max packet size (14 bytes ethernet header + 64KB payload)
+		return make([]byte, 14+64*1024)
+	},
+}
+
+// Buffer pool for tlsPacketBuffer objects to avoid large allocations
+var tlsPacketBufferPool = sync.Pool{
+	New: func() interface{} {
+		return &tlsPacketBuffer{}
+	},
+}
+
+// preWarmTlsPool pre-warms the tlsPacketBuffer pool with some initial objects
+func preWarmTlsPool() {
+	// Pre-allocate a few tlsPacketBuffer objects to reduce initial allocation pressure
+	for i := 0; i < 10; i++ {
+		tlsPacketBufferPool.Put(&tlsPacketBuffer{})
+	}
+}
+
+type tlsPacketBuffer struct {
+	id  uint64
+	num uint16
+	len uint32
+	buf [64 * 1024]byte
+}
+
+// reset resets the tlsPacketBuffer for reuse
+func (p *tlsPacketBuffer) reset() {
+	p.id = 0
+	p.num = 0
+	// Only clear the portion of the buffer that was actually used
+	// This is more efficient than clearing the entire 64KB buffer
+	if p.len > 0 {
+		clear(p.buf[:p.len])
+		p.len = 0
+	}
+}
 
 type (
 	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
@@ -44,6 +90,23 @@ type TlsPoller struct {
 	lastLostCheck   time.Time
 	tai             tai.TaiInfo
 	stats           TlsPollerStats
+	// Reusable record and buffer to avoid allocations
+	reusableRecord perf.Record
+	reusableBuffer *bytes.Reader
+	// DecodingLayerParser for better performance
+	parser        *gopacket.DecodingLayerParser
+	decodedLayers []gopacket.LayerType
+	// Reusable layer objects
+	ethLayer     layers.Ethernet
+	ipv4Layer    layers.IPv4
+	ipv6Layer    layers.IPv6
+	tcpLayer     layers.TCP
+	udpLayer     layers.UDP
+	dnsLayer     layers.DNS
+	radiusLayer  layers.RADIUS
+	payloadLayer gopacket.Payload
+	// Reusable buffer for packet data
+	pktBuf []byte
 }
 
 type TlsPollerStats struct {
@@ -63,10 +126,27 @@ func NewTlsPoller(
 		streams:         make(map[string]*TlsStream),
 		closeStreams:    make(chan string, misc.TlsCloseChannelBufferSize),
 		chunksReader:    nil,
-		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
+		gopacketWriter:  gopacketWriter,
 		tai:             tai.NewTaiInfo(),
+		reusableBuffer:  bytes.NewReader(nil), // Initialize with empty buffer
+		decodedLayers:   make([]gopacket.LayerType, 0, 10),
+		pktBuf:          make([]byte, 0, 14+64*1024),
 	}
+
+	// Initialize DecodingLayerParser for better performance
+	poller.parser = gopacket.NewDecodingLayerParser(
+		layers.LayerTypeEthernet,
+		&poller.ethLayer,
+		&poller.ipv4Layer,
+		&poller.ipv6Layer,
+		&poller.tcpLayer,
+		&poller.udpLayer,
+		&poller.dnsLayer,
+		&poller.radiusLayer,
+		&poller.payloadLayer,
+	)
+	poller.parser.IgnoreUnsupported = true
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
 	if err != nil {
@@ -78,6 +158,9 @@ func NewTlsPoller(
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
+
+	// Pre-warm the pool to reduce initial allocation pressure
+	preWarmTlsPool()
 
 	return poller, nil
 }
@@ -148,7 +231,7 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 			p.lastLostCheck = time.Now()
 		}
 
-		record, err := p.chunksReader.Read()
+		err := p.chunksReader.ReadInto(&p.reusableRecord)
 		if err != nil {
 			close(chunks)
 
@@ -161,18 +244,19 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 			return
 		}
 
-		if record.LostSamples != 0 {
-			p.lostChunks += record.LostSamples
-			p.stats.ChunksLost += record.LostSamples
+		if p.reusableRecord.LostSamples != 0 {
+			p.lostChunks += p.reusableRecord.LostSamples
+			p.stats.ChunksLost += p.reusableRecord.LostSamples
 			continue
 		}
 		p.stats.ChunksGot++
 
-		buffer := bytes.NewReader(record.RawSample)
+		// Reset the reusable buffer with new data
+		p.reusableBuffer.Reset(p.reusableRecord.RawSample)
 
 		var chunk TracerTlsChunk
 
-		if err := binary.Read(buffer, binary.LittleEndian, &chunk); err != nil {
+		if err := binary.Read(p.reusableBuffer, binary.LittleEndian, &chunk); err != nil {
 			log.Error().Err(err).Msg("Error parsing chunk")
 			continue
 		}
@@ -241,4 +325,412 @@ func (p *TlsPoller) fdCacheEvictCallback(key interface{}, value interface{}) {
 	if p.evictedCounter%1000000 == 0 {
 		log.Info().Msg(fmt.Sprintf("Tls fdCache evicted %d items", p.evictedCounter))
 	}
+}
+
+// CreatePacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
+// This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
+func CreatePacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection, decodedLayers []gopacket.LayerType, ethLayer *layers.Ethernet, ipv4Layer *layers.IPv4, ipv6Layer *layers.IPv6, tcpLayer *layers.TCP, udpLayer *layers.UDP, dnsLayer *layers.DNS, radiusLayer *layers.RADIUS, payloadLayer *gopacket.Payload) gopacket.Packet {
+	// Build layers slice from the decoded layers
+	var packetLayers []gopacket.Layer
+
+	for _, layerType := range decodedLayers {
+		switch layerType {
+		case layers.LayerTypeEthernet:
+			packetLayers = append(packetLayers, ethLayer)
+		case layers.LayerTypeIPv4:
+			packetLayers = append(packetLayers, ipv4Layer)
+		case layers.LayerTypeIPv6:
+			packetLayers = append(packetLayers, ipv6Layer)
+		case layers.LayerTypeTCP:
+			packetLayers = append(packetLayers, tcpLayer)
+		case layers.LayerTypeUDP:
+			packetLayers = append(packetLayers, udpLayer)
+		case layers.LayerTypeDNS:
+			packetLayers = append(packetLayers, dnsLayer)
+		case layers.LayerTypeRADIUS:
+			packetLayers = append(packetLayers, radiusLayer)
+		case gopacket.LayerTypePayload:
+			packetLayers = append(packetLayers, payloadLayer)
+		}
+	}
+
+	// Create a packet from the layers - this is a custom implementation
+	// since we need to maintain compatibility with the existing packet interface
+	pkt := &decodedPacket{
+		data:      data,
+		layers:    packetLayers,
+		cgroupID:  cgroupID,
+		direction: direction,
+		metadata: gopacket.PacketMetadata{
+			CaptureInfo: gopacket.CaptureInfo{
+				Timestamp:      timestamp,
+				CaptureLength:  len(data),
+				Length:         len(data),
+				CaptureBackend: gopacket.CaptureBackendEbpfTls,
+			},
+		},
+		decodeOptions: gopacket.DecodeOptions{
+			Lazy:                     false,
+			NoCopy:                   true,
+			SkipDecodeRecovery:       false,
+			DecodeStreamsAsDatagrams: false,
+		},
+	}
+
+	// Pre-populate cached layer references for better performance
+	for _, layer := range packetLayers {
+		switch l := layer.(type) {
+		case gopacket.LinkLayer:
+			if pkt.linkLayer == nil {
+				pkt.linkLayer = l
+			}
+		case gopacket.NetworkLayer:
+			if pkt.networkLayer == nil {
+				pkt.networkLayer = l
+			}
+		case gopacket.TransportLayer:
+			if pkt.transportLayer == nil {
+				pkt.transportLayer = l
+			}
+		case gopacket.ApplicationLayer:
+			if pkt.applicationLayer == nil {
+				pkt.applicationLayer = l
+			}
+		case gopacket.ErrorLayer:
+			if pkt.errorLayer == nil {
+				pkt.errorLayer = l
+			}
+		}
+	}
+
+	return pkt
+}
+
+// decodedPacket implements gopacket.Packet and gopacket.PacketBuilder using pre-decoded layers
+type decodedPacket struct {
+	data      []byte
+	layers    []gopacket.Layer
+	cgroupID  uint64
+	direction unixpacket.PacketDirection
+	metadata  gopacket.PacketMetadata
+	// PacketBuilder specific fields
+	linkLayer        gopacket.LinkLayer
+	networkLayer     gopacket.NetworkLayer
+	transportLayer   gopacket.TransportLayer
+	applicationLayer gopacket.ApplicationLayer
+	errorLayer       gopacket.ErrorLayer
+	decodeOptions    gopacket.DecodeOptions
+}
+
+func (p *decodedPacket) String() string {
+	var result string
+	for i, layer := range p.layers {
+		if i > 0 {
+			result += "/"
+		}
+		result += layer.LayerType().String()
+	}
+	return result
+}
+
+func (p *decodedPacket) Dump() string {
+	var result string
+	for _, layer := range p.layers {
+		result += layer.LayerType().String() + "\n"
+	}
+	return result
+}
+
+// CgroupID returns the cgroup ID for this packet
+func (p *decodedPacket) CgroupID() uint64 {
+	return p.cgroupID
+}
+
+// Direction returns the packet direction
+func (p *decodedPacket) Direction() unixpacket.PacketDirection {
+	return p.direction
+}
+
+// GetBackend returns the capture backend
+func (p *decodedPacket) GetBackend() gopacket.CaptureBackend {
+	return gopacket.CaptureBackendEbpfTls
+}
+
+// GetVlanDot1Q returns whether VLAN dot1q is present
+func (p *decodedPacket) GetVlanDot1Q() bool {
+	// For now, return false since our packets don't have VLAN tags
+	return false
+}
+
+// GetVlanID returns the VLAN ID if present
+func (p *decodedPacket) GetVlanID() uint16 {
+	// For now, return 0 since our packets don't have VLAN tags
+	return 0
+}
+
+// SetBackend sets the capture backend (no-op for our implementation)
+func (p *decodedPacket) SetBackend(backend gopacket.CaptureBackend) {
+	// No-op for our implementation since backend is fixed
+}
+
+// SetVlanDot1Q sets VLAN dot1q information (no-op for our implementation)
+func (p *decodedPacket) SetVlanDot1Q(present bool) {
+	// No-op for our implementation since we don't handle VLAN
+}
+
+// SetVlanID sets the VLAN ID (no-op for our implementation)
+func (p *decodedPacket) SetVlanID(id uint16) {
+	// No-op for our implementation since we don't handle VLAN
+}
+
+func (p *decodedPacket) Layers() []gopacket.Layer {
+	return p.layers
+}
+
+func (p *decodedPacket) Layer(t gopacket.LayerType) gopacket.Layer {
+	for _, l := range p.layers {
+		if l.LayerType() == t {
+			return l
+		}
+	}
+	return nil
+}
+
+func (p *decodedPacket) LayerClass(lc gopacket.LayerClass) gopacket.Layer {
+	for _, l := range p.layers {
+		if lc.Contains(l.LayerType()) {
+			return l
+		}
+	}
+	return nil
+}
+
+func (p *decodedPacket) LinkLayer() gopacket.LinkLayer {
+	// Use cached reference if available, otherwise search through layers
+	if p.linkLayer != nil {
+		return p.linkLayer
+	}
+	if layer := p.Layer(layers.LayerTypeEthernet); layer != nil {
+		linkLayer := layer.(gopacket.LinkLayer)
+		p.linkLayer = linkLayer // Cache for future calls
+		return linkLayer
+	}
+	return nil
+}
+
+func (p *decodedPacket) NetworkLayer() gopacket.NetworkLayer {
+	// Use cached reference if available, otherwise search through layers
+	if p.networkLayer != nil {
+		return p.networkLayer
+	}
+	if layer := p.Layer(layers.LayerTypeIPv4); layer != nil {
+		networkLayer := layer.(gopacket.NetworkLayer)
+		p.networkLayer = networkLayer // Cache for future calls
+		return networkLayer
+	}
+	if layer := p.Layer(layers.LayerTypeIPv6); layer != nil {
+		networkLayer := layer.(gopacket.NetworkLayer)
+		p.networkLayer = networkLayer // Cache for future calls
+		return networkLayer
+	}
+	return nil
+}
+
+func (p *decodedPacket) TransportLayer() gopacket.TransportLayer {
+	// Use cached reference if available, otherwise search through layers
+	if p.transportLayer != nil {
+		return p.transportLayer
+	}
+	if layer := p.Layer(layers.LayerTypeTCP); layer != nil {
+		transportLayer := layer.(gopacket.TransportLayer)
+		p.transportLayer = transportLayer // Cache for future calls
+		return transportLayer
+	}
+	if layer := p.Layer(layers.LayerTypeUDP); layer != nil {
+		transportLayer := layer.(gopacket.TransportLayer)
+		p.transportLayer = transportLayer // Cache for future calls
+		return transportLayer
+	}
+	return nil
+}
+
+func (p *decodedPacket) ApplicationLayer() gopacket.ApplicationLayer {
+	// Use cached reference if available, otherwise search through layers
+	if p.applicationLayer != nil {
+		return p.applicationLayer
+	}
+	// Find the last layer that implements ApplicationLayer
+	for i := len(p.layers) - 1; i >= 0; i-- {
+		if app, ok := p.layers[i].(gopacket.ApplicationLayer); ok {
+			p.applicationLayer = app // Cache for future calls
+			return app
+		}
+	}
+	return nil
+}
+
+func (p *decodedPacket) ErrorLayer() gopacket.ErrorLayer {
+	// Use cached reference if available, otherwise search through layers
+	if p.errorLayer != nil {
+		return p.errorLayer
+	}
+	for _, l := range p.layers {
+		if el, ok := l.(gopacket.ErrorLayer); ok {
+			p.errorLayer = el // Cache for future calls
+			return el
+		}
+	}
+	return nil
+}
+
+func (p *decodedPacket) Data() []byte {
+	return p.data
+}
+
+func (p *decodedPacket) Metadata() *gopacket.PacketMetadata {
+	return &p.metadata
+}
+
+// PacketBuilder interface methods
+
+// AddLayer adds a layer to the packet
+func (p *decodedPacket) AddLayer(l gopacket.Layer) {
+	p.layers = append(p.layers, l)
+
+	// Update cached layer references based on the layer type
+	switch layer := l.(type) {
+	case gopacket.LinkLayer:
+		if p.linkLayer == nil {
+			p.linkLayer = layer
+		}
+	case gopacket.NetworkLayer:
+		if p.networkLayer == nil {
+			p.networkLayer = layer
+		}
+	case gopacket.TransportLayer:
+		if p.transportLayer == nil {
+			p.transportLayer = layer
+		}
+	case gopacket.ApplicationLayer:
+		if p.applicationLayer == nil {
+			p.applicationLayer = layer
+		}
+	case gopacket.ErrorLayer:
+		if p.errorLayer == nil {
+			p.errorLayer = layer
+		}
+	}
+}
+
+// SetLinkLayer sets the link layer
+func (p *decodedPacket) SetLinkLayer(l gopacket.LinkLayer) {
+	if p.linkLayer == nil {
+		p.linkLayer = l
+		// Also add to layers if not already present
+		found := false
+		for _, layer := range p.layers {
+			if layer == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.layers = append(p.layers, l)
+		}
+	}
+}
+
+// SetNetworkLayer sets the network layer
+func (p *decodedPacket) SetNetworkLayer(l gopacket.NetworkLayer) {
+	if p.networkLayer == nil {
+		p.networkLayer = l
+		// Also add to layers if not already present
+		found := false
+		for _, layer := range p.layers {
+			if layer == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.layers = append(p.layers, l)
+		}
+	}
+}
+
+// SetTransportLayer sets the transport layer
+func (p *decodedPacket) SetTransportLayer(l gopacket.TransportLayer) {
+	if p.transportLayer == nil {
+		p.transportLayer = l
+		// Also add to layers if not already present
+		found := false
+		for _, layer := range p.layers {
+			if layer == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.layers = append(p.layers, l)
+		}
+	}
+}
+
+// SetApplicationLayer sets the application layer
+func (p *decodedPacket) SetApplicationLayer(l gopacket.ApplicationLayer) {
+	if p.applicationLayer == nil {
+		p.applicationLayer = l
+		// Also add to layers if not already present
+		found := false
+		for _, layer := range p.layers {
+			if layer == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.layers = append(p.layers, l)
+		}
+	}
+}
+
+// SetErrorLayer sets the error layer
+func (p *decodedPacket) SetErrorLayer(l gopacket.ErrorLayer) {
+	if p.errorLayer == nil {
+		p.errorLayer = l
+		// Also add to layers if not already present
+		found := false
+		for _, layer := range p.layers {
+			if layer == l {
+				found = true
+				break
+			}
+		}
+		if !found {
+			p.layers = append(p.layers, l)
+		}
+	}
+}
+
+// NextDecoder sets the next decoder (not applicable for our implementation)
+func (p *decodedPacket) NextDecoder(next gopacket.Decoder) error {
+	// This method is typically used during packet decoding, but since we've already
+	// decoded the packet using DecodingLayerParser, we don't need to implement this
+	return nil
+}
+
+// DumpPacketData dumps packet data to stderr
+func (p *decodedPacket) DumpPacketData() {
+	fmt.Fprintf(os.Stderr, "Packet Data (%d bytes):\n", len(p.data))
+	fmt.Fprintf(os.Stderr, "%s", hex.Dump(p.data))
+	fmt.Fprintf(os.Stderr, "Layers:\n")
+	for i, layer := range p.layers {
+		fmt.Fprintf(os.Stderr, "  %d: %s\n", i, layer.LayerType())
+	}
+	os.Stderr.Sync()
+}
+
+// DecodeOptions returns the decode options
+func (p *decodedPacket) DecodeOptions() *gopacket.DecodeOptions {
+	return &p.decodeOptions
 }

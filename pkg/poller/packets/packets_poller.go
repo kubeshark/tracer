@@ -13,12 +13,36 @@ import (
 	"github.com/go-errors/errors"
 
 	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracerproto/pkg/unixpacket"
 	"github.com/rs/zerolog/log"
 )
+
+// Buffer pool for packet data to avoid per-packet allocations
+var packetBufferPool = sync.Pool{
+	New: func() interface{} {
+		// Allocate buffer large enough for max packet size (14 bytes ethernet header + 64KB payload)
+		return make([]byte, 14+64*1024)
+	},
+}
+
+// Buffer pool for pktBuffer objects to avoid large allocations
+var pktBufferPool = sync.Pool{
+	New: func() interface{} {
+		return &pktBuffer{}
+	},
+}
+
+// preWarmPool pre-warms the pktBuffer pool with some initial objects
+func preWarmPool() {
+	// Pre-allocate a few pktBuffer objects to reduce initial allocation pressure
+	for i := 0; i < 10; i++ {
+		pktBufferPool.Put(&pktBuffer{})
+	}
+}
 
 type tracerPacketsData struct {
 	Timestamp uint64
@@ -46,9 +70,34 @@ type pktBuffer struct {
 	buf [64 * 1024]byte
 }
 
+// reset resets the pktBuffer for reuse
+func (p *pktBuffer) reset() {
+	p.id = 0
+	p.num = 0
+	// Only clear the portion of the buffer that was actually used
+	// This is more efficient than clearing the entire 64KB buffer
+	if p.len > 0 {
+		clear(p.buf[:p.len])
+		p.len = 0
+	}
+}
+
 type PacketsPoller struct {
 	ethernetDecoder gopacket.Decoder
 	ethhdrContent   []byte
+	// DecodingLayerParser for better performance
+	parser        *gopacket.DecodingLayerParser
+	decodedLayers []gopacket.LayerType
+	// Reusable layer objects
+	ethLayer     layers.Ethernet
+	ipv4Layer    layers.IPv4
+	ipv6Layer    layers.IPv6
+	tcpLayer     layers.TCP
+	udpLayer     layers.UDP
+	dnsLayer     layers.DNS
+	radiusLayer  layers.RADIUS
+	payloadLayer gopacket.Payload
+	// Original fields
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
 	gopacketWriter  bpf.GopacketWriter
@@ -60,6 +109,9 @@ type PacketsPoller struct {
 	lastLostCheck   time.Time
 	tai             tai.TaiInfo
 	stats           PacketsPollerStats
+	// Reusable record to avoid allocations
+	reusableRecord perf.Record
+	pktBuf         []byte
 }
 
 type PacketsPollerStats struct {
@@ -91,12 +143,31 @@ func NewPacketsPoller(
 		rawPacketWriter: rawPacketWriter,
 		pktsMap:         make(map[uint64]*pktBuffer),
 		tai:             tai.NewTaiInfo(),
+		decodedLayers:   make([]gopacket.LayerType, 0, 10),
+		pktBuf:          make([]byte, 0, 14+64*1024),
 	}
+
+	// Initialize DecodingLayerParser for better performance
+	poller.parser = gopacket.NewDecodingLayerParser(
+		layers.LayerTypeEthernet,
+		&poller.ethLayer,
+		&poller.ipv4Layer,
+		&poller.ipv6Layer,
+		&poller.tcpLayer,
+		&poller.udpLayer,
+		&poller.dnsLayer,
+		&poller.radiusLayer,
+		&poller.payloadLayer,
+	)
+	poller.parser.IgnoreUnsupported = true
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
 	if err != nil {
 		return nil, errors.Wrap(err, 0)
 	}
+
+	// Pre-warm the pool to reduce initial allocation pressure
+	preWarmPool()
 
 	return poller, nil
 }
@@ -134,8 +205,11 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 
 	data := chunk.buf
 	if len(data) == 4 {
-		// zero packet to reset
+		// zero packet to reset - return all pktBuffers to pool
 		log.Info().Msg("Resetting plain packets buffer")
+		for _, pkts := range p.pktsMap {
+			pktBufferPool.Put(pkts)
+		}
 		p.pktsMap = make(map[uint64]*pktBuffer)
 		return false, nil
 	}
@@ -148,8 +222,11 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 
 	pkts, ok := p.pktsMap[ptr.ID]
 	if !ok {
-		p.pktsMap[ptr.ID] = &pktBuffer{}
-		pkts = p.pktsMap[ptr.ID]
+		// Get pktBuffer from pool and initialize it
+		pkts = pktBufferPool.Get().(*pktBuffer)
+		pkts.reset()
+		pkts.id = ptr.ID
+		p.pktsMap[ptr.ID] = pkts
 	}
 	if ptr.Num != pkts.num {
 		// chunk was lost
@@ -169,23 +246,46 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 			p.rawPacketWriter(ptr.Timestamp, pkts.buf[:pkts.len])
 		}
 		if p.gopacketWriter != nil {
-			pktBuf := append(p.ethhdrContent, pkts.buf[:pkts.len]...)
-			pkt := gopacket.NewPacket(pktBuf, p.ethernetDecoder, gopacket.NoCopy, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
-			m := pkt.Metadata()
-			ci := &m.CaptureInfo
-			if ptr.Timestamp != 0 {
-				ci.Timestamp = time.Unix(0, int64(ptr.Timestamp)-int64(p.tai.GetTAIOffset()))
+			totalLen := 14 + int(pkts.len)
+			// pktBuf := packetBufferPool.Get().([]byte)
+			if cap(p.pktBuf) < totalLen {
+				// If pooled buffer is too small, allocate a new one
+				p.pktBuf = make([]byte, totalLen)
 			} else {
-				ci.Timestamp = time.Now()
+				p.pktBuf = p.pktBuf[:totalLen]
 			}
-			ci.CaptureLength = len(pktBuf)
-			ci.Length = len(pktBuf)
-			ci.CaptureBackend = gopacket.CaptureBackendEbpf
+			copy(p.pktBuf[:14], p.ethhdrContent)
+			copy(p.pktBuf[14:], pkts.buf[:pkts.len])
 
+			// Calculate timestamp once
+			var timestamp time.Time
+			if ptr.Timestamp != 0 {
+				timestamp = time.Unix(0, int64(ptr.Timestamp)-int64(p.tai.GetTAIOffset()))
+			} else {
+				timestamp = time.Now()
+			}
+
+			// Use DecodingLayerParser for better performance - this avoids the overhead
+			// of creating new layer objects and provides direct access to parsed data
+			p.decodedLayers = p.decodedLayers[:0] // Reset slice but keep capacity
+
+			parseErr := p.parser.DecodeLayers(p.pktBuf, &p.decodedLayers)
+
+			if parseErr != nil {
+				log.Fatal().Err(parseErr).Msg("DecodingLayerParser failed")
+				return false, parseErr
+			}
+			// Create packet from decoded layers for optimal performance
+			pkt := p.createPacketFromDecodedLayers(p.pktBuf, timestamp, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
 			p.stats.PacketsGot++
 			p.gopacketWriter(pkt)
 		}
 
+		// Return buffer to pool for reuse
+		// packetBufferPool.Put(pktBuf)
+
+		// Return pktBuffer to pool for reuse
+		pktBufferPool.Put(pkts)
 		delete(p.pktsMap, ptr.ID)
 	} else {
 		pkts.num++
@@ -218,7 +318,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			p.lastLostCheck = time.Now()
 		}
 
-		record, err := p.chunksReader.Read()
+		err := p.chunksReader.ReadInto(&p.reusableRecord)
 		if err != nil {
 			if errors.Is(err, perf.ErrClosed) {
 				log.Info().Err(err).Msg("perf buffer is closed")
@@ -228,16 +328,16 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
 			return
 		}
-		if record.LostSamples != 0 {
-			p.lostChunks += record.LostSamples
-			p.stats.ChunksLost += record.LostSamples
+		if p.reusableRecord.LostSamples != 0 {
+			p.lostChunks += p.reusableRecord.LostSamples
+			p.stats.ChunksLost += p.reusableRecord.LostSamples
 			continue
 		}
 		p.stats.ChunksGot++
 
 		chunk := tracerPktChunk{
-			cpu: record.CPU,
-			buf: record.RawSample,
+			cpu: p.reusableRecord.CPU,
+			buf: p.reusableRecord.RawSample,
 		}
 
 		var ok bool
@@ -247,6 +347,12 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			p.stats.ChunksHandled++
 		}
 	}
+}
+
+// createPacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
+// This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
+func (p *PacketsPoller) createPacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection) gopacket.Packet {
+	return bpf.CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, p.decodedLayers, &p.ethLayer, &p.ipv4Layer, &p.ipv6Layer, &p.tcpLayer, &p.udpLayer, &p.dnsLayer, &p.radiusLayer, &p.payloadLayer)
 }
 
 func (p *PacketsPoller) checkBuffers() {
@@ -261,7 +367,8 @@ func (p *PacketsPoller) checkBuffers() {
 		if plen > 1024 {
 			log.Error().Int("size", plen).Msg("packets map is too big, removig elements")
 			p.mtx.Lock()
-			for i := range p.pktsMap {
+			for i, pkts := range p.pktsMap {
+				pktBufferPool.Put(pkts)
 				delete(p.pktsMap, i)
 				if len(p.pktsMap) <= 1024 {
 					break
