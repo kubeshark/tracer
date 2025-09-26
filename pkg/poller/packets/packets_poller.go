@@ -92,8 +92,11 @@ type PacketsPoller struct {
 	ethLayer     layers.Ethernet
 	ipv4Layer    layers.IPv4
 	ipv6Layer    layers.IPv6
+	icmpv4Layer  layers.ICMPv4
+	icmpv6Layer  layers.ICMPv6
 	tcpLayer     layers.TCP
 	udpLayer     layers.UDP
+	sctpLayer    layers.SCTP
 	dnsLayer     layers.DNS
 	radiusLayer  layers.RADIUS
 	payloadLayer gopacket.Payload
@@ -153,8 +156,11 @@ func NewPacketsPoller(
 		&poller.ethLayer,
 		&poller.ipv4Layer,
 		&poller.ipv6Layer,
+		&poller.icmpv4Layer,
+		&poller.icmpv6Layer,
 		&poller.tcpLayer,
 		&poller.udpLayer,
+		&poller.sctpLayer,
 		&poller.dnsLayer,
 		&poller.radiusLayer,
 		&poller.payloadLayer,
@@ -352,7 +358,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 // createPacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
 // This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
 func (p *PacketsPoller) createPacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection) gopacket.Packet {
-	return bpf.CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, p.decodedLayers, &p.ethLayer, &p.ipv4Layer, &p.ipv6Layer, &p.tcpLayer, &p.udpLayer, &p.dnsLayer, &p.radiusLayer, &p.payloadLayer)
+	return bpf.CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, p.decodedLayers, &p.ethLayer, &p.ipv4Layer, &p.ipv6Layer, &p.icmpv4Layer, &p.icmpv6Layer, &p.tcpLayer, &p.udpLayer, &p.sctpLayer, &p.dnsLayer, &p.radiusLayer, &p.payloadLayer)
 }
 
 func (p *PacketsPoller) checkBuffers() {

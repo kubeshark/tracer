@@ -100,8 +100,11 @@ type TlsPoller struct {
 	ethLayer     layers.Ethernet
 	ipv4Layer    layers.IPv4
 	ipv6Layer    layers.IPv6
+	icmpv4Layer  layers.ICMPv4
+	icmpv6Layer  layers.ICMPv6
 	tcpLayer     layers.TCP
 	udpLayer     layers.UDP
+	sctpLayer    layers.SCTP
 	dnsLayer     layers.DNS
 	radiusLayer  layers.RADIUS
 	payloadLayer gopacket.Payload
@@ -140,8 +143,11 @@ func NewTlsPoller(
 		&poller.ethLayer,
 		&poller.ipv4Layer,
 		&poller.ipv6Layer,
+		&poller.icmpv4Layer,
+		&poller.icmpv6Layer,
 		&poller.tcpLayer,
 		&poller.udpLayer,
+		&poller.sctpLayer,
 		&poller.dnsLayer,
 		&poller.radiusLayer,
 		&poller.payloadLayer,
@@ -329,7 +335,7 @@ func (p *TlsPoller) fdCacheEvictCallback(key interface{}, value interface{}) {
 
 // CreatePacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
 // This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
-func CreatePacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection, decodedLayers []gopacket.LayerType, ethLayer *layers.Ethernet, ipv4Layer *layers.IPv4, ipv6Layer *layers.IPv6, tcpLayer *layers.TCP, udpLayer *layers.UDP, dnsLayer *layers.DNS, radiusLayer *layers.RADIUS, payloadLayer *gopacket.Payload) gopacket.Packet {
+func CreatePacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection, decodedLayers []gopacket.LayerType, ethLayer *layers.Ethernet, ipv4Layer *layers.IPv4, ipv6Layer *layers.IPv6, icmpv4Layer *layers.ICMPv4, icmpv6Layer *layers.ICMPv6, tcpLayer *layers.TCP, udpLayer *layers.UDP, sctpLayer *layers.SCTP, dnsLayer *layers.DNS, radiusLayer *layers.RADIUS, payloadLayer *gopacket.Payload) gopacket.Packet {
 	// Build layers slice from the decoded layers
 	var packetLayers []gopacket.Layer
 
@@ -341,10 +347,16 @@ func CreatePacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID ui
 			packetLayers = append(packetLayers, ipv4Layer)
 		case layers.LayerTypeIPv6:
 			packetLayers = append(packetLayers, ipv6Layer)
+		case layers.LayerTypeICMPv4:
+			packetLayers = append(packetLayers, icmpv4Layer)
+		case layers.LayerTypeICMPv6:
+			packetLayers = append(packetLayers, icmpv6Layer)
 		case layers.LayerTypeTCP:
 			packetLayers = append(packetLayers, tcpLayer)
 		case layers.LayerTypeUDP:
 			packetLayers = append(packetLayers, udpLayer)
+		case layers.LayerTypeSCTP:
+			packetLayers = append(packetLayers, sctpLayer)
 		case layers.LayerTypeDNS:
 			packetLayers = append(packetLayers, dnsLayer)
 		case layers.LayerTypeRADIUS:

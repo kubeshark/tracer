@@ -169,7 +169,7 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 // createPacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
 // This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
 func (t *TlsStream) createPacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection) gopacket.Packet {
-	return CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, t.poller.decodedLayers, &t.poller.ethLayer, &t.poller.ipv4Layer, &t.poller.ipv6Layer, &t.poller.tcpLayer, &t.poller.udpLayer, &t.poller.dnsLayer, &t.poller.radiusLayer, &t.poller.payloadLayer)
+	return CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, t.poller.decodedLayers, &t.poller.ethLayer, &t.poller.ipv4Layer, &t.poller.ipv6Layer, &t.poller.icmpv4Layer, &t.poller.icmpv6Layer, &t.poller.tcpLayer, &t.poller.udpLayer, &t.poller.sctpLayer, &t.poller.dnsLayer, &t.poller.radiusLayer, &t.poller.payloadLayer)
 }
 
 func (t *TlsStream) loadSecNumbers(isClient bool) {
