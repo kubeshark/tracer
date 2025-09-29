@@ -7,6 +7,7 @@ import (
 	"time"
 
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -52,7 +53,21 @@ func StartCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartRespo
 		id = time.Now().UTC().Format("20060102T150405.000000000Z07:00")
 	}
 
-	dir := SyscallBaseDirFor(id)
+	var dir string
+	if manager.target == raw.Target_TARGET_PACKETS {
+		dir = PcapBaseDirFor(manager.baseDir, id)
+	} else if manager.target == raw.Target_TARGET_SYSCALLS {
+		dir = SyscallBaseDirFor(manager.baseDir, id)
+	}
+	if dir == "" {
+		return &raw.StartResponse{
+			Target: manager.target,
+			Id:     id,
+			Dir:    dir,
+			Config: cfg,
+			Error:  "invalid target",
+		}, nil
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return &raw.StartResponse{
 			Target: manager.target,
@@ -73,6 +88,7 @@ func StartCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartRespo
 		}, nil
 	}
 
+	log.Info().Str("dir", dir).Str("target", manager.target.String()).Str("id", id).Str("config", cfg.String()).Msg("started capture")
 	return &raw.StartResponse{
 		Target:    manager.target,
 		Id:        id,
@@ -91,6 +107,7 @@ func StopCapture(manager *Manager, id string) (*raw.StopResponse, error) {
 	if writer != nil {
 		writer.Destroy()
 	}
+	log.Info().Str("target", manager.target.String()).Str("id", id).Stringer("stats", stats).Msg("stopped capture")
 	return &raw.StopResponse{
 		Target: raw.Target_TARGET_SYSCALLS,
 		Id:     id,
@@ -131,7 +148,7 @@ func GetCaptureStatus(manager *Manager, target raw.Target, id string) (*raw.Stat
 // CleanupCaptures cleans up all syscall capture data
 func CleanupCaptures(manager *Manager) (*raw.CleanupResponse, error) {
 	manager.Destroy()
-	dir := captureBaseDir()
+	dir := captureBaseDir(manager.baseDir)
 	if dir != "" {
 		if err := os.RemoveAll(dir); err != nil {
 			return &raw.CleanupResponse{Error: err.Error()}, nil
@@ -148,20 +165,37 @@ func gatherStats(manager *Manager, id string) *raw.CaptureStats {
 	}
 	st := manager.StatusFor(id)
 
-	dir := SyscallBaseDirFor(id)
+	var dir string
+	if manager.target == raw.Target_TARGET_PACKETS {
+		dir = PcapBaseDirFor(manager.baseDir, id)
+	} else if manager.target == raw.Target_TARGET_SYSCALLS {
+		dir = SyscallBaseDirFor(manager.baseDir, id)
+	}
+	if dir == "" {
+		return &raw.CaptureStats{
+			FilesCount:       0,
+			TotalBytes:       0,
+			CapturedPackets:  0,
+			CapturedSyscalls: 0,
+			Drops:            0,
+		}
+	}
 	drops := uint64(0)
-	syscalls := uint64(0)
+	items := uint64(0)
 	if st != nil {
 		drops = st.Drops
-		syscalls = st.Records
+		items = st.Records
 	}
 
 	stats := &raw.CaptureStats{
-		FilesCount:       0,
-		TotalBytes:       0,
-		CapturedPackets:  0,        // not applicable for SYSCALLS
-		CapturedSyscalls: syscalls, // from writer counter
-		Drops:            drops,
+		FilesCount: 0,
+		TotalBytes: 0,
+		Drops:      drops,
+	}
+	if manager.target == raw.Target_TARGET_PACKETS {
+		stats.CapturedPackets = items
+	} else if manager.target == raw.Target_TARGET_SYSCALLS {
+		stats.CapturedSyscalls = items
 	}
 
 	entries, err := os.ReadDir(dir)

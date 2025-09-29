@@ -492,28 +492,30 @@ func TestEnsureQuotaLockedStopPolicy(t *testing.T) {
 }
 
 func TestPathFunctions(t *testing.T) {
+	tempDir := t.TempDir()
+
 	// Test captureBaseDir
-	baseDir := captureBaseDir()
+	baseDir := captureBaseDir(tempDir)
 	assert.Contains(t, baseDir, "capture")
 
 	// Test SyscallBaseDir
-	syscallDir := SyscallBaseDir()
+	syscallDir := SyscallBaseDir(tempDir)
 	assert.Contains(t, syscallDir, "syscall_events")
 	assert.Contains(t, syscallDir, baseDir)
 
 	// Test SyscallBaseDirFor
 	testID := "test-id-123"
-	syscallDirForID := SyscallBaseDirFor(testID)
+	syscallDirForID := SyscallBaseDirFor(tempDir, testID)
 	assert.Contains(t, syscallDirForID, testID)
 	assert.Contains(t, syscallDirForID, syscallDir)
 
 	// Test PcapBaseDir
-	pcapDir := PcapBaseDir()
+	pcapDir := PcapBaseDir(tempDir)
 	assert.Contains(t, pcapDir, "pcap")
 	assert.Contains(t, pcapDir, baseDir)
 
 	// Test PcapBaseDirFor
-	pcapDirForID := PcapBaseDirFor(testID)
+	pcapDirForID := PcapBaseDirFor(tempDir, testID)
 	assert.Contains(t, pcapDirForID, testID)
 	assert.Contains(t, pcapDirForID, pcapDir)
 }

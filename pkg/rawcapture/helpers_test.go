@@ -8,6 +8,7 @@ import (
 	"time"
 
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
+	"github.com/kubeshark/tracer/misc"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -346,15 +347,15 @@ func TestCleanupCaptures(t *testing.T) {
 
 func TestGatherStats(t *testing.T) {
 	tempDir := t.TempDir()
-	originalGetDataDir := os.Getenv("DATADIR")
-	os.Setenv("DATADIR", tempDir)
-	defer os.Setenv("DATADIR", originalGetDataDir)
+	originalDataDir := misc.GetDataDir()
+	misc.SetDataDir(tempDir)
+	defer misc.SetDataDir(originalDataDir)
 
 	manager := NewManager(raw.Target_TARGET_SYSCALLS)
 
 	// Create test directory with mock files
 	testID := "stats-test"
-	testDir := SyscallBaseDirFor(testID)
+	testDir := SyscallBaseDirFor(tempDir, testID)
 	if err := os.MkdirAll(testDir, 0o755); err != nil {
 		t.Fatalf("Failed to create test directory: %v", err)
 	}
@@ -445,6 +446,8 @@ func TestGatherStats(t *testing.T) {
 }
 
 func TestSyscallBaseDirFor(t *testing.T) {
+	tempDir := t.TempDir()
+
 	tests := []struct {
 		name     string
 		id       string
@@ -453,23 +456,23 @@ func TestSyscallBaseDirFor(t *testing.T) {
 		{
 			name:     "Normal ID",
 			id:       "test-id",
-			expected: filepath.Join(SyscallBaseDir(), "test-id"),
+			expected: filepath.Join(SyscallBaseDir(tempDir), "test-id"),
 		},
 		{
 			name:     "ID with spaces",
 			id:       "test id with spaces",
-			expected: filepath.Join(SyscallBaseDir(), "test id with spaces"),
+			expected: filepath.Join(SyscallBaseDir(tempDir), "test id with spaces"),
 		},
 		{
 			name:     "Empty ID",
 			id:       "",
-			expected: SyscallBaseDir(),
+			expected: SyscallBaseDir(tempDir),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := SyscallBaseDirFor(tt.id)
+			result := SyscallBaseDirFor(tempDir, tt.id)
 			if result != tt.expected {
 				t.Errorf("SyscallBaseDirFor(%q) = %q, want %q", tt.id, result, tt.expected)
 			}
