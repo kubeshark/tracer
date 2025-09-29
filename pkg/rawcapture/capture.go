@@ -394,8 +394,8 @@ func (w *Writer) rotateLocked() error {
 	// Initialize PCAP writer for packet data and write header for new file
 	if w.target == raw.Target_TARGET_PACKETS {
 		w.pcapWriter = pcapgo.NewWriter(f)
-		// Write PCAP header with standard parameters
-		if err := w.pcapWriter.WriteFileHeader(65536, layers.LinkTypeEthernet); err != nil {
+		// Write PCAP header with raw link type
+		if err := w.pcapWriter.WriteFileHeader(65536, layers.LinkTypeRaw); err != nil {
 			return fmt.Errorf("failed to write PCAP header: %v", err)
 		}
 	}
