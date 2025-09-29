@@ -55,9 +55,9 @@ func StartCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartRespo
 
 	var dir string
 	if manager.target == raw.Target_TARGET_PACKETS {
-		dir = PcapBaseDirFor(id)
+		dir = PcapBaseDirFor(manager.baseDir, id)
 	} else if manager.target == raw.Target_TARGET_SYSCALLS {
-		dir = SyscallBaseDirFor(id)
+		dir = SyscallBaseDirFor(manager.baseDir, id)
 	}
 	if dir == "" {
 		return &raw.StartResponse{
@@ -148,7 +148,7 @@ func GetCaptureStatus(manager *Manager, target raw.Target, id string) (*raw.Stat
 // CleanupCaptures cleans up all syscall capture data
 func CleanupCaptures(manager *Manager) (*raw.CleanupResponse, error) {
 	manager.Destroy()
-	dir := captureBaseDir()
+	dir := captureBaseDir(manager.baseDir)
 	if dir != "" {
 		if err := os.RemoveAll(dir); err != nil {
 			return &raw.CleanupResponse{Error: err.Error()}, nil
@@ -167,9 +167,9 @@ func gatherStats(manager *Manager, id string) *raw.CaptureStats {
 
 	var dir string
 	if manager.target == raw.Target_TARGET_PACKETS {
-		dir = PcapBaseDirFor(id)
+		dir = PcapBaseDirFor(manager.baseDir, id)
 	} else if manager.target == raw.Target_TARGET_SYSCALLS {
-		dir = SyscallBaseDirFor(id)
+		dir = SyscallBaseDirFor(manager.baseDir, id)
 	}
 	if dir == "" {
 		return &raw.CaptureStats{

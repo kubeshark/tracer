@@ -66,10 +66,11 @@ type Manager struct {
 	mu      sync.RWMutex
 	target  raw.Target
 	writers map[string]*Writer
+	baseDir string
 }
 
 func NewManager(target raw.Target) *Manager {
-	return &Manager{target: target, writers: make(map[string]*Writer)}
+	return &Manager{target: target, writers: make(map[string]*Writer), baseDir: misc.GetDataDir()}
 }
 
 // EnqueueSyscall marshals and enqueues a syscall event to the writer.
@@ -152,6 +153,12 @@ func (m *Manager) Destroy() {
 		}
 		delete(m.writers, id)
 	}
+}
+
+func (m *Manager) UpdateBaseDir() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.baseDir = misc.GetDataDir()
 }
 
 func (w *Writer) applyConfig(enabled bool, rotateBytes uint64, rotateInterval time.Duration, maxBytes uint64, policy TTLPolicy) {
@@ -557,22 +564,22 @@ func (w *Writer) closeActiveLocked() {
 }
 
 // Paths
-func captureBaseDir() string { return filepath.Join(misc.GetDataDir(), "capture") }
+func captureBaseDir(baseDir string) string { return filepath.Join(baseDir, "capture") }
 
 // SyscallBaseDir returns the directory for syscall events.
-func SyscallBaseDir() string {
-	return filepath.Join(captureBaseDir(), "syscall_events")
+func SyscallBaseDir(baseDir string) string {
+	return filepath.Join(captureBaseDir(baseDir), "syscall_events")
 }
 
-func SyscallBaseDirFor(id string) string {
-	return filepath.Join(SyscallBaseDir(), id)
+func SyscallBaseDirFor(baseDir, id string) string {
+	return filepath.Join(SyscallBaseDir(baseDir), id)
 }
 
 // PcapBaseDir returns the directory for pcap files.
-func PcapBaseDir() string {
-	return filepath.Join(captureBaseDir(), "pcap")
+func PcapBaseDir(baseDir string) string {
+	return filepath.Join(captureBaseDir(baseDir), "pcap")
 }
 
-func PcapBaseDirFor(id string) string {
-	return filepath.Join(PcapBaseDir(), id)
+func PcapBaseDirFor(baseDir, id string) string {
+	return filepath.Join(PcapBaseDir(baseDir), id)
 }
