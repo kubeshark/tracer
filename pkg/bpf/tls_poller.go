@@ -15,6 +15,7 @@ import (
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/misc"
+	"github.com/kubeshark/tracer/pkg/decodedpacket"
 	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracer/pkg/utils"
 	"github.com/rs/zerolog/log"
@@ -44,6 +45,13 @@ type TlsPoller struct {
 	lastLostCheck   time.Time
 	tai             tai.TaiInfo
 	stats           TlsPollerStats
+	// Reusable record and buffer to avoid allocations
+	reusableRecord perf.Record
+	reusableBuffer *bytes.Reader
+	// LayerParser for efficient packet decoding
+	layerParser *decodedpacket.LayerParser
+	// Reusable buffer for packet data
+	pktBuf []byte
 }
 
 type TlsPollerStats struct {
@@ -63,9 +71,12 @@ func NewTlsPoller(
 		streams:         make(map[string]*TlsStream),
 		closeStreams:    make(chan string, misc.TlsCloseChannelBufferSize),
 		chunksReader:    nil,
-		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
+		gopacketWriter:  gopacketWriter,
 		tai:             tai.NewTaiInfo(),
+		reusableBuffer:  bytes.NewReader(nil), // Initialize with empty buffer
+		layerParser:     decodedpacket.NewLayerParser(),
+		pktBuf:          make([]byte, 0, 14+64*1024),
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
@@ -148,7 +159,7 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 			p.lastLostCheck = time.Now()
 		}
 
-		record, err := p.chunksReader.Read()
+		err := p.chunksReader.ReadInto(&p.reusableRecord)
 		if err != nil {
 			close(chunks)
 
@@ -161,18 +172,19 @@ func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {
 			return
 		}
 
-		if record.LostSamples != 0 {
-			p.lostChunks += record.LostSamples
-			p.stats.ChunksLost += record.LostSamples
+		if p.reusableRecord.LostSamples != 0 {
+			p.lostChunks += p.reusableRecord.LostSamples
+			p.stats.ChunksLost += p.reusableRecord.LostSamples
 			continue
 		}
 		p.stats.ChunksGot++
 
-		buffer := bytes.NewReader(record.RawSample)
+		// Reset the reusable buffer with new data
+		p.reusableBuffer.Reset(p.reusableRecord.RawSample)
 
 		var chunk TracerTlsChunk
 
-		if err := binary.Read(buffer, binary.LittleEndian, &chunk); err != nil {
+		if err := binary.Read(p.reusableBuffer, binary.LittleEndian, &chunk); err != nil {
 			log.Error().Err(err).Msg("Error parsing chunk")
 			continue
 		}

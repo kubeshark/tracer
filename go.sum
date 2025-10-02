@@ -126,8 +126,8 @@ github.com/kubeshark/api v1.2.2-0.20250617143439-101885933817 h1:IdlCmIBpfomskM3
 github.com/kubeshark/api v1.2.2-0.20250617143439-101885933817/go.mod h1:jTq+eKUczqXIS1Ru7MD0u507kCzW/uTrhaEHeKLTCoI=
 github.com/kubeshark/api2 v0.0.0-20250925155137-526ac2c1c2da h1:aLpVyeqXa0Tg/net6sxzTjdD5Yu9ac4RDkJrEeHsr5Y=
 github.com/kubeshark/api2 v0.0.0-20250925155137-526ac2c1c2da/go.mod h1:U7Y90izLanlHFPnljwcnAtDpyiFGrrF2bp67w1GXA5U=
-github.com/kubeshark/gopacket v1.1.42 h1:7wjx70aiZSYQ1OQ7Uqo2QmkzeHj7mWwx89D98nbZTLY=
-github.com/kubeshark/gopacket v1.1.42/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj7M/Arv8MKm8=
+github.com/kubeshark/gopacket v1.1.43 h1:zlsejFqXFG2wiG7noraCRrVgqjjIA1lnbfdMbnyDouw=
+github.com/kubeshark/gopacket v1.1.43/go.mod h1:Qo8/i/tdT74CCT7/pjO0L55Pktv5dQfj7M/Arv8MKm8=
 github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324 h1:bkkaNmy70yebjPIPeZv5bDamFl0fmAKQn038NWf/GBU=
 github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324/go.mod h1:eOQ5k+THNnxNiyNdy1cWkGWTecBMrbxT1IHjdt6kLsY=
 github.com/kubeshark/tracerproto v1.0.0/go.mod h1:+efDYkwXxwakmHRpxHVEekyXNtg/aFx0uSo/I0lGV9k=

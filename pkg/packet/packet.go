@@ -139,7 +139,9 @@ func NewPlainPacketSource(dataDir string, captureManager *rawcapture.Manager) (P
 }
 
 func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) {
+	pkt.Metadata().CaptureInfo.Done = make(chan struct{})
 	p.pktCh <- pkt
+	<-pkt.Metadata().CaptureInfo.Done
 }
 
 func (p *PacketSourceImpl) WriteRawPacket(timestamp uint64, pkt []byte) {
