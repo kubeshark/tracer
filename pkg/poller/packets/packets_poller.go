@@ -13,9 +13,9 @@ import (
 	"github.com/go-errors/errors"
 
 	"github.com/kubeshark/gopacket"
-	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/bpf"
+	"github.com/kubeshark/tracer/pkg/decodedpacket"
 	"github.com/kubeshark/tracer/pkg/rawpacket"
 	"github.com/kubeshark/tracerproto/pkg/unixpacket"
 	"github.com/rs/zerolog/log"
@@ -77,21 +77,8 @@ func (p *pktBuffer) reset() {
 type PacketsPoller struct {
 	ethernetDecoder gopacket.Decoder
 	ethhdrContent   []byte
-	// DecodingLayerParser for better performance
-	parser        *gopacket.DecodingLayerParser
-	decodedLayers []gopacket.LayerType
-	// Reusable layer objects
-	ethLayer     layers.Ethernet
-	ipv4Layer    layers.IPv4
-	ipv6Layer    layers.IPv6
-	icmpv4Layer  layers.ICMPv4
-	icmpv6Layer  layers.ICMPv6
-	tcpLayer     layers.TCP
-	udpLayer     layers.UDP
-	sctpLayer    layers.SCTP
-	dnsLayer     layers.DNS
-	radiusLayer  layers.RADIUS
-	payloadLayer gopacket.Payload
+	// LayerParser for efficient packet decoding
+	layerParser *decodedpacket.LayerParser
 	// Original fields
 	mtx             sync.Mutex
 	chunksReader    *perf.Reader
@@ -114,6 +101,7 @@ type PacketsPollerStats struct {
 	ChunksHandled uint64
 	ChunksLost    uint64
 	PacketsGot    uint64
+	PacketsError  uint64
 }
 
 func NewPacketsPoller(
@@ -138,26 +126,9 @@ func NewPacketsPoller(
 		rawPacketWriter: rawPacketWriter,
 		pktsMap:         make(map[uint64]*pktBuffer),
 		tai:             tai.NewTaiInfo(),
-		decodedLayers:   make([]gopacket.LayerType, 0, 10),
+		layerParser:     decodedpacket.NewLayerParser(),
 		pktBuf:          make([]byte, 0, 14+64*1024),
 	}
-
-	// Initialize DecodingLayerParser for better performance
-	poller.parser = gopacket.NewDecodingLayerParser(
-		layers.LayerTypeEthernet,
-		&poller.ethLayer,
-		&poller.ipv4Layer,
-		&poller.ipv6Layer,
-		&poller.icmpv4Layer,
-		&poller.icmpv6Layer,
-		&poller.tcpLayer,
-		&poller.udpLayer,
-		&poller.sctpLayer,
-		&poller.dnsLayer,
-		&poller.radiusLayer,
-		&poller.payloadLayer,
-	)
-	poller.parser.IgnoreUnsupported = true
 
 	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
 	if err != nil {
@@ -262,18 +233,27 @@ func (p *PacketsPoller) handlePktChunk(chunk tracerPktChunk) (bool, error) {
 				timestamp = time.Now()
 			}
 
-			// Use DecodingLayerParser for better performance - this avoids the overhead
-			// of creating new layer objects and provides direct access to parsed data
-			p.decodedLayers = p.decodedLayers[:0] // Reset slice but keep capacity
+			// Use LayerParser for efficient packet decoding
+			ci := gopacket.CaptureInfo{
+				Timestamp:      timestamp,
+				CaptureLength:  len(p.pktBuf),
+				Length:         len(p.pktBuf),
+				CaptureBackend: gopacket.CaptureBackendEbpf,
+			}
 
-			parseErr := p.parser.DecodeLayers(p.pktBuf, &p.decodedLayers)
+			decodeOptions := gopacket.DecodeOptions{
+				Lazy:                     false,
+				NoCopy:                   true,
+				SkipDecodeRecovery:       false,
+				DecodeStreamsAsDatagrams: false,
+			}
 
+			pkt, parseErr := p.layerParser.CreatePacket(p.pktBuf, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction), ci, decodeOptions)
 			if parseErr != nil {
-				log.Fatal().Err(parseErr).Msg("DecodingLayerParser failed")
+				log.Error().Err(parseErr).Msg("DecodingLayerParser failed")
+				p.stats.PacketsError++
 				return false, parseErr
 			}
-			// Create packet from decoded layers for optimal performance
-			pkt := p.createPacketFromDecodedLayers(p.pktBuf, timestamp, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction))
 			p.stats.PacketsGot++
 			p.gopacketWriter(pkt)
 		}
@@ -341,12 +321,6 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 			p.stats.ChunksHandled++
 		}
 	}
-}
-
-// createPacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
-// This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
-func (p *PacketsPoller) createPacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection) gopacket.Packet {
-	return bpf.CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, p.decodedLayers, &p.ethLayer, &p.ipv4Layer, &p.ipv6Layer, &p.icmpv4Layer, &p.icmpv6Layer, &p.tcpLayer, &p.udpLayer, &p.sctpLayer, &p.dnsLayer, &p.radiusLayer, &p.payloadLayer)
 }
 
 func (p *PacketsPoller) checkBuffers() {

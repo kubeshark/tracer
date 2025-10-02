@@ -147,29 +147,31 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 			packetTimestamp = time.Now()
 		}
 
-		// Use DecodingLayerParser for better performance - this avoids the overhead
-		// of creating new layer objects and provides direct access to parsed data
-		t.poller.decodedLayers = t.poller.decodedLayers[:0] // Reset slice but keep capacity
+		// Use LayerParser for efficient packet decoding
+		ci := gopacket.CaptureInfo{
+			Timestamp:      packetTimestamp,
+			CaptureLength:  len(bufBytes),
+			Length:         len(bufBytes),
+			CaptureBackend: gopacket.CaptureBackendEbpfTls,
+		}
 
-		parseErr := t.poller.parser.DecodeLayers(bufBytes, &t.poller.decodedLayers)
+		decodeOptions := gopacket.DecodeOptions{
+			Lazy:                     false,
+			NoCopy:                   true,
+			SkipDecodeRecovery:       false,
+			DecodeStreamsAsDatagrams: false,
+		}
 
+		pkt, parseErr := t.poller.layerParser.CreatePacket(bufBytes, cgroupId, unixpacket.PacketDirection(direction), ci, decodeOptions)
 		if parseErr != nil {
 			log.Fatal().Err(parseErr).Msg("DecodingLayerParser failed")
 			return
 		}
-		// Create packet from decoded layers for optimal performance
-		pkt := t.createPacketFromDecodedLayers(bufBytes, packetTimestamp, cgroupId, unixpacket.PacketDirection(direction))
 		t.stats.PacketsGot++
 		t.poller.gopacketWriter(pkt)
 	}
 
 	t.doTcpSeqAckWalk(isClient, sentLen)
-}
-
-// createPacketFromDecodedLayers creates a gopacket.Packet from the pre-parsed layers
-// This is more efficient than gopacket.NewPacket as it reuses the already decoded layer data
-func (t *TlsStream) createPacketFromDecodedLayers(data []byte, timestamp time.Time, cgroupID uint64, direction unixpacket.PacketDirection) gopacket.Packet {
-	return CreatePacketFromDecodedLayers(data, timestamp, cgroupID, direction, t.poller.decodedLayers, &t.poller.ethLayer, &t.poller.ipv4Layer, &t.poller.ipv6Layer, &t.poller.icmpv4Layer, &t.poller.icmpv6Layer, &t.poller.tcpLayer, &t.poller.udpLayer, &t.poller.sctpLayer, &t.poller.dnsLayer, &t.poller.radiusLayer, &t.poller.payloadLayer)
 }
 
 func (t *TlsStream) loadSecNumbers(isClient bool) {
