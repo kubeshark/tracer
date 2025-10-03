@@ -119,7 +119,7 @@ func enableCapture(programsConfiguration *ebpf.Map, feature uint32) error {
 
 func getPacketsPerfBufferSize() int {
 	// 64 Mb for all CPUs
-	return 64 * 1024 * 1024 / runtime.NumCPU()
+	return 64 * 1024 * 1024 / runtime.NumCPU() * 2 // XXX
 }
 
 func NewTLSPacketSource(dataDir string, captureManager *rawcapture.Manager) (PacketSource, error) {
