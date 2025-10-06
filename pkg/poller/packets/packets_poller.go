@@ -37,7 +37,7 @@ type packetJob struct {
 	pkts *pktBuffer
 }
 
-// startWorkerPool starts 16 worker goroutines for packet processing
+// startWorkerPool starts worker goroutines for packet processing
 func (p *PacketsPoller) startWorkerPool() {
 	p.packetJobs = make(chan packetJob, runtime.NumCPU()*1024) // Buffered channel for jobs
 	p.workerPool = make([]chan struct{}, runtime.NumCPU())
