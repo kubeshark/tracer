@@ -138,6 +138,10 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 		}
 
 		bufBytes := buf.Bytes()
+		if len(bufBytes) > 14 {
+			// remove ethernet header
+			bufBytes = bufBytes[14:]
+		}
 
 		// Calculate timestamp once
 		var packetTimestamp time.Time
@@ -164,7 +168,7 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 
 		pkt, parseErr := t.poller.layerParser.CreatePacket(bufBytes, cgroupId, unixpacket.PacketDirection(direction), ci, decodeOptions)
 		if parseErr != nil {
-			log.Fatal().Err(parseErr).Msg("DecodingLayerParser failed")
+			log.Error().Err(parseErr).Msg("DecodingLayerParser failed")
 			return
 		}
 		t.stats.PacketsGot++
