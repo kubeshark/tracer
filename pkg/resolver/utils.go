@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -36,7 +37,10 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		}
 
 		tcpConns6, err = procfs.NewNetTCP(fmt.Sprintf("/hostproc/%v/net/tcp6", _pid))
-		if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// ipv6 is disabled
+			return nil
+		} else if err != nil {
 			return err
 		}
 
@@ -52,7 +56,10 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		}
 
 		udpConns6, err = procfs.NewNetUDP(fmt.Sprintf("/hostproc/%v/net/udp6", _pid))
-		if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// ipv6 is disabled
+			return nil
+		} else if err != nil {
 			return err
 		}
 
