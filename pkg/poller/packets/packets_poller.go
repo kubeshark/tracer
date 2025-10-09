@@ -284,7 +284,10 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 	if ptr.Num == 0 && ptr.Last != 0 {
 		// Fast path - packet can be processed without copying
 		p.writeRawPacket(ptr.Timestamp, ptr.Data[:ptr.Len])
-		p.writePacket(chunk, ptr)
+		if _, err := p.writePacket(chunk, ptr); err != nil {
+			pktBufferPool.Put(chunk)
+			return false, fmt.Errorf("write packet failed: %w", err)
+		}
 		// packet will be released by writePacket
 		return true, nil
 	}
@@ -325,7 +328,10 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
 
 		p.writeRawPacket(ptr.Timestamp, pkts.buf[:pkts.len])
-		p.writePacket(pkts, ptr)
+		if _, err := p.writePacket(pkts, ptr); err != nil {
+			pktBufferPool.Put(pkts)
+			return false, fmt.Errorf("write packet failed: %w", err)
+		}
 		delete(cpuMap, ptr.ID)
 	} else {
 		pkts.num++
