@@ -157,6 +157,8 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 			CaptureLength:  len(bufBytes),
 			Length:         len(bufBytes),
 			CaptureBackend: gopacket.CaptureBackendEbpfTls,
+			CgroupID:       cgroupId,
+			Direction:      unixpacket.PacketDirection(direction),
 		}
 
 		decodeOptions := gopacket.DecodeOptions{

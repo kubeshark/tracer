@@ -87,11 +87,6 @@ type tracerPacketsData struct {
 	Data      [4096]uint8
 }
 
-type tracerPktChunk struct {
-	cpu int
-	buf []byte
-}
-
 type pktBuffer struct {
 	id             uint64
 	num            uint16
@@ -365,6 +360,8 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 		CaptureLength:  len(pkt),
 		Length:         len(pkt),
 		CaptureBackend: gopacket.CaptureBackendEbpf,
+		CgroupID:       ptr.CgroupID,
+		Direction:      unixpacket.PacketDirection(ptr.Direction),
 	}
 
 	decodeOptions := gopacket.DecodeOptions{
