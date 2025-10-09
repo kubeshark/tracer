@@ -138,19 +138,41 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 		}
 
 		bufBytes := buf.Bytes()
-		pkt := gopacket.NewPacket(bufBytes, t.ethernetDecoder, gopacket.NoCopy, cgroupId, unixpacket.PacketDirection(direction))
-		m := pkt.Metadata()
-		ci := &m.CaptureInfo
-		if timestamp != 0 {
-			ci.Timestamp = time.Unix(0, int64(timestamp)-int64(t.poller.tai.GetTAIOffset()))
-		} else {
-			ci.Timestamp = time.Now()
+		if len(bufBytes) > 14 {
+			// remove ethernet header
+			bufBytes = bufBytes[14:]
 		}
 
-		ci.CaptureLength = len(bufBytes)
-		ci.Length = len(bufBytes)
-		ci.CaptureBackend = gopacket.CaptureBackendEbpfTls
+		// Calculate timestamp once
+		var packetTimestamp time.Time
+		if timestamp != 0 {
+			packetTimestamp = time.Unix(0, int64(timestamp)-int64(t.poller.tai.GetTAIOffset()))
+		} else {
+			packetTimestamp = time.Now()
+		}
 
+		// Use LayerParser for efficient packet decoding
+		ci := gopacket.CaptureInfo{
+			Timestamp:      packetTimestamp,
+			CaptureLength:  len(bufBytes),
+			Length:         len(bufBytes),
+			CaptureBackend: gopacket.CaptureBackendEbpfTls,
+			CgroupID:       cgroupId,
+			Direction:      unixpacket.PacketDirection(direction),
+		}
+
+		decodeOptions := gopacket.DecodeOptions{
+			Lazy:                     false,
+			NoCopy:                   true,
+			SkipDecodeRecovery:       false,
+			DecodeStreamsAsDatagrams: false,
+		}
+
+		pkt, parseErr := t.poller.layerParser.CreatePacket(bufBytes, cgroupId, unixpacket.PacketDirection(direction), ci, decodeOptions)
+		if parseErr != nil {
+			log.Error().Err(parseErr).Msg("DecodingLayerParser failed")
+			return
+		}
 		t.stats.PacketsGot++
 		t.poller.gopacketWriter(pkt)
 	}
