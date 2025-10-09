@@ -21,7 +21,7 @@ require (
 	github.com/knightsc/gapstone v0.0.0-20191231144527-6fa5afaf11a9
 	github.com/kubeshark/api v1.2.2-0.20250617143439-101885933817
 	github.com/kubeshark/api2 v0.0.0-20250925155137-526ac2c1c2da
-	github.com/kubeshark/gopacket v1.1.42
+	github.com/kubeshark/gopacket v1.1.43
 	github.com/kubeshark/procfs v0.0.0-20250312150455-4b9efb18c324
 	github.com/kubeshark/tracerproto v1.0.2
 	github.com/kubeshark/utils v0.1.1
