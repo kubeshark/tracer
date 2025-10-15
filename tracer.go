@@ -121,7 +121,7 @@ func (t *Tracer) Init(
 		}
 	}
 
-	allPollers, err := poller.NewBpfPoller(t.bpfObjects, t.cgroupsController, systemStoreManager, *disableTlsLog)
+	allPollers, err := poller.NewBpfPoller(procfs, t.bpfObjects, t.cgroupsController, systemStoreManager, *disableTlsLog)
 	if err != nil {
 		return fmt.Errorf("create eBPF poler failed failed: %v", err)
 	}

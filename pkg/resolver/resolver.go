@@ -154,9 +154,9 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry addF
 		var conns []IpSocketLine
 		for i := range pids {
 			if proto == "tcp" {
-				conns, err = getTCPConnections(fmt.Sprintf("%v", pids[i].hostPid))
+				conns, err = getTCPConnections(procfs, fmt.Sprintf("%v", pids[i].hostPid))
 			} else {
-				conns, err = getUDPConnections(fmt.Sprintf("%v", pids[i].hostPid))
+				conns, err = getUDPConnections(procfs, fmt.Sprintf("%v", pids[i].hostPid))
 			}
 			if err != nil {
 				// process can be short-living
@@ -491,10 +491,10 @@ func findCgroupsEndWith(isCgroupsV2 bool, pidPaths map[string]struct{}) (paths m
 	return paths, err
 }
 
-func getTCPConnections(pid string) (lines []IpSocketLine, err error) {
-	return getSocketLines("tcp", pid)
+func getTCPConnections(procfs string, pid string) (lines []IpSocketLine, err error) {
+	return getSocketLines(procfs, "tcp", pid)
 }
 
-func getUDPConnections(pid string) (lines []IpSocketLine, err error) {
-	return getSocketLines("udp", pid)
+func getUDPConnections(procfs string, pid string) (lines []IpSocketLine, err error) {
+	return getSocketLines(procfs, "udp", pid)
 }

@@ -25,19 +25,21 @@ import (
 )
 
 type SyscallEventsTracer struct {
+	procfs             string
 	cgroupController   cgroup.CgroupsController
 	eventReader        *perf.Reader
 	eventSocket        *socket.SocketEvent
 	systemStoreManager *rawcapture.Manager
 }
 
-func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
+func NewSyscallEventsTracer(procfs string, bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
 	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize())
 	if err != nil {
 		return nil, fmt.Errorf("open events perf buffer failed")
 	}
 
 	return &SyscallEventsTracer{
+		procfs:             procfs,
 		cgroupController:   cgroupController,
 		eventReader:        reader,
 		eventSocket:        socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
@@ -105,7 +107,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 		var e events.SyscallEvent
 		e.SyscallEventMessage = *ev
 
-		e.ProcessPath, _ = resolver.ResolveSymlinkWithoutValidation(filepath.Join("/hostproc", fmt.Sprintf("%v", ev.HostPid), "exe"))
+		e.ProcessPath, _ = resolver.ResolveSymlinkWithoutValidation(filepath.Join(t.procfs, fmt.Sprintf("%v", ev.HostPid), "exe"))
 		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v, sent (pkts: %v, bytes: %v), recv (pkts: %v, bytes: %v)",
 			evName,
 			toIP(e.IpSrc),
