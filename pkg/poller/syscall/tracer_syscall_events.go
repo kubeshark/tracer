@@ -134,8 +134,8 @@ func (t *SyscallEventsTracer) pollEvents() {
 			EventId:       uint32(e.EventId),
 			IpSrc:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpSrc)},
 			IpDst:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpDst)},
-			PortSrc:       uint32(e.PortSrc),
-			PortDst:       uint32(e.PortDst),
+			PortSrc:       uint32(toPort(e.PortSrc)),
+			PortDst:       uint32(toPort(e.PortDst)),
 			CgroupId:      e.CgroupID,
 			HostPid:       uint32(e.HostPid),
 			HostParentPid: uint32(e.HostParentPid),
@@ -143,6 +143,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 			ParentPid:     uint32(e.ParentPid),
 			Command:       e.CmdPath(),
 			ProcessPath:   e.ProcessPath,
+			ContainerId:   t.cgroupController.GetContainerID(e.CgroupID),
 		}
 		t.systemStoreManager.EnqueueSyscall(bin)
 	}
@@ -152,6 +153,6 @@ func ipv4ToIPv6Mapped(v uint32) []byte {
 	b := make([]byte, 16)
 	b[10] = 0xff
 	b[11] = 0xff
-	binary.BigEndian.PutUint32(b[12:], v)
+	binary.LittleEndian.PutUint32(b[12:], v)
 	return b
 }

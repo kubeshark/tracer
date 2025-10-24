@@ -240,6 +240,9 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry addF
 }
 
 func getAllCgroups(procfs string, isCgroupV2 bool) (ret map[string]uint64, err error) {
+	if procfs == "" {
+		return nil, nil
+	}
 	ret = make(map[string]uint64)
 	procDir, err := os.Open(procfs)
 	if err != nil {

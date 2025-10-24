@@ -4,6 +4,9 @@ go 1.24.0
 
 toolchain go1.24.3
 
+//XXX:
+replace github.com/kubeshark/api2 => /app/api2
+
 require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/cilium/ebpf v0.18.0
