@@ -385,9 +385,10 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 
 	packet, parseErr := pktBuf.layerParser.CreatePacket(pkt, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction), ci, decodeOptions)
 	if parseErr != nil {
-		log.Error().Err(parseErr).Msg("DecodingLayerParser failed")
+		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
 		p.stats.PacketsError++
-		return false, parseErr
+		// gopacket.NewPacket is recovers in case of errors, so we can return nil
+		return false, nil
 	}
 	p.stats.PacketsGot++
 	p.stats.BytesProcessed += uint64(len(pkt))

@@ -170,7 +170,8 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 
 		pkt, parseErr := t.poller.layerParser.CreatePacket(bufBytes, cgroupId, unixpacket.PacketDirection(direction), ci, decodeOptions)
 		if parseErr != nil {
-			log.Error().Err(parseErr).Msg("DecodingLayerParser failed")
+			// gopacket.NewPacket is recovers in case of errors, so we can return nil
+			log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
 			return
 		}
 		t.stats.PacketsGot++
