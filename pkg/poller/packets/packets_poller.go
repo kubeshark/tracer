@@ -22,6 +22,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type perfReader interface {
+	ReadInto(r *perf.Record) error
+	Close() error
+	SetDeadline(t time.Time)
+}
+
 // Buffer pool for pktBuffer objects to avoid large allocations
 var pktBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -118,7 +124,7 @@ type PacketsPoller struct {
 	pktsMaps []map[uint64]*pktBuffer // one map per CPU
 	maxCPUs  int
 	// Original fields
-	chunksReader    *perf.Reader
+	chunksReader    perfReader
 	gopacketWriter  bpf.GopacketWriter
 	rawPacketWriter rawpacket.RawPacketWriter
 	receivedPackets uint64

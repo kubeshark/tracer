@@ -491,3 +491,5 @@ func (p *DecodedPacket) SetErrorLayer(l gopacket.ErrorLayer) {
 		}
 	}
 }
+
+func DetectIPVersion(data []byte) int { return detectIPVersion(data) }
