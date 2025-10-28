@@ -19,8 +19,8 @@ import (
 // Constants
 
 const (
-	procMounts      = "/hostproc/self/mountinfo"
-	procFilesystems = "/hostproc/filesystems"
+	procMounts      = "self/mountinfo"
+	procFilesystems = "filesystems"
 	tmpPathPrefix   = "kubeshark"
 )
 
@@ -34,6 +34,7 @@ const (
 // and manage it (umounting at its destruction). If already mounted, the filesystem
 // is left untouched at object's destruction.
 type MountHostOnce struct {
+	procfs  string
 	source  string
 	target  string
 	fsType  string
@@ -42,8 +43,9 @@ type MountHostOnce struct {
 	mounted bool
 }
 
-func NewMountHostOnce(source, fstype, data, where string) (*MountHostOnce, error) {
+func NewMountHostOnce(procfs, source, fstype, data, where string) (*MountHostOnce, error) {
 	m := &MountHostOnce{
+		procfs: procfs,
 		source: source, // device and/or pseudo-filesystem to mount
 		fsType: fstype, // fs type
 		data:   data,   // extra data
@@ -151,7 +153,7 @@ func (m *MountHostOnce) GetMountpoint() string {
 func (m *MountHostOnce) isMountedByOS(where string) (bool, error) {
 	var err error
 	var mp string
-	mp, err = SearchMountpointFromHost(m.fsType, m.data)
+	mp, err = SearchMountpointFromHost(m.procfs, m.fsType, m.data)
 	if err != nil {
 		return false, errfmt.WrapError(err)
 	}
@@ -175,10 +177,10 @@ func (m *MountHostOnce) isMountedByOS(where string) (bool, error) {
 //
 
 // IsFileSystemSupported checks if given fs is supported by the running kernel
-func IsFileSystemSupported(fsType string) (bool, error) {
-	file, err := os.Open(procFilesystems)
+func IsFileSystemSupported(procfs, fsType string) (bool, error) {
+	file, err := os.Open(filepath.Join(procfs, procFilesystems))
 	if err != nil {
-		return false, CouldNotOpenFile(procFilesystems, err)
+		return false, CouldNotOpenFile(filepath.Join(procfs, procFilesystems), err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -201,10 +203,10 @@ func IsFileSystemSupported(fsType string) (bool, error) {
 // SearchMountpointFromHost returns the last mountpoint for a given filesystem type
 // containing a searchable string. It confirms the mount originates from the root file
 // system.
-func SearchMountpointFromHost(fstype string, search string) (string, error) {
+func SearchMountpointFromHost(procfs, fstype string, search string) (string, error) {
 	mp := ""
 
-	file, err := os.Open(procMounts)
+	file, err := os.Open(filepath.Join(procfs, procMounts))
 	if err != nil {
 		return "", errfmt.WrapError(err)
 	}
