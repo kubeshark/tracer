@@ -22,6 +22,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type perfReader interface {
+	ReadInto(r *perf.Record) error
+	Close() error
+	SetDeadline(t time.Time)
+}
+
 // Buffer pool for pktBuffer objects to avoid large allocations
 var pktBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -118,7 +124,7 @@ type PacketsPoller struct {
 	pktsMaps []map[uint64]*pktBuffer // one map per CPU
 	maxCPUs  int
 	// Original fields
-	chunksReader    *perf.Reader
+	chunksReader    perfReader
 	gopacketWriter  bpf.GopacketWriter
 	rawPacketWriter rawpacket.RawPacketWriter
 	receivedPackets uint64
@@ -342,6 +348,7 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 
 func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
 	if p.gopacketWriter == nil {
+		pktBufferPool.Put(pktBuf)
 		return false, nil
 	}
 
@@ -379,9 +386,11 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 
 	packet, parseErr := pktBuf.layerParser.CreatePacket(pkt, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction), ci, decodeOptions)
 	if parseErr != nil {
-		log.Error().Err(parseErr).Msg("DecodingLayerParser failed")
+		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
 		p.stats.PacketsError++
-		return false, parseErr
+		pktBufferPool.Put(pktBuf)
+		// gopacket.NewPacket is recovers in case of errors, so we can return nil
+		return false, nil
 	}
 	p.stats.PacketsGot++
 	p.stats.BytesProcessed += uint64(len(pkt))

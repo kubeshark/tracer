@@ -58,7 +58,7 @@ func (s *SocketEvent) processSocket() {
 
 		for ev := range s.events {
 			if err := encoder.Encode(ev); err != nil {
-				log.Error().Err(err).Str("Name", s.unixSocketFileName).Msg("Encode to unix socket failed:")
+				log.Warn().Err(err).Str("Name", s.unixSocketFileName).Msg("Encode to unix socket failed:")
 				conn.Close()
 				break
 			}
