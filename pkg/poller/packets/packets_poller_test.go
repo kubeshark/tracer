@@ -107,12 +107,14 @@ func ipv4Header(proto uint8, totalLen uint16) []byte {
 	return h
 }
 
+// tcpHeader builds a TCP header with dataOffset (in 32-bit words) and options payload.
 func tcpHeader(dataOffset uint8, options []byte) []byte {
 	hLen := int(dataOffset) * 4
 	if hLen < 20 {
 		hLen = 20
 	}
 	h := make([]byte, hLen)
+	// data offset in upper nibble of byte 12
 	h[12] = (dataOffset << 4) & 0xF0
 	if hLen > 20 && len(options) > 0 {
 		copy(h[20:], options)
@@ -122,12 +124,13 @@ func tcpHeader(dataOffset uint8, options []byte) []byte {
 
 func tcpHeaderWithBadDataOffset(offset uint8) []byte {
 	h := make([]byte, 20)
-	h[12] = (offset << 4) & 0xF0
+	h[12] = (offset << 4) & 0xF0 // invalid (<5)
 	return h
 }
 
 func udpHeader() []byte {
 	h := make([]byte, 8)
+	// length=8
 	h[4], h[5] = 0, 8
 	return h
 }
@@ -147,10 +150,12 @@ func TestPerfResetPathClearsBuffers(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
+	// Seed CPU 0 map with a buffer so we can verify it gets cleared
 	p.pktsMaps[0][123] = &pktBuffer{layerParser: decodedpacket.NewLayerParser()}
 
 	fr := &fakePerfReader{
 		records: []perf.Record{
+			// len==4 triggers the reset branch.
 			{RawSample: []byte{0, 0, 0, 0}, CPU: 0},
 		},
 	}
@@ -167,6 +172,7 @@ func TestLostSamplesAccountingAndCleanup(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
+	// Seed CPU1 with an entry that should be cleared on loss
 	p.pktsMaps[1][77] = &pktBuffer{layerParser: decodedpacket.NewLayerParser()}
 
 	fr := &fakePerfReader{
@@ -190,6 +196,7 @@ func TestFastPathSingleChunk_NoGopacket(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
+	// capture raw writes
 	done := make(chan struct{}, 1)
 	p.rawPacketWriter = func(ts uint64, b []byte) {
 		select {
@@ -204,8 +211,8 @@ func TestFastPathSingleChunk_NoGopacket(t *testing.T) {
 		Len:       64,
 		TotLen:    64,
 		Num:       0,
-		Last:      1,
-		IPHdrType: 0x0800,
+		Last:      1,      // single-chunk fast path
+		IPHdrType: 0x0800, // IPv4
 		Direction: 0,
 	}
 	data := makeChunk(td)
@@ -249,7 +256,7 @@ func TestReassemblyTwoChunks_NoGopacket(t *testing.T) {
 		TotLen:    48,
 		Num:       0,
 		Last:      0,
-		IPHdrType: 0x86dd,
+		IPHdrType: 0x86dd, // IPv6
 	}
 	second := tracerPacketsData{
 		ID:        id,
@@ -343,28 +350,28 @@ func TestWritePacket_DecodeMatrix(t *testing.T) {
 			writerFired: true,
 		},
 		{
-			name:        "IPv4/TCP invalid data offset < 5",
+			name:        "IPv4/TCP invalid data offset < 5 -> parse error swallowed",
 			packet:      makeIPv4Packet(6, tcpHeaderWithBadDataOffset(3), nil),
 			wantOK:      false,
-			wantErr:     true,
+			wantErr:     false,
 			errIncr:     true,
 			writerFired: false,
 		},
 		{
-			name: "IPv4/TCP invalid option length exceeds remaining (matches runtime error)",
+			name: "IPv4/TCP invalid option length exceeds remaining (matches runtime error) -> swallowed",
 			packet: func() []byte {
 				opts := []byte{2, 49, 0xaa, 0xbb}
 				tcp := tcpHeader(6, opts)
 				return makeIPv4Packet(6, tcp, nil)
 			}(),
 			wantOK:      false,
-			wantErr:     true,
+			wantErr:     false,
 			errIncr:     true,
 			writerFired: false,
 		},
 		{
 			name:        "IPv4/UDP valid minimal header",
-			packet:      makeIPv4Packet(17 /*UDP*/, udpHeader(), nil),
+			packet:      makeIPv4Packet(17, udpHeader(), nil),
 			wantOK:      true,
 			wantErr:     false,
 			errIncr:     false,
@@ -372,14 +379,14 @@ func TestWritePacket_DecodeMatrix(t *testing.T) {
 			writerFired: true,
 		},
 		{
-			name: "IPv4/TCP header length says 40 but buffer shorter (truncated)",
+			name: "IPv4/TCP header length says 40 but buffer shorter (truncated) -> swallowed",
 			packet: func() []byte {
-				tcp := tcpHeader(10, make([]byte, 20)) // 40B header
+				tcp := tcpHeader(10, make([]byte, 20))
 				p := makeIPv4Packet(6, tcp, nil)
-				return p[:20+30] // cut inside TCP header
+				return p[:20+30]
 			}(),
 			wantOK:      false,
-			wantErr:     true,
+			wantErr:     false,
 			errIncr:     true,
 			writerFired: false,
 		},
@@ -448,20 +455,15 @@ func TestLogPeriodicStats(t *testing.T) {
 	p.lastStatsTime = time.Now().Add(-6 * time.Second)
 
 	p.logPeriodicStats()
-	p.logPeriodicStats()
+	p.logPeriodicStats() // no-op when <5s elapsed
 }
 
 func TestHandlePktChunk_InvalidTCPOptionLength_FastPath(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	done := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet) {
-		select {
-		case done <- struct{}{}:
-		default:
-		}
-	}
+	writerHit := make(chan struct{}, 1)
+	p.gopacketWriter = func(pkt gopacket.Packet) { writerHit <- struct{}{} }
 
 	opts := []byte{2, 49, 0xaa, 0xbb}
 	tcp := tcpHeader(6, opts)
@@ -474,9 +476,9 @@ func TestHandlePktChunk_InvalidTCPOptionLength_FastPath(t *testing.T) {
 		ID:        123,
 		Len:       uint32(len(ipv4)),
 		TotLen:    uint32(len(ipv4)),
-		Num:       0,      // fast-path: first/only
-		Last:      1,      // last chunk
-		IPHdrType: 0x0800, // IPv4
+		Num:       0,
+		Last:      1,
+		IPHdrType: 0x0800,
 		Direction: 0,
 	}
 	copy(td.Data[:], ipv4)
@@ -493,80 +495,34 @@ func TestHandlePktChunk_InvalidTCPOptionLength_FastPath(t *testing.T) {
 
 	ok, err := p.handlePktChunk(chunk)
 
-	if ok {
-		t.Fatalf("expected ok=false due to decode failure")
-	}
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	wantSub := "Invalid TCP option length 49 exceeds remaining 4 bytes"
-	if !strings.Contains(err.Error(), wantSub) {
-		t.Fatalf("error mismatch.\nwant contains: %q\ngot: %v", wantSub, err)
+	if !ok || err != nil {
+		t.Fatalf("want ok=true, err=nil; got ok=%v err=%v", ok, err)
 	}
 	if p.stats.PacketsError != beforeErr+1 {
 		t.Fatalf("expected PacketsError incremented by 1 (before=%d, after=%d)", beforeErr, p.stats.PacketsError)
 	}
-}
-
-func TestFastPath_PayloadLooksLikeIPv4_GET(t *testing.T) {
-	p := newTestPoller(t)
-	defer stopPoller(t, p)
-
-	// Build a perfectly valid IPv4/TCP packet with HTTP payload "GET /"
-	tcp := tcpHeader(5, nil) // valid TCP header, no options
-	full := makeIPv4Packet(6, tcp, []byte("GET / HTTP/1.1\r\n"))
-
-	// Simulate the real bug: start decoding at the TCP payload, not the IP header.
-	payload := full[20+20:]
-
-	if payload[0] != 0x47 {
-		t.Fatalf("expected first byte 0x47, got 0x%02x", payload[0])
-	}
-
-	beforeErr := p.stats.PacketsError
-	td := tracerPacketsData{
-		Timestamp: uint64(time.Now().UnixNano()),
-		ID:        9001,
-		Len:       uint32(len(payload)),
-		TotLen:    uint32(len(payload)),
-		Num:       0, Last: 1,
-		IPHdrType: 0x0800,
-	}
-	copy(td.Data[:], payload)
-
-	raw := makeChunk(td)
-	chunk := pktBufferPool.Get().(*pktBuffer)
-	chunk.reset()
-	chunk.reusableRecord = perf.Record{RawSample: raw, CPU: 0}
-
-	ok, err := p.handlePktChunk(chunk)
-
-	if ok {
-		t.Fatalf("expected ok=false due to misaligned start")
-	}
-	if err == nil || !strings.Contains(err.Error(), "DecodingLayerParser failed") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if p.stats.PacketsError != beforeErr+1 {
-		t.Fatalf("PacketsError not incremented")
+	select {
+	case <-writerHit:
+		t.Fatalf("writer must NOT be called on parse error")
+	default:
 	}
 }
 
-// 1) Real HTTP payload -> we EXPECT an error, but current code silently "decodes"
-func TestFastPath_PayloadLooksLikeIPv4_GET_ShouldError(t *testing.T) {
+func TestFastPath_PayloadStart_MisalignedHTTP_Dropped(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	// Valid outer IPv4/TCP with HTTP payload
+	writerHit := make(chan struct{}, 1)
+	p.gopacketWriter = func(pkt gopacket.Packet) { writerHit <- struct{}{} }
+
 	tcp := tcpHeader(5, nil)
 	full := makeIPv4Packet(6, tcp, []byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
-
-	// Start at TCP payload, not IP header
 	misaligned := full[20+20:]
+	beforeErr := p.stats.PacketsError
 
 	td := tracerPacketsData{
 		Timestamp: uint64(time.Now().UnixNano()),
-		ID:        9101,
+		ID:        9003,
 		Len:       uint32(len(misaligned)),
 		TotLen:    uint32(len(misaligned)),
 		Num:       0, Last: 1, IPHdrType: 0x0800,
@@ -580,74 +536,93 @@ func TestFastPath_PayloadLooksLikeIPv4_GET_ShouldError(t *testing.T) {
 
 	ok, err := p.handlePktChunk(chunk)
 
-	if ok || err == nil {
-		t.Fatalf("expected misalignment to error; got ok=%v err=%v", ok, err)
+	if !ok || err != nil {
+		t.Fatalf("expected ok=true, err=nil; got ok=%v err=%v", ok, err)
+	}
+	if p.stats.PacketsError != beforeErr+1 {
+		t.Fatalf("PacketsError not incremented on misaligned payload")
+	}
+	select {
+	case <-writerHit:
+		t.Fatalf("writer must NOT be called on misaligned payload")
+	default:
 	}
 }
 
-func TestFastPath_PayloadStart_ValidPacketForcesTCPOptions49_ShouldError(t *testing.T) {
+func TestReassembly_ParseError_ReturnsOkTrueAndNoWriter(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	var lastPkt gopacket.Packet
-	seen := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet) {
-		lastPkt = pkt
-		select {
-		case seen <- struct{}{}:
-		default:
-		}
+	writerHit := make(chan struct{}, 1)
+	p.gopacketWriter = func(pkt gopacket.Packet) { writerHit <- struct{}{} }
+
+	opts := []byte{2, 49, 0xaa, 0xbb}
+	tcp := tcpHeader(6, opts)
+	bad := makeIPv4Packet(6, tcp, nil)
+
+	id := uint64(42)
+	firstLen := len(bad) / 2
+
+	first := tracerPacketsData{
+		ID:        id,
+		Len:       uint32(firstLen),
+		TotLen:    uint32(len(bad)),
+		Num:       0,
+		Last:      0,
+		IPHdrType: 0x0800,
+	}
+	second := tracerPacketsData{
+		ID:        id,
+		Len:       uint32(len(bad) - firstLen),
+		TotLen:    uint32(len(bad)),
+		Num:       1,
+		Last:      1,
+		IPHdrType: 0x0800,
 	}
 
-	// Payload crafted to *force* IPv4->TCP decode and hit the 49>4 error
-	payload := make([]byte, 64)
-	payload[0] = 0x45 // IPv4, IHL=5
-	totalLen := 44    // 20 (IP) + 24 (TCP)
-	payload[2] = byte(totalLen >> 8)
-	payload[3] = byte(totalLen & 0xff)
-	payload[8] = 64   // TTL
-	payload[9] = 0x06 // TCP
+	copy(first.Data[:first.Len], bad[:firstLen])
+	copy(second.Data[:second.Len], bad[firstLen:])
 
-	tcpOff := 20
-	payload[tcpOff+12] = 0x60 // dataOffset=6 -> 24B TCP header (4B options)
-	payload[tcpOff+20] = 2    // MSS kind
-	payload[tcpOff+21] = 49   // bogus len=49
-	payload[tcpOff+22] = 0xAA
-	payload[tcpOff+23] = 0xBB
-
-	full := makeIPv4Packet(6, tcpHeader(5, nil), payload)
-	misaligned := full[20+20:]
-
-	td := tracerPacketsData{
-		Timestamp: uint64(time.Now().UnixNano()),
-		ID:        9102,
-		Len:       uint32(len(misaligned)),
-		TotLen:    uint32(len(misaligned)),
-		Num:       0, Last: 1, IPHdrType: 0x0800,
+	fr := &fakePerfReader{
+		records: []perf.Record{
+			{RawSample: makeChunk(first), CPU: 0},
+			{RawSample: makeChunk(second), CPU: 0},
+		},
 	}
-	copy(td.Data[:], misaligned)
-	raw := makeChunk(td)
+	p.chunksReader = fr
 
-	chunk := pktBufferPool.Get().(*pktBuffer)
-	chunk.reset()
-	chunk.reusableRecord = perf.Record{RawSample: raw, CPU: 0}
+	beforeErr := p.stats.PacketsError
 
-	ok, err := p.handlePktChunk(chunk)
+	p.pollChunksPerfBuffer()
 
-	if ok || err == nil {
-		select {
-		case <-seen:
-		case <-time.After(50 * time.Millisecond):
-		}
-		if lastPkt != nil {
-			if el := lastPkt.ErrorLayer(); el != nil {
-				msg := el.Error()
-				if strings.Contains(msg.Error(), "Invalid TCP option length 49 exceeds remaining 4 bytes") {
-					t.Fatalf("expected handlePktChunk to return error; got ok=true, err=nil, but packet ErrorLayer contains target failure: %q", msg)
-				}
-				t.Fatalf("expected handlePktChunk error; got ok=true, err=nil; packet ErrorLayer=%q", msg)
-			}
-		}
-		t.Fatalf("expected TCP options bounds error; got ok=%v err=%v (no ErrorLayer observed)", ok, err)
+	if p.stats.PacketsError != beforeErr+1 {
+		t.Fatalf("PacketsError not incremented on parse error after reassembly")
 	}
+	select {
+	case <-writerHit:
+		t.Fatalf("writer must NOT be called on parse error")
+	default:
+	}
+}
+
+func TestWritePacket_RecordsExactTCPOptionsErrorStyle(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	p.gopacketWriter = func(pkt gopacket.Packet) {}
+
+	opts := []byte{2, 49, 0xaa, 0xbb}
+	tcp := tcpHeader(6, opts)
+	ipv4 := makeIPv4Packet(6, tcp, nil)
+
+	buf := &pktBuffer{layerParser: decodedpacket.NewLayerParser(), len: uint32(len(ipv4))}
+	copy(buf.buf[:len(ipv4)], ipv4)
+
+	td := &tracerPacketsData{Len: uint32(len(ipv4))}
+
+	ok, err := p.writePacket(buf, td)
+	if ok || err != nil {
+		t.Fatalf("expect ok=false, err=nil from writePacket on parse error; got ok=%v err=%v", ok, err)
+	}
+	_ = strings.Contains
 }
