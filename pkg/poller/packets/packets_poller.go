@@ -348,6 +348,7 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 
 func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
 	if p.gopacketWriter == nil {
+		pktBufferPool.Put(pktBuf)
 		return false, nil
 	}
 
@@ -387,6 +388,7 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 	if parseErr != nil {
 		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
 		p.stats.PacketsError++
+		pktBufferPool.Put(pktBuf)
 		// gopacket.NewPacket is recovers in case of errors, so we can return nil
 		return false, nil
 	}
