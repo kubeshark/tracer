@@ -27,7 +27,7 @@ static __always_inline int udp_sockaddr_handle(struct bpf_sock_addr *ctx, bool i
         return 1;
 
     struct bpf_sock* sk = ctx->sk;
-    if (!sk) return 1;
+    if (sk == NULL) return 1;
 
     __u16 family = BPF_CORE_READ(sk, family);
 
@@ -50,7 +50,6 @@ static __always_inline int udp_sockaddr_handle(struct bpf_sock_addr *ctx, bool i
             // (Packet sniffer still has full 5-tuple for /flows)
         }
     }
-#ifdef AF_INET6
     else if (family == AF_INET6) {
         key_flow.ip_version = 6;
 
@@ -70,7 +69,6 @@ static __always_inline int udp_sockaddr_handle(struct bpf_sock_addr *ctx, bool i
             key_flow.port_remote = ctx->user_port;    
         }
     }
-#endif
     else {
         return 1;
     }
