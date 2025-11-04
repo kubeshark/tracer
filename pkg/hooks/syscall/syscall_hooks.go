@@ -9,7 +9,12 @@ import (
 )
 
 type syscallHooks struct {
-	links []link.Link
+	links      []link.Link
+	cgroupPath string
+}
+
+func newSyscallHooks(cgroupPath string) *syscallHooks {
+	return &syscallHooks{cgroupPath: cgroupPath}
 }
 
 func (s *syscallHooks) addTracepoint(group, name string, program *ebpf.Program) error {
@@ -63,6 +68,18 @@ func (s *syscallHooks) addKretprobe(name string, program *ebpf.Program) error {
 		return errors.Wrap(err, 0)
 	}
 
+	s.links = append(s.links, l)
+	return nil
+}
+
+func (s *syscallHooks) addCgroupSockAddr(attach ebpf.AttachType, program *ebpf.Program) error {
+	if program == nil || s.cgroupPath == "" {
+		return nil
+	}
+	l, err := link.AttachCgroup(link.CgroupOptions{Path: s.cgroupPath, Attach: attach, Program: program})
+	if err != nil {
+		return errors.Wrap(err, 0)
+	}
 	s.links = append(s.links, l)
 	return nil
 }
@@ -186,6 +203,19 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 
 	if err = s.addRawTracepoint("cgroup_rmdir", bpfObjects.CgroupRmdirSignal); err != nil {
 		return err
+	}
+
+	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP4Sendmsg, bpfObjects.UdpSendmsg4); err != nil {
+		return err
+	}
+	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP4Recvmsg, bpfObjects.UdpRecvmsg4); err != nil {
+		return err
+	}
+	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Sendmsg, bpfObjects.UdpSendmsg6); err != nil {
+		log.Warn().Err(err).Msg("udp sendmsg6 attach failed")
+	}
+	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Recvmsg, bpfObjects.UdpRecvmsg6); err != nil {
+		log.Warn().Err(err).Msg("udp recvmsg6 attach failed")
 	}
 
 	return nil

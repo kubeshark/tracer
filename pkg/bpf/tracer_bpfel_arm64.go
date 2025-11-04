@@ -336,6 +336,10 @@ type TracerProgramSpecs struct {
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
 	TraceCgroupConnect4           *ebpf.ProgramSpec `ebpf:"trace_cgroup_connect4"`
+	UdpRecvmsg4                   *ebpf.ProgramSpec `ebpf:"udp_recvmsg4"`
+	UdpRecvmsg6                   *ebpf.ProgramSpec `ebpf:"udp_recvmsg6"`
+	UdpSendmsg4                   *ebpf.ProgramSpec `ebpf:"udp_sendmsg4"`
+	UdpSendmsg6                   *ebpf.ProgramSpec `ebpf:"udp_sendmsg6"`
 	VfsCreate                     *ebpf.ProgramSpec `ebpf:"vfs_create"`
 	VfsRmdir                      *ebpf.ProgramSpec `ebpf:"vfs_rmdir"`
 }
@@ -392,6 +396,8 @@ type TracerMapSpecs struct {
 	TcpAcceptFlowContext     *ebpf.MapSpec `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.MapSpec `ebpf:"tcp_connect_context"`
 	TcpConnectFlowContext    *ebpf.MapSpec `ebpf:"tcp_connect_flow_context"`
+	UdpRecvContext           *ebpf.MapSpec `ebpf:"udp_recv_context"`
+	UdpSendContext           *ebpf.MapSpec `ebpf:"udp_send_context"`
 }
 
 // TracerObjects contains all objects after they have been loaded into the kernel.
@@ -461,6 +467,8 @@ type TracerMaps struct {
 	TcpAcceptFlowContext     *ebpf.Map `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.Map `ebpf:"tcp_connect_context"`
 	TcpConnectFlowContext    *ebpf.Map `ebpf:"tcp_connect_flow_context"`
+	UdpRecvContext           *ebpf.Map `ebpf:"udp_recv_context"`
+	UdpSendContext           *ebpf.Map `ebpf:"udp_send_context"`
 }
 
 func (m *TracerMaps) Close() error {
@@ -513,6 +521,8 @@ func (m *TracerMaps) Close() error {
 		m.TcpAcceptFlowContext,
 		m.TcpConnectContext,
 		m.TcpConnectFlowContext,
+		m.UdpRecvContext,
+		m.UdpSendContext,
 	)
 }
 
@@ -572,6 +582,10 @@ type TracerPrograms struct {
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
 	TraceCgroupConnect4           *ebpf.Program `ebpf:"trace_cgroup_connect4"`
+	UdpRecvmsg4                   *ebpf.Program `ebpf:"udp_recvmsg4"`
+	UdpRecvmsg6                   *ebpf.Program `ebpf:"udp_recvmsg6"`
+	UdpSendmsg4                   *ebpf.Program `ebpf:"udp_sendmsg4"`
+	UdpSendmsg6                   *ebpf.Program `ebpf:"udp_sendmsg6"`
 	VfsCreate                     *ebpf.Program `ebpf:"vfs_create"`
 	VfsRmdir                      *ebpf.Program `ebpf:"vfs_rmdir"`
 }
@@ -630,6 +644,10 @@ func (p *TracerPrograms) Close() error {
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
 		p.TraceCgroupConnect4,
+		p.UdpRecvmsg4,
+		p.UdpRecvmsg6,
+		p.UdpSendmsg4,
+		p.UdpSendmsg6,
 		p.VfsCreate,
 		p.VfsRmdir,
 	)
