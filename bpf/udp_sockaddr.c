@@ -26,10 +26,12 @@ static __always_inline int udp_sockaddr_handle(struct bpf_sock_addr *ctx, bool i
     if (ctx->protocol != IPPROTO_UDP)
         return 1;
 
-    struct bpf_sock* sk = ctx->sk;
-    if (sk == NULL) return 1;
+    __u16 family = ctx->family;
 
-    __u16 family = BPF_CORE_READ(sk, family);
+    struct bpf_sock *sk = ctx->sk;
+    sk = bpf_sk_fullsock(sk);
+    if (!sk)
+        return 1;
 
     struct flow_t key_flow = {};
     key_flow.protocol = IPPROTO_UDP;
