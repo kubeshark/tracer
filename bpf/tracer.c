@@ -28,5 +28,6 @@ Copyright (C) Kubeshark
 #include "pids_probes.c"
 
 #include "udp_sockaddr.c"
+#include "udp_kprobes.c"
 
 char _license[] SEC("license") = "GPL";

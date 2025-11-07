@@ -76,11 +76,44 @@ func (s *syscallHooks) addCgroupSockAddr(attach ebpf.AttachType, program *ebpf.P
 	if program == nil || s.cgroupPath == "" {
 		return nil
 	}
-	l, err := link.AttachCgroup(link.CgroupOptions{Path: s.cgroupPath, Attach: attach, Program: program})
+	l, err := link.AttachCgroup(link.CgroupOptions{
+		Path:    s.cgroupPath,
+		Attach:  attach,
+		Program: program,
+	})
 	if err != nil {
 		return errors.Wrap(err, 0)
 	}
 	s.links = append(s.links, l)
+	return nil
+}
+
+func (s *syscallHooks) attachSockAddr(objs *bpf.TracerObjects) error {
+	if err := s.addCgroupSockAddr(ebpf.AttachCGroupUDP4Sendmsg, objs.UdpSendmsg4); err != nil {
+		return err
+	}
+	if err := s.addCgroupSockAddr(ebpf.AttachCGroupUDP4Recvmsg, objs.UdpRecvmsg4); err != nil {
+		return err
+	}
+	// IPv6 best-effort (don’t fail whole install if missing)
+	if err := s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Sendmsg, objs.UdpSendmsg6); err != nil {
+		log.Warn().Err(err).Msg("udp sendmsg6 attach failed")
+	}
+	if err := s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Recvmsg, objs.UdpRecvmsg6); err != nil {
+		log.Warn().Err(err).Msg("udp recvmsg6 attach failed")
+	}
+	return nil
+}
+
+func (s *syscallHooks) attachUDPKprobes(objs *bpf.TracerObjects) error {
+	if err := s.addKprobe("udp_sendmsg", objs.UdpSendmsgKp); err != nil {
+		return err
+	}
+	if err := s.addKprobe("udpv6_sendmsg", objs.Udpv6SendmsgKp); err != nil {
+		return err
+	}
+	_ = s.addKprobe("udp_recvmsg", objs.UdpRecvmsgKp)
+	_ = s.addKprobe("udpv6_recvmsg", objs.Udpv6RecvmsgKp)
 	return nil
 }
 
@@ -203,19 +236,6 @@ func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error 
 
 	if err = s.addRawTracepoint("cgroup_rmdir", bpfObjects.CgroupRmdirSignal); err != nil {
 		return err
-	}
-
-	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP4Sendmsg, bpfObjects.UdpSendmsg4); err != nil {
-		return err
-	}
-	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP4Recvmsg, bpfObjects.UdpRecvmsg4); err != nil {
-		return err
-	}
-	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Sendmsg, bpfObjects.UdpSendmsg6); err != nil {
-		log.Warn().Err(err).Msg("udp sendmsg6 attach failed")
-	}
-	if err = s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Recvmsg, bpfObjects.UdpRecvmsg6); err != nil {
-		log.Warn().Err(err).Msg("udp recvmsg6 attach failed")
 	}
 
 	return nil
