@@ -31,7 +31,6 @@ static __always_inline int udp_sockaddr_handle(struct bpf_sock_addr *ctx, bool i
             key_flow.port_remote              = ctx->user_port; 
         }
     }
-#ifdef AF_INET6
     else if (family == AF_INET6) {
         key_flow.ip_version = 6;
 
