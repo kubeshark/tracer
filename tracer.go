@@ -104,7 +104,19 @@ func (t *Tracer) Init(
 		return fmt.Errorf("start internal discovery failed: %v", err)
 	}
 
-	t.syscallHooks = syscallHooks.NewSyscallHooks(t.bpfObjects)
+	opts := syscallHooks.Options{
+		CgroupRoot:       "",
+		UseSockAddr:      false,
+		EnableUDPKprobes: false,
+	}
+	if isCgroupsV2 {
+		opts.CgroupRoot = "/sys/fs/cgroup"
+		opts.UseSockAddr = true
+	} else {
+		opts.EnableUDPKprobes = true
+	}
+
+	t.syscallHooks = syscallHooks.NewSyscallHooks(t.bpfObjects, opts)
 	if err = t.syscallHooks.Install(); err != nil {
 		return fmt.Errorf("install sycall hooks failed: %v", err)
 	}
