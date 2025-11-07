@@ -12,7 +12,7 @@ struct {
     __type(value, __u64);
 } udp_kprobe_hits SEC(".maps");
 
-static __always_inline void bump(__u32 idx) {
+static __always_inline void bumpk(__u32 idx) {
     __u64 *v = bpf_map_lookup_elem(&udp_kprobe_hits, &idx);
     if (v) {
         (*v)++; 
@@ -22,27 +22,27 @@ static __always_inline void bump(__u32 idx) {
 SEC("kprobe/udp_sendmsg")
 int udp_sendmsg_kp(struct pt_regs *ctx)
 {
-    bump(0);
+    bumpk(0);
     return 0;
 }
 
 SEC("kprobe/udpv6_sendmsg")
 int udpv6_sendmsg_kp(struct pt_regs *ctx)
 {
-    bump(1);
+    bumpk(1);
     return 0;
 }
 
 SEC("kprobe/udp_recvmsg")
 int udp_recvmsg_kp(struct pt_regs *ctx)
 {
-    bump(2);
+    bumpk(2);
     return 0;
 }
 
 SEC("kprobe/udpv6_recvmsg")
 int udpv6_recvmsg_kp(struct pt_regs *ctx)
 {
-    bump(3);
+    bumpk(3);
     return 0;
 }
