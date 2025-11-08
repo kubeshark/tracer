@@ -125,21 +125,6 @@ struct flow_stats_t {
     struct syscall_event event;
 };
 
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, __u64); /* (u64)sk */
-    __type(value, struct flow_t);
-    __uint(max_entries, 16384);
-} udp_send_context SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, __u64); /* (u64)sk */
-    __type(value, struct flow_t);
-    __uint(max_entries, 16384);
-} udp_recv_context SEC(".maps");
-
-
 #define SWAP_FLOW(_flow) \
     do { \
         union ip_addr _tmp_addr = _flow->ip_local; \
@@ -235,5 +220,10 @@ BPF_LRU_HASH(tcp_connect_flow_context, struct flow_t, struct flow_stats_t);
 BPF_LRU_HASH(tcp_accept_context, __u64, struct flow_t);
 BPF_LRU_HASH(tcp_accept_flow_context, struct flow_t, struct flow_stats_t);
 BPF_PERF_OUTPUT(syscall_events);
+
+BPF_LRU_HASH(udp_send_context,   __u64,          struct flow_t);
+BPF_LRU_HASH(udp_send_flow_ctx,  struct flow_t,  struct flow_stats_t);
+BPF_LRU_HASH(udp_recv_context,   __u64,          struct flow_t);
+BPF_LRU_HASH(udp_recv_flow_ctx,  struct flow_t,  struct flow_stats_t);
 
 #endif /* __MAPS__ */
