@@ -17,7 +17,7 @@ static __always_inline int udp_sockaddr_store_ctx_v4(struct bpf_sock_addr *ctx, 
     ft.protocol   = IPPROTO_UDP;
     ft.ip_version = 4;
 
-    if (ctx->msg_src_ip4) {
+    if (ctx->msg_src_ip4 && ctx->msg_src_ip4 != 0) {
         ft.ip_local.addr_v4.s_addr = ctx->msg_src_ip4;
     }
 
