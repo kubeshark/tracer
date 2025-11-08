@@ -24,17 +24,21 @@ static __always_inline int udp_sockaddr_store_ctx_v4(struct bpf_sock_addr *ctx, 
         ft.ip_remote.addr_v4.s_addr = ctx->user_ip4;
         ft.port_remote = (__be16)(ctx->user_port & 0xffff); /* network order */
     } else {
+        if (ctx->sk != NULL) {
         __u32 dip = BPF_CORE_READ(ctx->sk, dst_ip4);
         __u32 dpt = BPF_CORE_READ(ctx->sk, dst_port);
         ft.ip_remote.addr_v4.s_addr = dip;
         ft.port_remote = (__be16)dpt;  
+        }
     }
 
     if (ctx->msg_src_ip4) {
         ft.ip_local.addr_v4.s_addr = ctx->msg_src_ip4;
     } else {
-        __u32 sip = BPF_CORE_READ(ctx->sk, src_ip4);
-        ft.ip_local.addr_v4.s_addr = sip;
+        if (ctx->sk != NULL) {
+            __u32 sip = BPF_CORE_READ(ctx->sk, src_ip4);
+            ft.ip_local.addr_v4.s_addr = sip;        
+        }
     }
 
     if (is_send) {
@@ -66,15 +70,17 @@ static __always_inline int udp_sockaddr_store_ctx_v6(struct bpf_sock_addr *ctx, 
         ft.ip_remote.addr_v6.in6_u.u6_addr32[3] = r3;
         ft.port_remote = (__be16)(ctx->user_port & 0xffff); /* network */
     } else {
-        __u32 d0 = BPF_CORE_READ(ctx->sk, dst_ip6[0]);
-        __u32 d1 = BPF_CORE_READ(ctx->sk, dst_ip6[1]);
-        __u32 d2 = BPF_CORE_READ(ctx->sk, dst_ip6[2]);
-        __u32 d3 = BPF_CORE_READ(ctx->sk, dst_ip6[3]);
-        ft.ip_remote.addr_v6.in6_u.u6_addr32[0] = d0;
-        ft.ip_remote.addr_v6.in6_u.u6_addr32[1] = d1;
-        ft.ip_remote.addr_v6.in6_u.u6_addr32[2] = d2;
-        ft.ip_remote.addr_v6.in6_u.u6_addr32[3] = d3;
-        ft.port_remote = (__be16)BPF_CORE_READ(ctx->sk, dst_port);
+        if (ctx->sk != NULL) {
+            __u32 d0 = BPF_CORE_READ(ctx->sk, dst_ip6[0]);
+            __u32 d1 = BPF_CORE_READ(ctx->sk, dst_ip6[1]);
+            __u32 d2 = BPF_CORE_READ(ctx->sk, dst_ip6[2]);
+            __u32 d3 = BPF_CORE_READ(ctx->sk, dst_ip6[3]);
+            ft.ip_remote.addr_v6.in6_u.u6_addr32[0] = d0;
+            ft.ip_remote.addr_v6.in6_u.u6_addr32[1] = d1;
+            ft.ip_remote.addr_v6.in6_u.u6_addr32[2] = d2;
+            ft.ip_remote.addr_v6.in6_u.u6_addr32[3] = d3;
+            ft.port_remote = (__be16)BPF_CORE_READ(ctx->sk, dst_port);
+        }
     }
 
     __u32 l0 = ctx->msg_src_ip6[0], l1 = ctx->msg_src_ip6[1], l2 = ctx->msg_src_ip6[2], l3 = ctx->msg_src_ip6[3];
@@ -84,14 +90,16 @@ static __always_inline int udp_sockaddr_store_ctx_v6(struct bpf_sock_addr *ctx, 
         ft.ip_local.addr_v6.in6_u.u6_addr32[2] = l2;
         ft.ip_local.addr_v6.in6_u.u6_addr32[3] = l3;
     } else {
-        __u32 s0 = BPF_CORE_READ(ctx->sk, src_ip6[0]);
-        __u32 s1 = BPF_CORE_READ(ctx->sk, src_ip6[1]);
-        __u32 s2 = BPF_CORE_READ(ctx->sk, src_ip6[2]);
-        __u32 s3 = BPF_CORE_READ(ctx->sk, src_ip6[3]);
-        ft.ip_local.addr_v6.in6_u.u6_addr32[0] = s0;
-        ft.ip_local.addr_v6.in6_u.u6_addr32[1] = s1;
-        ft.ip_local.addr_v6.in6_u.u6_addr32[2] = s2;
-        ft.ip_local.addr_v6.in6_u.u6_addr32[3] = s3;
+        if (ctx->sk != NULL) {
+            __u32 s0 = BPF_CORE_READ(ctx->sk, src_ip6[0]);
+            __u32 s1 = BPF_CORE_READ(ctx->sk, src_ip6[1]);
+            __u32 s2 = BPF_CORE_READ(ctx->sk, src_ip6[2]);
+            __u32 s3 = BPF_CORE_READ(ctx->sk, src_ip6[3]);
+            ft.ip_local.addr_v6.in6_u.u6_addr32[0] = s0;
+            ft.ip_local.addr_v6.in6_u.u6_addr32[1] = s1;
+            ft.ip_local.addr_v6.in6_u.u6_addr32[2] = s2;
+            ft.ip_local.addr_v6.in6_u.u6_addr32[3] = s3;
+        }
     }
 
     if (is_send) {
