@@ -17,6 +17,10 @@ static __always_inline int udp_sockaddr_store_ctx_v4(struct bpf_sock_addr *ctx, 
     ft.protocol   = IPPROTO_UDP;
     ft.ip_version = 4;
 
+    if (ctx->msg_src_ip4) {
+        ft.ip_local.addr_v4.s_addr = ctx->msg_src_ip4;
+    }
+
     if (ctx->user_ip4) {
         ft.ip_remote.addr_v4.s_addr = ctx->user_ip4;
         ft.port_remote = (__be16)(ctx->user_port & 0xffff); 
