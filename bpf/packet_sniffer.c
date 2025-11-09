@@ -313,6 +313,13 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         cgroup_id = bpf_skb_cgroup_id(skb);
     }
 
+    __u8 targeted = 1;
+    if (cgroup_id == 0) {
+        targeted = 0;
+    } else {
+        targeted = should_target_cgroup(cgroup_id);
+    }
+
     __u32 src_ip = 0;
     __u16 src_port = 0;
     __u32 dst_ip = 0;
@@ -452,7 +459,7 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     }
     ++stats->packets_program_enabled;
 
-    if (cgroup_id == 0 || !should_target_cgroup(cgroup_id)) {
+    if (!targeted) {
         return 1;
     }
     ++stats->packets_matched_cgroup;
