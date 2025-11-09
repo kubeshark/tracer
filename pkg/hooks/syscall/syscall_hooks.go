@@ -102,19 +102,14 @@ func (s *syscallHooks) attachSockAddr(objs *bpf.TracerObjects) error {
 	if err := s.addCgroupSockAddr(ebpf.AttachCGroupUDP6Recvmsg, objs.UdpRecvmsg6); err != nil {
 		log.Warn().Err(err).Msg("udp recvmsg6 attach failed")
 	}
+
+	if err := s.addKprobe("udp_destroy_sock", objs.UdpDestroySock); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (s *syscallHooks) attachUDPKprobes(objs *bpf.TracerObjects) error {
-	if err := s.addKprobe("udp_sendmsg", objs.UdpSendmsgKp); err != nil {
-		return err
-	}
-	if err := s.addKprobe("udpv6_sendmsg", objs.Udpv6SendmsgKp); err != nil {
-		return err
-	}
-	_ = s.addKprobe("udp_recvmsg", objs.UdpRecvmsgKp)
-	_ = s.addKprobe("udpv6_recvmsg", objs.Udpv6RecvmsgKp)
-	return nil
 }
 
 func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error {
