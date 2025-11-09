@@ -109,9 +109,6 @@ func (s *syscallHooks) attachSockAddr(objs *bpf.TracerObjects) error {
 	return nil
 }
 
-func (s *syscallHooks) attachUDPKprobes(objs *bpf.TracerObjects) error {
-}
-
 func (s *syscallHooks) installSyscallHooks(bpfObjects *bpf.TracerObjects) error {
 	var err error
 
