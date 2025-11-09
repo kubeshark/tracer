@@ -42,15 +42,11 @@ func (h *SyscalHooksImpl) Install() error {
 	}
 
 	if h.opts.UseSockAddr && h.opts.CgroupRoot != "" {
-		// cgroup v2: attach sock_addr programs
 		if err := h.syscallHooks.attachSockAddr(&h.bpfObjects.BpfObjs); err != nil {
 			return fmt.Errorf("attach UDP sock_addr failed: %w", err)
 		}
 	} else if h.opts.EnableUDPKprobes {
-		// cgroup v1 (only if you want to support it): kprobe fallback
-		if err := h.syscallHooks.attachUDPKprobes(&h.bpfObjects.BpfObjs); err != nil {
-			return fmt.Errorf("attach UDP kprobes failed: %w", err)
-		}
+		return nil
 	}
 
 	return nil
