@@ -13,6 +13,9 @@ static __always_inline int udp_sockaddr_store_ctx_v4(struct bpf_sock_addr *ctx, 
     __u64 cookie = bpf_get_socket_cookie(ctx);
     if (!cookie) cookie = (__u64)ctx;
 
+    __u64 skptr = (__u64)ctx->sk; 
+    bpf_map_update_elem(&udp_sk_cookie, &skptr, &cookie, BPF_ANY);
+
     struct flow_t ft = {};
     ft.protocol   = IPPROTO_UDP;
     ft.ip_version = 4;
@@ -41,9 +44,22 @@ static __always_inline int udp_sockaddr_store_ctx_v6(struct bpf_sock_addr *ctx, 
     __u64 cookie = bpf_get_socket_cookie(ctx);
     if (!cookie) cookie = (__u64)ctx;
 
+    __u64 skptr = (__u64)ctx->sk; 
+    bpf_map_update_elem(&udp_sk_cookie, &skptr, &cookie, BPF_ANY);
+
     struct flow_t ft = {};
     ft.protocol   = IPPROTO_UDP;
     ft.ip_version = 6;
+
+    if (is_send) {
+        __u32 r0 = ctx->msg_src_ip6[0], r1 = ctx->msg_src_ip6[1], r2 = ctx->msg_src_ip6[2], r3 = ctx->msg_src_ip6[3];
+        if ((r0|r1|r2|r3) != 0) {
+            ft.ip_local.addr_v6.in6_u.u6_addr32[0] = r0;
+            ft.ip_local.addr_v6.in6_u.u6_addr32[1] = r1;
+            ft.ip_local.addr_v6.in6_u.u6_addr32[2] = r2;
+            ft.ip_local.addr_v6.in6_u.u6_addr32[3] = r3;
+        }
+    }
 
     __u32 r0 = ctx->user_ip6[0], r1 = ctx->user_ip6[1], r2 = ctx->user_ip6[2], r3 = ctx->user_ip6[3];
     if ((r0|r1|r2|r3) != 0) {
