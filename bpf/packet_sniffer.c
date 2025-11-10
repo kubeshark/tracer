@@ -522,7 +522,7 @@ static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow
         return;
     }
 
-    if (key_flow->protocol == IPPROTO_UDP) {
+    /*if (key_flow->protocol == IPPROTO_UDP) {
         __u64 now = bpf_ktime_get_ns();
 
         if (side == PACKET_DIRECTION_SENT) {
@@ -545,7 +545,7 @@ static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow
             send_flow_stats(skb, fu, side, 1);
         }
         return;
-    }
+    }*/
 }
 
 SEC("cgroup_skb/ingress")
