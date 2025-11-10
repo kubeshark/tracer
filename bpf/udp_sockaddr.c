@@ -11,7 +11,7 @@ static __always_inline int udp_sockaddr_store_ctx_v4(struct bpf_sock_addr *ctx, 
     if (ctx->protocol != IPPROTO_UDP) return 1;
 
     __u64 cookie = bpf_get_socket_cookie(ctx);
-    if (!cookie) cookie = (__u64)ctx;
+    if (!cookie) cookie = (__u64)ctx->sk;
 
     __u64 skptr = (__u64)ctx->sk; 
     bpf_map_update_elem(&udp_sk_cookie, &skptr, &cookie, BPF_ANY);
@@ -42,7 +42,7 @@ static __always_inline int udp_sockaddr_store_ctx_v6(struct bpf_sock_addr *ctx, 
     if (ctx->protocol != IPPROTO_UDP) return 1;
 
     __u64 cookie = bpf_get_socket_cookie(ctx);
-    if (!cookie) cookie = (__u64)ctx;
+    if (!cookie) cookie = (__u64)ctx->sk;
 
     __u64 skptr = (__u64)ctx->sk; 
     bpf_map_update_elem(&udp_sk_cookie, &skptr, &cookie, BPF_ANY);
