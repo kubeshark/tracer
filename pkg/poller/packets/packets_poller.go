@@ -246,7 +246,7 @@ func (p *PacketsPoller) logPeriodicStats() {
 		packetsPerSec := float64(packetsDelta) / elapsed
 		bytesPerSec := float64(bytesDelta) / elapsed
 
-		log.Info().
+		log.Debug().
 			Float64("chunks_per_sec", chunksPerSec).
 			Float64("packets_per_sec", packetsPerSec).
 			Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
