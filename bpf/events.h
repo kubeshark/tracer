@@ -2,6 +2,7 @@
 SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
+#pragma once
 
 #include "include/headers.h"
 #include "include/util.h"

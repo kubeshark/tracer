@@ -313,6 +313,13 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         cgroup_id = bpf_skb_cgroup_id(skb);
     }
 
+    __u8 targeted = 1;
+    if (cgroup_id == 0) {
+        targeted = 0;
+    } else {
+        targeted = should_target_cgroup(cgroup_id);
+    }
+
     __u32 src_ip = 0;
     __u16 src_port = 0;
     __u32 dst_ip = 0;
@@ -415,6 +422,11 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v6, sizeof(struct in6_addr));
     }
 
+    __u64 cookie = bpf_get_socket_cookie(skb);
+    if (cookie) {
+        bpf_map_update_elem(&cookie_to_flow, &cookie, key_flow, BPF_ANY);
+    }
+
     struct flow_value_t* val_flow = bpf_map_lookup_elem(&all_flows_stats, fkey);
     if (val_flow) {
         if (side == PACKET_DIRECTION_RECEIVED) {
@@ -447,7 +459,7 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     }
     ++stats->packets_program_enabled;
 
-    if (cgroup_id == 0 || !should_target_cgroup(cgroup_id)) {
+    if (!targeted) {
         return 1;
     }
     ++stats->packets_matched_cgroup;
@@ -499,13 +511,41 @@ static __always_inline void send_flow_stats(struct __sk_buff* skb, struct flow_s
 }
 
 static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side) {
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow), side, 0);
+    if (key_flow->protocol == IPPROTO_TCP) {
+        send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
+        send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context,  key_flow), side, 0);
 
-    SWAP_FLOW(key_flow);
+        SWAP_FLOW(key_flow);
 
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow), side, 0);
+        send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
+        send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context,  key_flow), side, 0);
+        return;
+    }
+
+    /*if (key_flow->protocol == IPPROTO_UDP) {
+        __u64 now = bpf_ktime_get_ns();
+
+        if (side == PACKET_DIRECTION_SENT) {
+            struct flow_stats_t *fu = bpf_map_lookup_elem(&udp_send_flow_context, key_flow);
+            if (!fu) {
+                struct flow_stats_t init = { 0 };
+                init.last_update_time = now;
+                bpf_map_update_elem(&udp_send_flow_context, key_flow, &init, BPF_ANY);
+                fu = bpf_map_lookup_elem(&udp_send_flow_context, key_flow);
+            }
+            send_flow_stats(skb, fu, side, 1);
+        } else { 
+            struct flow_stats_t *fu = bpf_map_lookup_elem(&udp_recv_flow_context, key_flow);
+            if (!fu) {
+                struct flow_stats_t init = { 0 };
+                init.last_update_time = now;
+                bpf_map_update_elem(&udp_recv_flow_context, key_flow, &init, BPF_ANY);
+                fu = bpf_map_lookup_elem(&udp_recv_flow_context, key_flow);
+            }
+            send_flow_stats(skb, fu, side, 1);
+        }
+        return;
+    }*/
 }
 
 SEC("cgroup_skb/ingress")

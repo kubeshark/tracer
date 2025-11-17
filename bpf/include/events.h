@@ -3,6 +3,8 @@ SPDX-License-Identifier: GPL-3.0
 Copyright (C) Kubeshark
 */
 
+#pragma once
+
 #include "headers.h"
 #include "util.h"
 #include "maps.h"
@@ -24,6 +26,7 @@ BPF_LRU_HASH(accept_context, __u64, struct accept_data);
 #define SYSCALL_EVENT_ID_ACCEPT_CLOSE 3
 #define SYSCALL_EVENT_ID_CONNECT_UPDATE 4
 #define SYSCALL_EVENT_ID_ACCEPT_UPDATE 5
+#define SYSCALL_EVENT_ID_UDP_SUMMARY 6
 
 
 static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk, __be32* saddr, __be16* sport, __be32* daddr, __be16* dport);

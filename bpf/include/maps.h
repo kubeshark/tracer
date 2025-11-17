@@ -162,6 +162,13 @@ struct socket_cookie_data {
     __u8 __pad2;
 };
 
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, __u64);            /* socket cookie */
+    __type(value, struct flow_t); 
+    __uint(max_entries, 65536);
+} cookie_to_flow SEC(".maps");
+
 #define CONFIGURATION_FLAG_CAPTURE_STOPPED (1 << 0)
 #define CONFIGURATION_PASS_ALL_CGROUPS (1 << 1)
 struct configuration {
@@ -220,5 +227,11 @@ BPF_LRU_HASH(tcp_connect_flow_context, struct flow_t, struct flow_stats_t);
 BPF_LRU_HASH(tcp_accept_context, __u64, struct flow_t);
 BPF_LRU_HASH(tcp_accept_flow_context, struct flow_t, struct flow_stats_t);
 BPF_PERF_OUTPUT(syscall_events);
+
+BPF_LRU_HASH(udp_send_context,   __u64,          struct flow_t);
+BPF_LRU_HASH(udp_send_flow_context,  struct flow_t,  struct flow_stats_t);
+BPF_LRU_HASH(udp_recv_context,   __u64,          struct flow_t);
+BPF_LRU_HASH(udp_recv_flow_context,  struct flow_t,  struct flow_stats_t);
+BPF_HASH(udp_sk_cookie, __u64,  __u64);
 
 #endif /* __MAPS__ */

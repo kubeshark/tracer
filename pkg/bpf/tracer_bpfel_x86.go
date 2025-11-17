@@ -336,6 +336,15 @@ type TracerProgramSpecs struct {
 	TcpRecvmsg                    *ebpf.ProgramSpec `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.ProgramSpec `ebpf:"tcp_sendmsg"`
 	TraceCgroupConnect4           *ebpf.ProgramSpec `ebpf:"trace_cgroup_connect4"`
+	UdpDestroySock                *ebpf.ProgramSpec `ebpf:"udp_destroy_sock"`
+	UdpRecvmsg4                   *ebpf.ProgramSpec `ebpf:"udp_recvmsg4"`
+	UdpRecvmsg6                   *ebpf.ProgramSpec `ebpf:"udp_recvmsg6"`
+	UdpRecvmsgKp                  *ebpf.ProgramSpec `ebpf:"udp_recvmsg_kp"`
+	UdpSendmsg4                   *ebpf.ProgramSpec `ebpf:"udp_sendmsg4"`
+	UdpSendmsg6                   *ebpf.ProgramSpec `ebpf:"udp_sendmsg6"`
+	UdpSendmsgKp                  *ebpf.ProgramSpec `ebpf:"udp_sendmsg_kp"`
+	Udpv6RecvmsgKp                *ebpf.ProgramSpec `ebpf:"udpv6_recvmsg_kp"`
+	Udpv6SendmsgKp                *ebpf.ProgramSpec `ebpf:"udpv6_sendmsg_kp"`
 	VfsCreate                     *ebpf.ProgramSpec `ebpf:"vfs_create"`
 	VfsRmdir                      *ebpf.ProgramSpec `ebpf:"vfs_rmdir"`
 }
@@ -356,6 +365,7 @@ type TracerMapSpecs struct {
 	ChunksBuffer             *ebpf.MapSpec `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.MapSpec `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.MapSpec `ebpf:"connection_context"`
+	CookieToFlow             *ebpf.MapSpec `ebpf:"cookie_to_flow"`
 	DoMkdirContext           *ebpf.MapSpec `ebpf:"do_mkdir_context"`
 	Entrymap                 *ebpf.MapSpec `ebpf:"entrymap"`
 	ExcludedCgroupIds        *ebpf.MapSpec `ebpf:"excluded_cgroup_ids"`
@@ -392,6 +402,12 @@ type TracerMapSpecs struct {
 	TcpAcceptFlowContext     *ebpf.MapSpec `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.MapSpec `ebpf:"tcp_connect_context"`
 	TcpConnectFlowContext    *ebpf.MapSpec `ebpf:"tcp_connect_flow_context"`
+	UdpKprobeHits            *ebpf.MapSpec `ebpf:"udp_kprobe_hits"`
+	UdpRecvContext           *ebpf.MapSpec `ebpf:"udp_recv_context"`
+	UdpRecvFlowContext       *ebpf.MapSpec `ebpf:"udp_recv_flow_context"`
+	UdpSendContext           *ebpf.MapSpec `ebpf:"udp_send_context"`
+	UdpSendFlowContext       *ebpf.MapSpec `ebpf:"udp_send_flow_context"`
+	UdpSkCookie              *ebpf.MapSpec `ebpf:"udp_sk_cookie"`
 }
 
 // TracerObjects contains all objects after they have been loaded into the kernel.
@@ -425,6 +441,7 @@ type TracerMaps struct {
 	ChunksBuffer             *ebpf.Map `ebpf:"chunks_buffer"`
 	ConnectSyscallInfo       *ebpf.Map `ebpf:"connect_syscall_info"`
 	ConnectionContext        *ebpf.Map `ebpf:"connection_context"`
+	CookieToFlow             *ebpf.Map `ebpf:"cookie_to_flow"`
 	DoMkdirContext           *ebpf.Map `ebpf:"do_mkdir_context"`
 	Entrymap                 *ebpf.Map `ebpf:"entrymap"`
 	ExcludedCgroupIds        *ebpf.Map `ebpf:"excluded_cgroup_ids"`
@@ -461,6 +478,12 @@ type TracerMaps struct {
 	TcpAcceptFlowContext     *ebpf.Map `ebpf:"tcp_accept_flow_context"`
 	TcpConnectContext        *ebpf.Map `ebpf:"tcp_connect_context"`
 	TcpConnectFlowContext    *ebpf.Map `ebpf:"tcp_connect_flow_context"`
+	UdpKprobeHits            *ebpf.Map `ebpf:"udp_kprobe_hits"`
+	UdpRecvContext           *ebpf.Map `ebpf:"udp_recv_context"`
+	UdpRecvFlowContext       *ebpf.Map `ebpf:"udp_recv_flow_context"`
+	UdpSendContext           *ebpf.Map `ebpf:"udp_send_context"`
+	UdpSendFlowContext       *ebpf.Map `ebpf:"udp_send_flow_context"`
+	UdpSkCookie              *ebpf.Map `ebpf:"udp_sk_cookie"`
 }
 
 func (m *TracerMaps) Close() error {
@@ -477,6 +500,7 @@ func (m *TracerMaps) Close() error {
 		m.ChunksBuffer,
 		m.ConnectSyscallInfo,
 		m.ConnectionContext,
+		m.CookieToFlow,
 		m.DoMkdirContext,
 		m.Entrymap,
 		m.ExcludedCgroupIds,
@@ -513,6 +537,12 @@ func (m *TracerMaps) Close() error {
 		m.TcpAcceptFlowContext,
 		m.TcpConnectContext,
 		m.TcpConnectFlowContext,
+		m.UdpKprobeHits,
+		m.UdpRecvContext,
+		m.UdpRecvFlowContext,
+		m.UdpSendContext,
+		m.UdpSendFlowContext,
+		m.UdpSkCookie,
 	)
 }
 
@@ -572,6 +602,15 @@ type TracerPrograms struct {
 	TcpRecvmsg                    *ebpf.Program `ebpf:"tcp_recvmsg"`
 	TcpSendmsg                    *ebpf.Program `ebpf:"tcp_sendmsg"`
 	TraceCgroupConnect4           *ebpf.Program `ebpf:"trace_cgroup_connect4"`
+	UdpDestroySock                *ebpf.Program `ebpf:"udp_destroy_sock"`
+	UdpRecvmsg4                   *ebpf.Program `ebpf:"udp_recvmsg4"`
+	UdpRecvmsg6                   *ebpf.Program `ebpf:"udp_recvmsg6"`
+	UdpRecvmsgKp                  *ebpf.Program `ebpf:"udp_recvmsg_kp"`
+	UdpSendmsg4                   *ebpf.Program `ebpf:"udp_sendmsg4"`
+	UdpSendmsg6                   *ebpf.Program `ebpf:"udp_sendmsg6"`
+	UdpSendmsgKp                  *ebpf.Program `ebpf:"udp_sendmsg_kp"`
+	Udpv6RecvmsgKp                *ebpf.Program `ebpf:"udpv6_recvmsg_kp"`
+	Udpv6SendmsgKp                *ebpf.Program `ebpf:"udpv6_sendmsg_kp"`
 	VfsCreate                     *ebpf.Program `ebpf:"vfs_create"`
 	VfsRmdir                      *ebpf.Program `ebpf:"vfs_rmdir"`
 }
@@ -630,6 +669,15 @@ func (p *TracerPrograms) Close() error {
 		p.TcpRecvmsg,
 		p.TcpSendmsg,
 		p.TraceCgroupConnect4,
+		p.UdpDestroySock,
+		p.UdpRecvmsg4,
+		p.UdpRecvmsg6,
+		p.UdpRecvmsgKp,
+		p.UdpSendmsg4,
+		p.UdpSendmsg6,
+		p.UdpSendmsgKp,
+		p.Udpv6RecvmsgKp,
+		p.Udpv6SendmsgKp,
 		p.VfsCreate,
 		p.VfsRmdir,
 	)
