@@ -17,6 +17,8 @@ const (
 	CONFIG_POD_REGEX  = "POD_REGEX"
 	CONFIG_NAMESPACES = "NAMESPACES"
 	CONFIG_STOPPED    = "STOPPED"
+
+	CONFIG_RAW_CAPTURE = "RAW_CAPTURE"
 )
 
 const (
@@ -35,9 +37,15 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 	namespaces := strings.Split(configNamespaces, ",")
 
 	var settings uint32
-	if stopped, err := strconv.ParseBool(configMap.Data[CONFIG_STOPPED]); err != nil {
+	var stopped bool
+	var rawCapture bool
+	if stopped, err = strconv.ParseBool(configMap.Data[CONFIG_STOPPED]); err != nil {
 		log.Error().Err(err).Str("config", CONFIG_STOPPED).Send()
-	} else if stopped {
+	}
+	if rawCapture, err = strconv.ParseBool(configMap.Data[CONFIG_RAW_CAPTURE]); err != nil {
+		log.Error().Err(err).Str("config", CONFIG_RAW_CAPTURE).Send()
+	}
+	if stopped && !rawCapture {
 		settings |= CONFIGURATION_FLAG_CAPTURE_STOPPED
 	}
 

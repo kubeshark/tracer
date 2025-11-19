@@ -175,7 +175,7 @@ func (t *TlsStream) writeLayers(timestamp uint64, cgroupId uint64, direction uin
 			return
 		}
 		t.stats.PacketsGot++
-		t.poller.gopacketWriter(pkt)
+		t.poller.gopacketWriter(pkt, t.poller.dissectionDisabled)
 	}
 
 	t.doTcpSeqAckWalk(isClient, sentLen)

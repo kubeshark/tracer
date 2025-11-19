@@ -30,6 +30,8 @@ type PacketSource interface {
 	Stop() error
 	Stats() (packetsGot, packetsLost, chunksLost uint64)
 	ExtendedStats() interface{}
+	Pause()
+	Resume()
 }
 
 type PacketsPoller interface {
@@ -38,6 +40,8 @@ type PacketsPoller interface {
 	GetReceivedPackets() uint64
 	GetLostChunks() uint64
 	GetExtendedStats() interface{}
+	Pause()
+	Resume()
 }
 
 type PacketSourceImpl struct {
@@ -138,7 +142,11 @@ func NewPlainPacketSource(dataDir string, captureManager *rawcapture.Manager) (P
 	return newPacketSource(bpf.PinNamePlainPackets, bpf.PinNameProgramsConfiguration, poller, enableCapture, programCapturePlain, filepath.Join(dataDir, bpf.PlainBackendSupportedFile), filepath.Join(dataDir, bpf.PlainBackendNotSupportedFile), captureManager)
 }
 
-func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet) {
+func (p *PacketSourceImpl) WritePacket(pkt gopacket.Packet, dissectionDisabled bool) {
+	if dissectionDisabled {
+		return
+	}
+
 	pkt.Metadata().CaptureInfo.Done = make(chan struct{})
 	p.pktCh <- pkt
 	<-pkt.Metadata().CaptureInfo.Done
@@ -157,6 +165,14 @@ func (p *PacketSourceImpl) Start() error {
 
 func (p *PacketSourceImpl) Stop() error {
 	return p.poller.Stop()
+}
+
+func (p *PacketSourceImpl) Pause() {
+	p.poller.Pause()
+}
+
+func (p *PacketSourceImpl) Resume() {
+	p.poller.Resume()
 }
 
 func (p *PacketSourceImpl) Stats() (packetsGot, packetsLost, chunksLost uint64) {
