@@ -41,7 +41,7 @@ func NewBpfLogger(bpfObjects *bpf.TracerObjects, logDisabled bool) (p *BpfLogger
 		logDisabled: logDisabled,
 	}
 
-	p.logReader, err = perf.NewReader(bpfObjects.LogBuffer, os.Getpagesize())
+	p.logReader, err = perf.NewReader(bpfObjects.LogBuffer, os.Getpagesize()*10)
 	if err != nil {
 		err = errors.Wrap(err, 0)
 		return p, err

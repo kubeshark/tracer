@@ -27,21 +27,22 @@ cgroup_skb/ingress hook│                                 │cgroup_skb/egress 
 
     Each hook type attached into ingress and egrees parts.
 
-    Since preemption was introduced into eBPF starting from kernel 5.11, all functions should be thread-safe
+    Since preemption was introduced into eBPF starting from kernel 5.11, all
+functions should be thread-safe
 
     References:
     https://docs.cilium.io/en/stable/bpf/#bpf-guide
 
 */
 
+#include "include/cgroups.h"
+#include "include/common.h"
 #include "include/headers.h"
-#include "include/util.h"
-#include "include/maps.h"
 #include "include/log.h"
 #include "include/logger_messages.h"
-#include "include/common.h"
-#include "include/cgroups.h"
+#include "include/maps.h"
 #include "include/stats.h"
+#include "include/util.h"
 
 #include "packet_sniffer_v1.c"
 
@@ -68,7 +69,16 @@ struct
     __type(value, struct pkt);
 } pkt_heap SEC(".maps");
 
-struct {
+struct
+{
+    __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(max_entries, 1024);
+    __type(key, __u64);
+    __type(value, struct pkt);
+} pkt_heap_hash SEC(".maps");
+
+struct
+{
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
@@ -90,14 +100,16 @@ struct
 
 BPF_PERF_OUTPUT_LARGE(pkts_buffer);
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 65536);
-    __type(key, __u64); // sock id
+    __type(key, __u64);   // sock id
     __type(value, __u64); // cgroup id
 } socket_cgroups SEC(".maps");
 
-struct flow_key_t {
+struct flow_key_t
+{
     __u64 cgroup_id; // local peer cgroup id
     __u8 ip_local[16];
     __u8 ip_remote[16];
@@ -108,7 +120,8 @@ struct flow_key_t {
     __u8 ip_version;
 };
 
-struct flow_value_t {
+struct flow_value_t
+{
     __u64 first_update_time;
     __u64 last_update_time;
     __u64 pkts_sent;
@@ -117,26 +130,28 @@ struct flow_value_t {
     __u64 bytes_recv;
 };
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_LRU_PERCPU_HASH);
     __uint(max_entries, 65536);
     __type(key, struct flow_key_t);
     __type(value, struct flow_value_t);
 } all_flows_stats SEC(".maps");
 
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
     __type(value, struct flow_key_t);
 } heap_flow_key SEC(".maps");
 
-
 #define NSEC_PER_SEC 1000000000
 
 /*
     defining ENABLE_TRACE_PACKETS enables tracing into kernel cyclic buffer
-    which can be fetched on a host system with `cat /sys/kernel/debug/tracing/trace_pipe`
+    which can be fetched on a host system with `cat
+   /sys/kernel/debug/tracing/trace_pipe`
 */
 
 // #define ENABLE_TRACE_PACKETS
@@ -144,70 +159,65 @@ struct {
 #ifdef ENABLE_TRACE_PACKETS
 #define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
                           REMOTE_PORT, CGROUP_ID)                              \
-  bpf_printk("PKT " NAME " skb: %p len: %d ret: %d", skb,                      \
-             (IS_CGROUP ? (skb->len + 14) : skb->len), ret);                   \
-  bpf_printk("PKT " NAME " cgroup: %d cookie:0x%x", CGROUP_ID,                 \
-             bpf_get_socket_cookie(skb));                                      \
-  bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP),       \
-             &(REMOTE_IP));                                                    \
-  {                                                                            \
-    __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                \
-    __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                              \
-    bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",              \
-               __port_local, __port_remote);                                   \
-  }                                                                            \
-  bpf_printk("PKT " NAME " ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip));   \
-  {                                                                            \
-    __u32 __src_port = bpf_ntohl(src_port);                                    \
-    __u32 __dst_port = bpf_ntohl(dst_port);                                    \
-    bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port,       \
-               __dst_port);                                                    \
-  }
+    bpf_printk("PKT " NAME " skb: %p len: %d ret: %d", skb,                    \
+               (IS_CGROUP ? (skb->len + 14) : skb->len), ret);                 \
+    bpf_printk("PKT " NAME " cgroup: %d cookie:0x%x", CGROUP_ID,               \
+               bpf_get_socket_cookie(skb));                                    \
+    bpf_printk("PKT " NAME " ip_local: %pi4 ip_remote: %pi4", &(LOCAL_IP),     \
+               &(REMOTE_IP));                                                  \
+    {                                                                          \
+        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                            \
+        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                          \
+        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",          \
+                   __port_local, __port_remote);                               \
+    }                                                                          \
+    bpf_printk("PKT " NAME " ip_src: %pi4 ip_dst:%pi4", &(src_ip), &(dst_ip)); \
+    {                                                                          \
+        __u32 __src_port = bpf_ntohl(src_port);                                \
+        __u32 __dst_port = bpf_ntohl(dst_port);                                \
+        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port,   \
+                   __dst_port);                                                \
+    }
 
-#define PRINT_IPV6_ADDR(NAME, ADDR)                                           \
-  bpf_printk(NAME ": %x:%x:%x:%x",                                           \
-             bpf_ntohl(ADDR[0]), bpf_ntohl(ADDR[1]),                          \
-             bpf_ntohl(ADDR[2]), bpf_ntohl(ADDR[3]));
-#define PRINT_IPV6_ADDR_STRUCT(NAME, ADDR)                                      \
-   __u16 addr_parts[8];                                                        \
-    __builtin_memcpy(addr_parts, &ADDR, sizeof(addr_parts));                    \
-    bpf_printk(NAME ": %x:%x:%x:%x",                                           \
-               bpf_ntohs(addr_parts[0]),                                        \
-               bpf_ntohs(addr_parts[1]),                                        \
-               bpf_ntohs(addr_parts[2]),                                        \
-               bpf_ntohs(addr_parts[3]));                                       \
-    bpf_printk(NAME ": %x:%x:%x:%x",                                           \
-               bpf_ntohs(addr_parts[4]),                                        \
-               bpf_ntohs(addr_parts[5]),                                        \
-               bpf_ntohs(addr_parts[6]),                                        \
-               bpf_ntohs(addr_parts[7]));                                       
-#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT,    \
-                          REMOTE_PORT, CGROUP_ID)                              \
-  bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb,                       \
-             (IS_CGROUP ? (skb->len + 14) : skb->len));                        \
-  bpf_printk("PKT " NAME " [IPv6] cgroup: %d cookie:0x%x", CGROUP_ID,          \
-             bpf_get_socket_cookie(skb));                                      \
-  PRINT_IPV6_ADDR("ip_local", LOCAL_IP6);                                      \
-  PRINT_IPV6_ADDR("ip_remote", REMOTE_IP6);                                    \
-  {                                                                            \
-    __u32 __port_local = bpf_ntohl(LOCAL_PORT);                                \
-    __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                              \
-    bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",              \
-               __port_local, __port_remote);                                   \
-  }                                                                            \
-  PRINT_IPV6_ADDR_STRUCT("ip_src", src_ip6);                                          \
-  PRINT_IPV6_ADDR_STRUCT("ip_dst", dst_ip6);                                          \
-  {                                                                            \
-    __u32 __src_port = bpf_ntohl(src_port);                                    \
-    __u32 __dst_port = bpf_ntohl(dst_port);                                    \
-    bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port,       \
-               __dst_port);                                                    \
-  }
+#define PRINT_IPV6_ADDR(NAME, ADDR)                                          \
+    bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohl(ADDR[0]), bpf_ntohl(ADDR[1]), \
+               bpf_ntohl(ADDR[2]), bpf_ntohl(ADDR[3]));
+#define PRINT_IPV6_ADDR_STRUCT(NAME, ADDR)                         \
+    __u16 addr_parts[8];                                           \
+    __builtin_memcpy(addr_parts, &ADDR, sizeof(addr_parts));       \
+    bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohs(addr_parts[0]),     \
+               bpf_ntohs(addr_parts[1]), bpf_ntohs(addr_parts[2]), \
+               bpf_ntohs(addr_parts[3]));                          \
+    bpf_printk(NAME ": %x:%x:%x:%x", bpf_ntohs(addr_parts[4]),     \
+               bpf_ntohs(addr_parts[5]), bpf_ntohs(addr_parts[6]), \
+               bpf_ntohs(addr_parts[7]));
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT, \
+                          REMOTE_PORT, CGROUP_ID)                             \
+    bpf_printk("PKT " NAME " [IPv6] skb: %p len: %d", skb,                    \
+               (IS_CGROUP ? (skb->len + 14) : skb->len));                     \
+    bpf_printk("PKT " NAME " [IPv6] cgroup: %d cookie:0x%x", CGROUP_ID,       \
+               bpf_get_socket_cookie(skb));                                   \
+    PRINT_IPV6_ADDR("ip_local", LOCAL_IP6);                                   \
+    PRINT_IPV6_ADDR("ip_remote", REMOTE_IP6);                                 \
+    {                                                                         \
+        __u32 __port_local = bpf_ntohl(LOCAL_PORT);                           \
+        __u32 __port_remote = bpf_ntohl(REMOTE_PORT);                         \
+        bpf_printk("PKT " NAME " port_local: 0x%x port_remote: 0x%x",         \
+                   __port_local, __port_remote);                              \
+    }                                                                         \
+    PRINT_IPV6_ADDR_STRUCT("ip_src", src_ip6);                                \
+    PRINT_IPV6_ADDR_STRUCT("ip_dst", dst_ip6);                                \
+    {                                                                         \
+        __u32 __src_port = bpf_ntohl(src_port);                               \
+        __u32 __dst_port = bpf_ntohl(dst_port);                               \
+        bpf_printk("PKT " NAME " port_src: 0x%x port_dst: 0x%x", __src_port,  \
+                   __dst_port);                                               \
+    }
 #define TRACE_PACKET_SENT(NAME) bpf_printk("PKT " NAME " sent");
 #else
-#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT,    \
+#define TRACE_PACKET_IPV4(NAME, IS_CGROUP, LOCAL_IP, REMOTE_IP, LOCAL_PORT, \
                           REMOTE_PORT, CGROUP_ID)
-#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT,  \
+#define TRACE_PACKET_IPV6(NAME, IS_CGROUP, LOCAL_IP6, REMOTE_IP6, LOCAL_PORT, \
                           REMOTE_PORT, CGROUP_ID)
 #define TRACE_PACKET_SENT(NAME)
 #endif
@@ -216,34 +226,37 @@ struct {
 #define ETH_P_IPV6 0x86DD
 #define IPV6_EXT_MAX_CHAIN 4
 #ifndef IPPROTO_HOPOPTS
-#define IPPROTO_HOPOPTS   0
+#define IPPROTO_HOPOPTS 0
 #endif
 
 #ifndef IPPROTO_ROUTING
-#define IPPROTO_ROUTING   43
+#define IPPROTO_ROUTING 43
 #endif
 
 #ifndef IPPROTO_FRAGMENT
-#define IPPROTO_FRAGMENT  44
+#define IPPROTO_FRAGMENT 44
 #endif
 
 #ifndef IPPROTO_DSTOPTS
-#define IPPROTO_DSTOPTS   60
+#define IPPROTO_DSTOPTS 60
 #endif
 
 #ifndef IPPROTO_MH
-#define IPPROTO_MH        135
+#define IPPROTO_MH 135
 #endif
 
-struct pkt_sniffer_ctx {
+struct pkt_sniffer_ctx
+{
     struct __sk_buff* skb;
 
     union {
-        struct {
-            __u32 src;    // IPv4 source
-            __u32 dst;    // IPv4 destination
+        struct
+        {
+            __u32 src; // IPv4 source
+            __u32 dst; // IPv4 destination
         } v4;
-        struct {
+        struct
+        {
             struct in6_addr src; // IPv6 source
             struct in6_addr dst; // IPv6 destination
         } v6;
@@ -259,18 +272,21 @@ struct pkt_sniffer_ctx {
     bool is_ipv6;
 };
 
-
-static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side);
+static __always_inline void
+update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side);
 static __always_inline int save_packet(struct pkt_sniffer_ctx* args);
-static __always_inline int parse_packet(struct __sk_buff* skb,
-    __u32* src_ip4, __u16* src_port,
-    __u32* dst_ip4, __u16* dst_port,
-    __u8* ipp, struct in6_addr* src_ip6,
-    struct in6_addr* dst_ip6,
-    __u32* transportOffset);
+static __always_inline int parse_packet(struct __sk_buff* skb, __u32* src_ip4,
+                                        __u16* src_port, __u32* dst_ip4,
+                                        __u16* dst_port, __u8* ipp,
+                                        struct in6_addr* src_ip6,
+                                        struct in6_addr* dst_ip6,
+                                        __u32* transportOffset);
 
 static __always_inline int filter_packets(struct __sk_buff* skb,
-    void* cgrpctxmap, struct packet_sniffer_stats* stats, __u8 side) {
+                                          void* cgrpctxmap,
+                                          struct packet_sniffer_stats* stats,
+                                          __u8 side)
+{
     ++stats->packets_total;
 
     struct bpf_sock* sk = skb->sk;
@@ -281,15 +297,13 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
 
     int zero = 0;
     struct flow_t* key_flow = bpf_map_lookup_elem(&heap_flow, &zero);
-    if (key_flow == NULL)
-    {
+    if (key_flow == NULL) {
         return 1;
     }
     __builtin_memset(key_flow, 0, sizeof(struct flow_t));
 
     struct flow_key_t* fkey = bpf_map_lookup_elem(&heap_flow_key, &zero);
-    if (fkey == NULL)
-    {
+    if (fkey == NULL) {
         return 1;
     }
     __builtin_memset(fkey, 0, sizeof(struct flow_key_t));
@@ -317,8 +331,8 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     __u16 src_port = 0;
     __u32 dst_ip = 0;
     __u16 dst_port = 0;
-    struct in6_addr src_ip6 = { 0 };
-    struct in6_addr dst_ip6 = { 0 };
+    struct in6_addr src_ip6 = {0};
+    struct in6_addr dst_ip6 = {0};
     __u8 transportHdr = 0;
     __u32 transportOffset = 0;
     int ret = -1;
@@ -334,11 +348,11 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     if (ip_version == 6) {
         ++stats->packets_ipv6;
         ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port,
-            &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
+                           &transportHdr, &src_ip6, &dst_ip6, &transportOffset);
     } else {
         ++stats->packets_ipv4;
-        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port, &transportHdr,
-            &src_ip6, &dst_ip6, NULL);
+        ret = parse_packet(skb, &src_ip, &src_port, &dst_ip, &dst_port,
+                           &transportHdr, &src_ip6, &dst_ip6, NULL);
     }
     if (ret) {
         ++stats->packets_parse_failed;
@@ -377,8 +391,8 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         ctx.ip.v4.src = src_ip;
         ctx.ip.v4.dst = dst_ip;
         TRACE_PACKET_IPV4(flow_label, true, skb->local_ip4, skb->remote_ip4,
-            skb->local_port & 0xffff, skb->remote_port & 0xffff,
-            cgroup_id);
+                          skb->local_port & 0xffff, skb->remote_port & 0xffff,
+                          cgroup_id);
         if (side == PACKET_DIRECTION_RECEIVED) {
             key_flow->ip_local.addr_v4.s_addr = dst_ip;
             key_flow->ip_remote.addr_v4.s_addr = src_ip;
@@ -390,15 +404,19 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
         __builtin_memcpy(&ctx.ip.v6.src, &src_ip6, sizeof(struct in6_addr));
         __builtin_memcpy(&ctx.ip.v6.dst, &dst_ip6, sizeof(struct in6_addr));
         TRACE_PACKET_IPV6(flow_label, true, skb->local_ip6, skb->remote_ip6,
-            skb->local_port & 0xffff, skb->remote_port & 0xffff,
-            cgroup_id);
+                          skb->local_port & 0xffff, skb->remote_port & 0xffff,
+                          cgroup_id);
 
         if (side == PACKET_DIRECTION_RECEIVED) {
-            __builtin_memcpy(&key_flow->ip_local.addr_v6, &dst_ip6, sizeof(struct in6_addr));
-            __builtin_memcpy(&key_flow->ip_remote.addr_v6, &src_ip6, sizeof(struct in6_addr));
+            __builtin_memcpy(&key_flow->ip_local.addr_v6, &dst_ip6,
+                             sizeof(struct in6_addr));
+            __builtin_memcpy(&key_flow->ip_remote.addr_v6, &src_ip6,
+                             sizeof(struct in6_addr));
         } else {
-            __builtin_memcpy(&key_flow->ip_local.addr_v6, &src_ip6, sizeof(struct in6_addr));
-            __builtin_memcpy(&key_flow->ip_remote.addr_v6, &dst_ip6, sizeof(struct in6_addr));
+            __builtin_memcpy(&key_flow->ip_local.addr_v6, &src_ip6,
+                             sizeof(struct in6_addr));
+            __builtin_memcpy(&key_flow->ip_remote.addr_v6, &dst_ip6,
+                             sizeof(struct in6_addr));
         }
     }
 
@@ -408,11 +426,15 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     fkey->protocol = key_flow->protocol;
     fkey->ip_version = key_flow->ip_version;
     if (ip_version == 4) {
-        __builtin_memcpy(fkey->ip_local, &key_flow->ip_local.addr_v4.s_addr, sizeof(key_flow->ip_local.addr_v4.s_addr));
-        __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v4.s_addr, sizeof(key_flow->ip_remote.addr_v4.s_addr));
+        __builtin_memcpy(fkey->ip_local, &key_flow->ip_local.addr_v4.s_addr,
+                         sizeof(key_flow->ip_local.addr_v4.s_addr));
+        __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v4.s_addr,
+                         sizeof(key_flow->ip_remote.addr_v4.s_addr));
     } else {
-        __builtin_memcpy(fkey->ip_local, &key_flow->ip_local.addr_v6, sizeof(struct in6_addr));
-        __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v6, sizeof(struct in6_addr));
+        __builtin_memcpy(fkey->ip_local, &key_flow->ip_local.addr_v6,
+                         sizeof(struct in6_addr));
+        __builtin_memcpy(fkey->ip_remote, &key_flow->ip_remote.addr_v6,
+                         sizeof(struct in6_addr));
     }
 
     struct flow_value_t* val_flow = bpf_map_lookup_elem(&all_flows_stats, fkey);
@@ -429,7 +451,7 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
             val_flow->first_update_time = val_flow->last_update_time;
         }
     } else {
-        struct flow_value_t new_val = { 0 };
+        struct flow_value_t new_val = {0};
         new_val.pkts_recv = (side == PACKET_DIRECTION_RECEIVED) ? 1 : 0;
         new_val.pkts_sent = (side == PACKET_DIRECTION_RECEIVED) ? 0 : 1;
         new_val.bytes_recv = (side == PACKET_DIRECTION_RECEIVED) ? skb->len : 0;
@@ -469,7 +491,10 @@ static __always_inline int filter_packets(struct __sk_buff* skb,
     return 1;
 }
 
-static __always_inline void send_flow_stats(struct __sk_buff* skb, struct flow_stats_t* val_flow, __u8 side, __u8 is_client) {
+static __always_inline void send_flow_stats(struct __sk_buff* skb,
+                                            struct flow_stats_t* val_flow,
+                                            __u8 side, __u8 is_client)
+{
     if (!val_flow) {
         return;
     }
@@ -494,18 +519,25 @@ static __always_inline void send_flow_stats(struct __sk_buff* skb, struct flow_s
     __u64 now = bpf_ktime_get_ns();
     if (now - val_flow->last_update_time > 10lu * NSEC_PER_SEC) {
         val_flow->last_update_time = now;
-        bpf_perf_event_output(skb, &syscall_events, BPF_F_CURRENT_CPU, &val_flow->event, sizeof(struct syscall_event));
+        bpf_perf_event_output(skb, &syscall_events, BPF_F_CURRENT_CPU,
+                              &val_flow->event, sizeof(struct syscall_event));
     }
 }
 
-static __always_inline void update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side) {
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow), side, 0);
+static __always_inline void
+update_flow_stats(struct __sk_buff* skb, struct flow_t* key_flow, __u8 side)
+{
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow),
+                    side, 1);
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow),
+                    side, 0);
 
     SWAP_FLOW(key_flow);
 
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow), side, 1);
-    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow), side, 0);
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_connect_flow_context, key_flow),
+                    side, 1);
+    send_flow_stats(skb, bpf_map_lookup_elem(&tcp_accept_flow_context, key_flow),
+                    side, 0);
 }
 
 SEC("cgroup_skb/ingress")
@@ -558,46 +590,57 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
     __u16 rewrite_port_dst = ctx->rewrite_port_dst;
     __u64 cgroup_id = ctx->cgroup_id;
     __u8 direction = ctx->direction;
+    __u64 packet_id = 0;
     int zero = 0;
 
-    struct pkt* p = bpf_map_lookup_elem(&pkt_heap, &zero);
-    if (p == NULL)
-    {
+    struct pkt_id_t* pkt_id_ptr = bpf_map_lookup_elem(&pkt_id, &zero);
+    if (pkt_id_ptr == NULL) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 1, 0l, 0l);
+        ret = 5;
+        goto save_packet_end;
+    }
+    bpf_spin_lock(&pkt_id_ptr->lock);
+    packet_id = ++pkt_id_ptr->id;
+    bpf_spin_unlock(&pkt_id_ptr->lock);
+
+    struct pkt* pzero = bpf_map_lookup_elem(&pkt_heap, &zero);
+    if (pzero == NULL) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 2, 0l, 0l);
+        ret = 2;
+        goto save_packet_end;
+    }
+
+    if (bpf_map_update_elem(&pkt_heap_hash, &packet_id, pzero, BPF_ANY)) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 3, 0l, 0l);
-        return 2;
+        ret = 2;
+        goto save_packet_end;
+    }
+    struct pkt* p = bpf_map_lookup_elem(&pkt_heap_hash, &packet_id);
+    if (p == NULL) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 4, 0l, 0l);
+        ret = 2;
+        goto save_packet_end;
     }
 
     p->tot_len = skb->len;
     p->counter = skb->len;
 
-    if (p->counter == 0)
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 1, 0l, 0l);
-        return 3;
+    if (p->counter == 0) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 5, 0l, 0l);
+        ret = 3;
+        goto save_packet_end;
     }
 
-    if (p->counter > PKT_MAX_LEN)
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 2, 0l, 0l);
-        return 4;
+    if (p->counter > PKT_MAX_LEN) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 6, 0l, 0l);
+        ret = 4;
+        goto save_packet_end;
     }
-
-    struct pkt_id_t* pkt_id_ptr = bpf_map_lookup_elem(&pkt_id, &zero);
-    if (pkt_id_ptr == NULL)
-    {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 4, 0l, 0l);
-        return 5;
-    }
-    __u64 packet_id = 0;
-    bpf_spin_lock(&pkt_id_ptr->lock);
-    packet_id = pkt_id_ptr->id++;
-    bpf_spin_unlock(&pkt_id_ptr->lock);
 
     // send initial chunk before the first packet
     if (unlikely(packet_id == 0)) {
-        if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, 0))
-        {
-            log_error(skb, LOG_ERROR_PKT_SNIFFER, 11, 0l, 0l);
+        if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, 0)) {
+            log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
         }
     }
 
@@ -611,42 +654,42 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
     p->ip_hdr_type = bpf_ntohs(ctx->skb->protocol);
 
 #pragma unroll
-    for (__u32 i = 0; (i < PKT_MAX_LEN / PKT_PART_LEN) && p->counter; i++)
-    {
+    for (__u32 i = 0; (i < PKT_MAX_LEN / PKT_PART_LEN) && p->counter; i++) {
         p->len = (p->counter <= PKT_PART_LEN) ? p->counter : PKT_PART_LEN;
         p->num = i;
         p->counter -= p->len;
         p->last = (p->counter == 0) ? 1 : 0;
 
-        if (p->len == PKT_PART_LEN)
-        {
-            if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], PKT_PART_LEN) != 0)
-            {
-                log_error(skb, LOG_ERROR_PKT_SNIFFER, 6, 0l, 0l);
-                return 6;
+        if (p->len == PKT_PART_LEN) {
+            if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], PKT_PART_LEN) !=
+                0) {
+                log_error(skb, LOG_ERROR_PKT_SNIFFER, 8, 0l, 0l);
+                ret = 6;
+                goto save_packet_end;
             }
-        } else
-        {
+        } else {
             uint16_t p_len = p->len;
-            if (p_len < 1 || p_len > 4095)
-            {
-                // This is assertion if branch - should never happens according above logic
-                log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
-                return 7;
+            if (p_len < 1 || p_len > 4095) {
+                // This is assertion if branch - should never happens according above
+                // logic
+                log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
+                ret = 7;
+                goto save_packet_end;
             }
             p_len -= 1; // to satisfy verifier in below bpf_skb_load_bytes
-            if (p_len + 1 < sizeof(p->buf))
-            {
-                if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1) != 0)
-                {
-                    log_error(skb, LOG_ERROR_PKT_SNIFFER, 8, 0l, 0l);
-                    return 8;
+            if (p_len + 1 < sizeof(p->buf)) {
+                if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1) !=
+                    0) {
+                    log_error(skb, LOG_ERROR_PKT_SNIFFER, 10, 0l, 0l);
+                    ret = 8;
+                    goto save_packet_end;
                 }
-            } else
-            {
-                // This is assertion if branch - should never happens according above logic
-                log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
-                return 9;
+            } else {
+                // This is assertion if branch - should never happens according above
+                // logic
+                log_error(skb, LOG_ERROR_PKT_SNIFFER, 11, 0l, 0l);
+                ret = 9;
+                goto save_packet_end;
             }
         }
         if (ip_version == 6) {
@@ -656,17 +699,21 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
             if (rewrite_ip6_dst)
                 __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst, sizeof(struct in6_addr));
 
-            if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
+            if (ctx->transportHdrType == IPPROTO_TCP ||
+                ctx->transportHdrType == IPPROTO_UDP) {
                 if (ctx->transportOffset >= PKT_PART_LEN) {
                     log_error(skb, LOG_ERROR_PKT_SNIFFER, 12, ctx->transportOffset, 0l);
-                    return 10;
+                    ret = 10;
+                    goto save_packet_end;
                 }
 
                 void* transport_hdr = (void*)(&p->buf[ctx->transportOffset]);
 
-                if ((void*)transport_hdr + sizeof(struct tcphdr) > (void*)&p->buf[PKT_PART_LEN]) {
+                if ((void*)transport_hdr + sizeof(struct tcphdr) >
+                    (void*)&p->buf[PKT_PART_LEN]) {
                     log_error(skb, LOG_ERROR_PKT_SNIFFER, 13, ctx->transportOffset, 0l);
-                    return 11;
+                    ret = 11;
+                    goto save_packet_end;
                 }
 
                 __u16* src_dst = (__u16*)transport_hdr;
@@ -681,8 +728,7 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
                 ip->saddr = rewrite_ip_src;
             if (rewrite_ip_dst)
                 ip->daddr = rewrite_ip_dst;
-            if (ip->protocol == IPPROTO_TCP || ip->protocol == IPPROTO_UDP)
-            {
+            if (ip->protocol == IPPROTO_TCP || ip->protocol == IPPROTO_UDP) {
                 int hdrsize = ip->ihl * 4;
                 __u16* src_dst = (__u16*)(&p->buf[0] + hdrsize);
                 if (rewrite_port_src)
@@ -692,14 +738,19 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
             }
         }
 
-        long err_perf = bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, sizeof(struct pkt));
-        if (err_perf)
-        {
+        long err_perf =
+            bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
+                                  sizeof(struct pkt));
+        if (err_perf) {
             if (!ret) {
                 ret = err_perf;
             }
-            log_error(skb, LOG_ERROR_PKT_SNIFFER, 10, 0l, 0l);
+            log_error(skb, LOG_ERROR_PKT_SNIFFER, 14, err_perf, 0l);
         }
+    }
+save_packet_end:
+    if (packet_id != 0) {
+        bpf_map_delete_elem(&pkt_heap_hash, &packet_id);
     }
     return ret;
 }
@@ -716,12 +767,13 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
    @transportOffset: pointer to the transport layer offset
 returns 0 on success, -1 on error
 */
-static __always_inline int parse_packet(struct __sk_buff* skb,
-    __u32* src_ip4, __u16* src_port,
-    __u32* dst_ip4, __u16* dst_port,
-    __u8* ipp, struct in6_addr* src_ip6,
-    struct in6_addr* dst_ip6,
-    __u32* transportOffset) {
+static __always_inline int parse_packet(struct __sk_buff* skb, __u32* src_ip4,
+                                        __u16* src_port, __u32* dst_ip4,
+                                        __u16* dst_port, __u8* ipp,
+                                        struct in6_addr* src_ip6,
+                                        struct in6_addr* dst_ip6,
+                                        __u32* transportOffset)
+{
     void* data = (void*)(long)skb->data;
     void* data_end = (void*)(long)skb->data_end;
     void* cursor = data;

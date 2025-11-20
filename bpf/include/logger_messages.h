@@ -38,10 +38,10 @@ Copyright (C) Kubeshark
 #define LOG_ERROR_EVENT (27)
 
 // Sometimes we have the same error, happening from different locations.
-// 	in order to be able to distinct between them in the log, we add an 
-// 	extra number that identify the location. The number can be anything, 
+// 	in order to be able to distinct between them in the log, we add an
+// 	extra number that identify the location. The number can be anything,
 //	but do not give the same number to different origins.
-// 
+//
 #define ORIGIN_SSL_UPROBE_CODE (0l)
 #define ORIGIN_SSL_URETPROBE_CODE (1l)
 #define ORIGIN_SYS_ENTER_READ_CODE (2l)
