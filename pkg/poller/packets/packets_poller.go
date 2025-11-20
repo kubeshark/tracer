@@ -53,7 +53,7 @@ func (p *PacketsPoller) startWorkerPool() {
 		go func(workerID int) {
 			defer close(p.workerPool[workerID])
 			for job := range p.packetJobs {
-				p.gopacketWriter(job.pkt)
+				p.gopacketWriter(job.pkt, p.dissectionDisabled)
 				pktBufferPool.Put(job.pkts)
 			}
 		}(i)
@@ -138,6 +138,8 @@ type PacketsPoller struct {
 	lastStats       PacketsPollerStats
 	tai             tai.TaiInfo
 	stats           PacketsPollerStats
+
+	dissectionDisabled bool
 }
 
 type PacketsPollerStats struct {
@@ -177,7 +179,8 @@ func NewPacketsPoller(
 		stopCleanup:     make(chan struct{}),
 		tai:             tai.NewTaiInfo(),
 		lastStatsTime:   time.Now(),
-		// pktBuf:          make([]byte, 0, 14+64*1024),
+
+		dissectionDisabled: false,
 	}
 
 	// Initialize per-CPU maps
@@ -269,6 +272,14 @@ func (p *PacketsPoller) GetReceivedPackets() uint64 {
 
 func (p *PacketsPoller) GetExtendedStats() interface{} {
 	return p.stats
+}
+
+func (p *PacketsPoller) Pause() {
+	p.dissectionDisabled = true
+}
+
+func (p *PacketsPoller) Resume() {
+	p.dissectionDisabled = false
 }
 
 // formatBytes formats bytes into human readable format with K/M suffixes
@@ -404,6 +415,7 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 
 func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
 	if p.gopacketWriter == nil {
+
 		pktBufferPool.Put(pktBuf)
 		return false, nil
 	}
