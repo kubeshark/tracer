@@ -77,7 +77,9 @@ func newTestPoller(t *testing.T) *PacketsPoller {
 		ethhdrContent:   make([]byte, 14),
 		maxCPUs:         2,
 		pktsMaps:        make([]map[uint64]*pktBuffer, 2),
+		stopCleanup:     make(chan struct{}), // Initialize the cleanup channel
 		tai:             tai.NewTaiInfo(),
+		lastStatsTime:   time.Now(),
 	}
 	for i := 0; i < 2; i++ {
 		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
