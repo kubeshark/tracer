@@ -1,6 +1,7 @@
 package rawcapture
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -53,6 +54,8 @@ type Writer struct {
 	activeSize     uint64
 	activeOpenedAt time.Time
 	pcapWriter     *pcapgo.Writer // PCAP writer for packet data
+	bufWriter      *bufio.Writer
+	lastFlush      time.Time
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -60,6 +63,9 @@ type Writer struct {
 
 	dropCount   uint64 // total frames dropped due to backpressure
 	recordCount uint64 // successfully written records (frames)
+
+	bytesSinceLastQuotaCheck uint64
+	needsQuotaCheck          bool
 }
 
 type Manager struct {
@@ -129,6 +135,7 @@ func (m *Manager) StartCapturing(baseDir string, id string, enabled bool, rotate
 		cancel:         cancel,
 		queue:          make(chan []byte, 8192),
 		activeOpenedAt: time.Time{},
+		lastFlush:      time.Now(),
 	}
 	go w.loop()
 	m.writers[id] = w
@@ -211,6 +218,12 @@ func (w *Writer) loop() {
 					}
 				}
 			}
+			if w.bufWriter != nil && time.Since(w.lastFlush) >= 10*time.Second {
+				if err := w.bufWriter.Flush(); err != nil {
+					log.Error().Err(err).Msg("systemstore: periodic flush failed")
+				}
+				w.lastFlush = time.Now()
+			}
 			w.mu.Unlock()
 
 		case frame := <-w.queue:
@@ -226,14 +239,19 @@ func (w *Writer) loop() {
 					continue
 				}
 			}
-			if err := w.ensureQuotaLocked(uint64(len(frame))); err != nil {
-				log.Warn().Err(err).Str("target", w.target.String()).Str("id", w.id).Msg("systemstore: quota handling")
-				if errors.Is(err, ErrQuotaStop) {
-					w.enabled = false
-					w.closeActiveLocked()
+			w.bytesSinceLastQuotaCheck += uint64(len(frame))
+			if w.needsQuotaCheck || w.bytesSinceLastQuotaCheck >= 100*1024*1024 {
+				if err := w.ensureQuotaLocked(uint64(len(frame))); err != nil {
+					log.Warn().Err(err).Str("target", w.target.String()).Str("id", w.id).Msg("systemstore: quota handling")
+					if errors.Is(err, ErrQuotaStop) {
+						w.enabled = false
+						w.closeActiveLocked()
+					}
+					w.mu.Unlock()
+					continue
 				}
-				w.mu.Unlock()
-				continue
+				w.bytesSinceLastQuotaCheck = 0
+				w.needsQuotaCheck = false
 			}
 
 			// Handle packet data
@@ -264,7 +282,7 @@ func (w *Writer) loop() {
 				}
 			} else if w.target == raw.Target_TARGET_SYSCALLS {
 				// Regular protobuf data write
-				n, err := w.activeFile.Write(frame)
+				n, err := w.bufWriter.Write(frame)
 				if err != nil {
 					log.Error().Err(err).Str("file", w.activePath).Msg("systemstore: write failed")
 				} else {
@@ -385,6 +403,9 @@ func (w *Writer) ensureQuotaLocked(incoming uint64) error {
 
 func (w *Writer) rotateLocked() error {
 	if w.activeFile != nil {
+		if w.bufWriter != nil {
+			_ = w.bufWriter.Flush()
+		}
 		_ = w.activeFile.Close()
 	}
 	name := time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
@@ -397,10 +418,14 @@ func (w *Writer) rotateLocked() error {
 	w.activePath = full
 	w.activeSize = 0
 	w.activeOpenedAt = time.Now().UTC()
+	w.needsQuotaCheck = true
+	w.lastFlush = time.Now()
+
+	w.bufWriter = bufio.NewWriterSize(f, 8*1024*1024)
 
 	// Initialize PCAP writer for packet data and write header for new file
 	if w.target == raw.Target_TARGET_PACKETS {
-		w.pcapWriter = pcapgo.NewWriter(f)
+		w.pcapWriter = pcapgo.NewWriter(w.bufWriter)
 		// Write PCAP header with raw link type
 		if err := w.pcapWriter.WriteFileHeader(65536, layers.LinkTypeRaw); err != nil {
 			return fmt.Errorf("failed to write PCAP header: %v", err)
@@ -555,6 +580,10 @@ func (m *Manager) StatusFor(id string) *Status {
 // Callers must hold w.mu.
 func (w *Writer) closeActiveLocked() {
 	if w.activeFile != nil {
+		if w.bufWriter != nil {
+			_ = w.bufWriter.Flush()
+			w.bufWriter = nil
+		}
 		_ = w.activeFile.Close()
 		w.activeFile = nil
 	}
