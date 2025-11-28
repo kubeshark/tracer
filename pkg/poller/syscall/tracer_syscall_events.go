@@ -33,7 +33,7 @@ type SyscallEventsTracer struct {
 }
 
 func NewSyscallEventsTracer(procfs string, bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
-	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize())
+	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize()*10)
 	if err != nil {
 		return nil, fmt.Errorf("open events perf buffer failed")
 	}

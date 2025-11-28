@@ -28,7 +28,7 @@ const (
 
 type (
 	RawWriter      func(timestamp uint64, cgroupId uint64, direction uint8, firstLayerType gopacket.LayerType, l ...gopacket.SerializableLayer) (err error)
-	GopacketWriter func(packet gopacket.Packet)
+	GopacketWriter func(packet gopacket.Packet, dissectionDisabled bool)
 )
 
 type TlsPoller struct {
@@ -51,7 +51,8 @@ type TlsPoller struct {
 	// LayerParser for efficient packet decoding
 	layerParser *decodedpacket.LayerParser
 	// Reusable buffer for packet data
-	pktBuf []byte
+	pktBuf             []byte
+	dissectionDisabled bool
 }
 
 type TlsPollerStats struct {
@@ -68,15 +69,16 @@ func NewTlsPoller(
 	perfBufferSize int,
 ) (*TlsPoller, error) {
 	poller := &TlsPoller{
-		streams:         make(map[string]*TlsStream),
-		closeStreams:    make(chan string, misc.TlsCloseChannelBufferSize),
-		chunksReader:    nil,
-		rawPacketWriter: rawPacketWriter,
-		gopacketWriter:  gopacketWriter,
-		tai:             tai.NewTaiInfo(),
-		reusableBuffer:  bytes.NewReader(nil), // Initialize with empty buffer
-		layerParser:     decodedpacket.NewLayerParser(),
-		pktBuf:          make([]byte, 0, 14+64*1024),
+		streams:            make(map[string]*TlsStream),
+		closeStreams:       make(chan string, misc.TlsCloseChannelBufferSize),
+		chunksReader:       nil,
+		rawPacketWriter:    rawPacketWriter,
+		gopacketWriter:     gopacketWriter,
+		tai:                tai.NewTaiInfo(),
+		reusableBuffer:     bytes.NewReader(nil), // Initialize with empty buffer
+		layerParser:        decodedpacket.NewLayerParser(),
+		pktBuf:             make([]byte, 0, 14+64*1024),
+		dissectionDisabled: false,
 	}
 
 	fdCache, err := simplelru.NewLRU(fdCacheMaxItems, poller.fdCacheEvictCallback)
@@ -134,6 +136,14 @@ func (p *TlsPoller) GetReceivedPackets() uint64 {
 
 func (p *TlsPoller) GetExtendedStats() interface{} {
 	return p.stats
+}
+
+func (p *TlsPoller) Pause() {
+	p.dissectionDisabled = true
+}
+
+func (p *TlsPoller) Resume() {
+	p.dissectionDisabled = false
 }
 
 func (p *TlsPoller) pollChunksPerfBuffer(chunks chan<- *TracerTlsChunk) {

@@ -77,7 +77,9 @@ func newTestPoller(t *testing.T) *PacketsPoller {
 		ethhdrContent:   make([]byte, 14),
 		maxCPUs:         2,
 		pktsMaps:        make([]map[uint64]*pktBuffer, 2),
+		stopCleanup:     make(chan struct{}), // Initialize the cleanup channel
 		tai:             tai.NewTaiInfo(),
+		lastStatsTime:   time.Now(),
 	}
 	for i := 0; i < 2; i++ {
 		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
@@ -298,7 +300,7 @@ func TestWritePacket_DecodeMatrix(t *testing.T) {
 	defer stopPoller(t, p)
 
 	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet) {
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {
 		select {
 		case writerHit <- struct{}{}:
 		default:
@@ -463,7 +465,7 @@ func TestHandlePktChunk_InvalidTCPOptionLength_FastPath(t *testing.T) {
 	defer stopPoller(t, p)
 
 	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet) { writerHit <- struct{}{} }
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) { writerHit <- struct{}{} }
 
 	opts := []byte{2, 49, 0xaa, 0xbb}
 	tcp := tcpHeader(6, opts)
@@ -513,7 +515,7 @@ func TestFastPath_PayloadStart_MisalignedHTTP_Dropped(t *testing.T) {
 	defer stopPoller(t, p)
 
 	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet) { writerHit <- struct{}{} }
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) { writerHit <- struct{}{} }
 
 	tcp := tcpHeader(5, nil)
 	full := makeIPv4Packet(6, tcp, []byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
@@ -554,7 +556,7 @@ func TestReassembly_ParseError_ReturnsOkTrueAndNoWriter(t *testing.T) {
 	defer stopPoller(t, p)
 
 	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet) { writerHit <- struct{}{} }
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) { writerHit <- struct{}{} }
 
 	opts := []byte{2, 49, 0xaa, 0xbb}
 	tcp := tcpHeader(6, opts)
@@ -609,7 +611,7 @@ func TestWritePacket_RecordsExactTCPOptionsErrorStyle(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	p.gopacketWriter = func(pkt gopacket.Packet) {}
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {}
 
 	opts := []byte{2, 49, 0xaa, 0xbb}
 	tcp := tcpHeader(6, opts)

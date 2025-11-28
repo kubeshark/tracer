@@ -53,7 +53,7 @@ func (p *PacketsPoller) startWorkerPool() {
 		go func(workerID int) {
 			defer close(p.workerPool[workerID])
 			for job := range p.packetJobs {
-				p.gopacketWriter(job.pkt)
+				p.gopacketWriter(job.pkt, p.dissectionDisabled)
 				pktBufferPool.Put(job.pkts)
 			}
 		}(i)
@@ -100,6 +100,7 @@ type pktBuffer struct {
 	buf            [64 * 1024]byte
 	layerParser    *decodedpacket.LayerParser
 	reusableRecord perf.Record
+	firstSeen      time.Time // Timestamp when buffer was first created for incomplete packet tracking
 }
 
 // reset resets the pktBuffer for reuse
@@ -123,6 +124,8 @@ type PacketsPoller struct {
 	// Per-CPU packet maps to avoid contention
 	pktsMaps []map[uint64]*pktBuffer // one map per CPU
 	maxCPUs  int
+	// Cleanup mechanism
+	stopCleanup chan struct{} // Signal channel to stop cleanup goroutine
 	// Original fields
 	chunksReader    perfReader
 	gopacketWriter  bpf.GopacketWriter
@@ -135,6 +138,8 @@ type PacketsPoller struct {
 	lastStats       PacketsPollerStats
 	tai             tai.TaiInfo
 	stats           PacketsPollerStats
+
+	dissectionDisabled bool
 }
 
 type PacketsPollerStats struct {
@@ -171,9 +176,11 @@ func NewPacketsPoller(
 		rawPacketWriter: rawPacketWriter,
 		maxCPUs:         maxCPUs,
 		pktsMaps:        make([]map[uint64]*pktBuffer, maxCPUs),
+		stopCleanup:     make(chan struct{}),
 		tai:             tai.NewTaiInfo(),
 		lastStatsTime:   time.Now(),
-		// pktBuf:          make([]byte, 0, 14+64*1024),
+
+		dissectionDisabled: false,
 	}
 
 	// Initialize per-CPU maps
@@ -196,12 +203,63 @@ func NewPacketsPoller(
 }
 
 func (p *PacketsPoller) Stop() error {
+	// Signal cleanup goroutine to stop
+	close(p.stopCleanup)
+
+	// Clean up all pending buffers in pktsMaps before shutdown
+	for i := 0; i < p.maxCPUs; i++ {
+		for _, pkts := range p.pktsMaps[i] {
+			pktBufferPool.Put(pkts)
+		}
+		p.pktsMaps[i] = nil
+	}
+
 	p.stopWorkerPool()
 	return p.chunksReader.Close()
 }
 
+// cleanupStalePackets periodically removes incomplete packets that have been waiting too long
+// this can happen only because of bug in bpf code
+func (p *PacketsPoller) cleanupStalePackets() {
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	defer ticker.Stop()
+
+	const staleThreshold = 30 * time.Second // Consider packets stale after 30 seconds
+
+	for {
+		select {
+		case <-ticker.C:
+			threshold := time.Now().Add(-staleThreshold)
+			cleanedCount := 0
+			loggedCount := 0
+
+			for i := 0; i < p.maxCPUs; i++ {
+				for id, pkts := range p.pktsMaps[i] {
+					if pkts.firstSeen.Before(threshold) {
+						// Log detailed info for first 10 cleaned packets
+						if loggedCount < 10 {
+							// XXX logStalePacketDetails(pkts, id, i)
+							loggedCount++
+						}
+						pktBufferPool.Put(pkts)
+						delete(p.pktsMaps[i], id)
+						cleanedCount++
+					}
+				}
+			}
+
+			if cleanedCount > 0 {
+				log.Warn().Int("cleaned", cleanedCount).Msg("Cleaned up stale incomplete packets")
+			}
+		case <-p.stopCleanup:
+			return
+		}
+	}
+}
+
 func (p *PacketsPoller) Start() {
 	go p.poll()
+	go p.cleanupStalePackets() // Start background cleanup goroutine
 }
 
 func (p *PacketsPoller) GetLostChunks() uint64 {
@@ -214,6 +272,14 @@ func (p *PacketsPoller) GetReceivedPackets() uint64 {
 
 func (p *PacketsPoller) GetExtendedStats() interface{} {
 	return p.stats
+}
+
+func (p *PacketsPoller) Pause() {
+	p.dissectionDisabled = true
+}
+
+func (p *PacketsPoller) Resume() {
+	p.dissectionDisabled = false
 }
 
 // formatBytes formats bytes into human readable format with K/M suffixes
@@ -315,6 +381,7 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 		}
 		pkts.reset()
 		pkts.id = ptr.ID
+		pkts.firstSeen = time.Now() // Track when incomplete packet was created
 		cpuMap[ptr.ID] = pkts
 	}
 	if ptr.Num != pkts.num {
@@ -348,6 +415,7 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 
 func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
 	if p.gopacketWriter == nil {
+
 		pktBufferPool.Put(pktBuf)
 		return false, nil
 	}
