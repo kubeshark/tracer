@@ -7,11 +7,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	commonv1 "github.com/kubeshark/api2/pkg/proto/common/v1"
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
+	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/rawcapture"
+	"github.com/kubeshark/tracer/pkg/utils"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/cilium/ebpf/perf"
@@ -25,28 +28,33 @@ import (
 )
 
 type SyscallEventsTracer struct {
+	procfs             string
 	cgroupController   cgroup.CgroupsController
 	eventReader        *perf.Reader
 	eventSocket        *socket.SocketEvent
 	systemStoreManager *rawcapture.Manager
+	tai                tai.TaiInfo
 }
 
-func NewSyscallEventsTracer(bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
+func NewSyscallEventsTracer(procfs string, bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
 	reader, err := perf.NewReader(bpfObjs.BpfObjs.SyscallEvents, os.Getpagesize()*10)
 	if err != nil {
 		return nil, fmt.Errorf("open events perf buffer failed")
 	}
 
 	return &SyscallEventsTracer{
+		procfs:             procfs,
 		cgroupController:   cgroupController,
 		eventReader:        reader,
 		eventSocket:        socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
 		systemStoreManager: systemStoreManager,
+		tai:                tai.NewTaiInfo(),
 	}, nil
 }
 
 func (t *SyscallEventsTracer) Start() {
 	go t.pollEvents()
+	go t.populateExistingFlows()
 }
 
 func (t *SyscallEventsTracer) Stop() (err error) {
@@ -75,7 +83,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 			continue
 		}
 
-		const expectedSize = 108
+		const expectedSize = 116
 		if len(record.RawSample) != expectedSize {
 			log.Fatal().Int("size", len(record.RawSample)).Int("expected", expectedSize).Msg("wrong syscall event size")
 			return
@@ -105,7 +113,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 		var e events.SyscallEvent
 		e.SyscallEventMessage = *ev
 
-		e.ProcessPath, _ = resolver.ResolveSymlinkWithoutValidation(filepath.Join("/hostproc", fmt.Sprintf("%v", ev.HostPid), "exe"))
+		e.ProcessPath, _ = resolver.ResolveSymlinkWithoutValidation(filepath.Join(t.procfs, fmt.Sprintf("%v", ev.HostPid), "exe"))
 		log.Debug().Msg(fmt.Sprintf("Syscall event %v: %v:%v->%v:%v command: %v host pid: %v host ppid: %v pid: %v ppid: %v cgroup id: %v, sent (pkts: %v, bytes: %v), recv (pkts: %v, bytes: %v)",
 			evName,
 			toIP(e.IpSrc),
@@ -126,14 +134,20 @@ func (t *SyscallEventsTracer) pollEvents() {
 
 		t.eventSocket.WriteObject(e)
 
+		var tstamp time.Time
+		if ev.Timestamp != 0 {
+			tstamp = time.Unix(0, int64(ev.Timestamp)-int64(t.tai.GetTAIOffset()))
+		} else {
+			tstamp = time.Now()
+		}
 		// persist syscall event to disk
 		bin := &raw.SyscallEvent{
-			Ts:            timestamppb.Now(),
+			Ts:            timestamppb.New(tstamp),
 			EventId:       uint32(e.EventId),
 			IpSrc:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpSrc)},
 			IpDst:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpDst)},
-			PortSrc:       uint32(e.PortSrc),
-			PortDst:       uint32(e.PortDst),
+			PortSrc:       uint32(toPort(e.PortSrc)),
+			PortDst:       uint32(toPort(e.PortDst)),
 			CgroupId:      e.CgroupID,
 			HostPid:       uint32(e.HostPid),
 			HostParentPid: uint32(e.HostParentPid),
@@ -141,6 +155,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 			ParentPid:     uint32(e.ParentPid),
 			Command:       e.CmdPath(),
 			ProcessPath:   e.ProcessPath,
+			ContainerId:   t.cgroupController.GetContainerID(e.CgroupID),
 		}
 		t.systemStoreManager.EnqueueSyscall(bin)
 	}
@@ -150,6 +165,45 @@ func ipv4ToIPv6Mapped(v uint32) []byte {
 	b := make([]byte, 16)
 	b[10] = 0xff
 	b[11] = 0xff
-	binary.BigEndian.PutUint32(b[12:], v)
+	binary.LittleEndian.PutUint32(b[12:], v)
 	return b
+}
+
+func (t *SyscallEventsTracer) populateExistingFlows() {
+	isCgroupV2, err := utils.IsCgroupV2()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check cgroup version")
+		return
+	}
+
+	addFlowEntry := func(localIp, remoteIp net.IP, localPort, remotePort uint16, ipProto uint8, sysProps *commonv1.SystemProperties) {
+		tstamp := time.Now()
+
+		// Prepare IP bytes
+		localIpBytes := localIp.To16()
+		remoteIpBytes := remoteIp.To16()
+
+		bin := &raw.SyscallEvent{
+			Ts:            timestamppb.New(tstamp),
+			EventId:       0, // Treat existing flow as "Connect"
+			IpSrc:         &commonv1.IP{Ip: localIpBytes},
+			IpDst:         &commonv1.IP{Ip: remoteIpBytes},
+			PortSrc:       uint32(localPort),
+			PortDst:       uint32(remotePort),
+			CgroupId:      *sysProps.CgroupId,
+			HostPid:       *sysProps.HostPid,
+			HostParentPid: *sysProps.HostPpid,
+			Pid:           *sysProps.Pid,
+			ParentPid:     *sysProps.Ppid,
+			Command:       string(sysProps.ProcessName),
+			ProcessPath:   "", // Not easily available without resolving
+			ContainerId:   t.cgroupController.GetContainerID(*sysProps.CgroupId),
+		}
+		t.systemStoreManager.EnqueueSyscall(bin)
+	}
+
+	log.Info().Msg("Populating existing TCP flows...")
+	resolver.GetAllFlows(t.procfs, isCgroupV2, "tcp", addFlowEntry)
+	log.Info().Msg("Populating existing UDP flows...")
+	resolver.GetAllFlows(t.procfs, isCgroupV2, "udp", addFlowEntry)
 }

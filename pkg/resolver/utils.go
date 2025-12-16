@@ -27,16 +27,16 @@ type IpSocketLine struct {
 	Inode     uint64
 }
 
-func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
+func getSocketLines(procpath, proto, pid string) (lines []IpSocketLine, err error) {
 	var tcpConns procfs.NetTCP
 	var tcpConns6 procfs.NetTCP
-	getTcpConns := func(_pid string) error {
-		tcpConns, err = procfs.NewNetTCP(fmt.Sprintf("/hostproc/%v/net/tcp", _pid))
+	getTcpConns := func(procpath, _pid string) error {
+		tcpConns, err = procfs.NewNetTCP(fmt.Sprintf("%v/%v/net/tcp", procpath, _pid))
 		if err != nil {
 			return err
 		}
 
-		tcpConns6, err = procfs.NewNetTCP(fmt.Sprintf("/hostproc/%v/net/tcp6", _pid))
+		tcpConns6, err = procfs.NewNetTCP(fmt.Sprintf("%v/%v/net/tcp6", procpath, _pid))
 		if errors.Is(err, os.ErrNotExist) {
 			// ipv6 is disabled
 			return nil
@@ -49,13 +49,13 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 
 	var udpConns procfs.NetUDP
 	var udpConns6 procfs.NetUDP
-	getUdpConns := func(_pid string) error {
-		udpConns, err = procfs.NewNetUDP(fmt.Sprintf("/hostproc/%v/net/udp", _pid))
+	getUdpConns := func(procpath, _pid string) error {
+		udpConns, err = procfs.NewNetUDP(fmt.Sprintf("%v/%v/net/udp", procpath, _pid))
 		if err != nil {
 			return err
 		}
 
-		udpConns6, err = procfs.NewNetUDP(fmt.Sprintf("/hostproc/%v/net/udp6", _pid))
+		udpConns6, err = procfs.NewNetUDP(fmt.Sprintf("%v/%v/net/udp6", procpath, _pid))
 		if errors.Is(err, os.ErrNotExist) {
 			// ipv6 is disabled
 			return nil
@@ -67,7 +67,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 	}
 
 	if proto == "tcp" {
-		if err = getTcpConns(pid); err != nil {
+		if err = getTcpConns(procpath, pid); err != nil {
 			err = fmt.Errorf("execute tcp in ns failed for pid: %v error: %v", pid, err)
 			return lines, err
 		}
@@ -106,7 +106,7 @@ func getSocketLines(proto, pid string) (lines []IpSocketLine, err error) {
 		}
 
 	} else if proto == "udp" {
-		if err = getUdpConns(pid); err != nil {
+		if err = getUdpConns(procpath, pid); err != nil {
 			err = fmt.Errorf("execute udp in ns failed for pid: %v error: %v", pid, err)
 			return lines, err
 		}

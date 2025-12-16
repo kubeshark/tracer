@@ -276,7 +276,7 @@ func NewCgroupsController(procfs string, grpcServer *grpcservice.GRPCService) (C
 		actualCgroupVersion = CgroupVersion2
 	}
 	cgroupSupported := true
-	cgroupV2, err := NewCgroup(CgroupVersion2)
+	cgroupV2, err := NewCgroup(procfs, CgroupVersion2)
 	if err != nil {
 		if _, ok := err.(*VersionNotSupported); !ok {
 			return nil, fmt.Errorf("new cgroup2 create failed")

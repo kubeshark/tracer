@@ -9,9 +9,11 @@ Copyright (C) Kubeshark
 */
 
 #include "include/events.h"
+#include "include/probes.h"
 
 SEC("kprobe/tcp_connect")
-void BPF_KPROBE(tcp_connect) {
+void BPF_KPROBE(tcp_connect)
+{
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
         return;
 
@@ -47,6 +49,7 @@ void BPF_KPROBE(tcp_connect) {
     }
 
     struct syscall_event ev = {
+        .timestamp = compat_get_uprobe_timestamp(),
         .event_id = SYSCALL_EVENT_ID_CONNECT,
         .cgroup_id = cgroup_id,
         .pid = get_task_pid(task),
@@ -62,7 +65,7 @@ void BPF_KPROBE(tcp_connect) {
     key_flow.ip_version = 4;
 
     if (read_addrs_ports(ctx, sk, &key_flow.ip_local.addr_v4.s_addr, &key_flow.port_local,
-        &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote)) {
+                         &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote)) {
         return;
     }
 
@@ -97,7 +100,8 @@ void BPF_KPROBE(tcp_connect) {
 }
 
 SEC("kretprobe/accept4")
-void BPF_KRETPROBE(syscall__accept4_ret) {
+void BPF_KRETPROBE(syscall__accept4_ret)
+{
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
         return;
 
@@ -136,6 +140,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
     }
 
     struct syscall_event ev = {
+        .timestamp = compat_get_uprobe_timestamp(),
         .event_id = SYSCALL_EVENT_ID_ACCEPT,
         .cgroup_id = cgroup_id,
         .pid = get_task_pid(task),
@@ -150,7 +155,7 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
     key_flow.ip_version = 4;
 
     if (read_addrs_ports(ctx, sk, &key_flow.ip_local.addr_v4.s_addr, &key_flow.port_local,
-        &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote)) {
+                         &key_flow.ip_remote.addr_v4.s_addr, &key_flow.port_remote)) {
         return;
     }
 
@@ -187,7 +192,8 @@ void BPF_KRETPROBE(syscall__accept4_ret) {
 }
 
 SEC("kretprobe/do_accept")
-void BPF_KRETPROBE(do_accept) {
+void BPF_KRETPROBE(do_accept)
+{
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
         return;
 
@@ -218,7 +224,8 @@ void BPF_KRETPROBE(do_accept) {
 }
 
 SEC("cgroup/connect4")
-int trace_cgroup_connect4(struct bpf_sock_addr* ctx) {
+int trace_cgroup_connect4(struct bpf_sock_addr* ctx)
+{
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
         return 1;
 
@@ -231,7 +238,8 @@ int trace_cgroup_connect4(struct bpf_sock_addr* ctx) {
 }
 
 SEC("kprobe/tcp_close")
-void BPF_KPROBE(tcp_close) {
+void BPF_KPROBE(tcp_close)
+{
     if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
         return;
 
@@ -276,6 +284,7 @@ void BPF_KPROBE(tcp_close) {
     }
 
     struct syscall_event ev = {
+        .timestamp = compat_get_uprobe_timestamp(),
         .event_id = event,
         .cgroup_id = cgroup_id,
         .pid = get_task_pid(task),
@@ -335,7 +344,8 @@ cleanup:
     }
 }
 
-static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk, __be32* saddr, __be16* sport, __be32* daddr, __be16* dport) {
+static __always_inline int read_addrs_ports(struct pt_regs* ctx, struct sock* sk, __be32* saddr, __be16* sport, __be32* daddr, __be16* dport)
+{
     long err;
     __u64 id = tracer_get_current_pid_tgid();
 

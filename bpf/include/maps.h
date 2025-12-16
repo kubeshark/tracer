@@ -15,28 +15,30 @@ Copyright (C) Kubeshark
 // One minute in nano seconds. Chosen by gut feeling.
 #define SSL_INFO_MAX_TTL_NANO (1000000000l * 60l)
 
-#define MAX_ENTRIES_HASH        (1 << 12)  // 4096
-#define MAX_ENTRIES_PERF_OUTPUT	(1 << 10)  // 1024
-#define MAX_ENTRIES_PERF_OUTPUT_LARGE	(1 << 12)  // 4096
-#define MAX_ENTRIES_LRU_HASH	(1 << 14)  // 16384
-#define MAX_ENTRIES_LRU_HASH_BIG	(1 << 20)  // 1M
+#define MAX_ENTRIES_HASH (1 << 12)              // 4096
+#define MAX_ENTRIES_PERF_OUTPUT (1 << 10)       // 1024
+#define MAX_ENTRIES_PERF_OUTPUT_LARGE (1 << 12) // 4096
+#define MAX_ENTRIES_LRU_HASH (1 << 14)          // 16384
+#define MAX_ENTRIES_LRU_HASH_BIG (1 << 20)      // 1M
 
 // The same struct can be found in chunk.go
-//  
+//
 //  Be careful when editing, alignment and padding should be exactly the same in go/c.
 //
 
-struct address_info {
+struct address_info
+{
     __be32 family;
-    __be32 saddr4;   
+    __be32 saddr4;
     __be32 daddr4;
-    __u8 saddr6[16];  
-    __u8 daddr6[16]; 
+    __u8 saddr6[16];
+    __u8 daddr6[16];
     __be16 sport;
     __be16 dport;
 };
 
-struct tls_chunk {
+struct tls_chunk
+{
     __u64 timestamp;
     __u32 cgroup_id;
     __u32 pid;
@@ -51,7 +53,8 @@ struct tls_chunk {
     __u8 data[CHUNK_SIZE]; // Must be N^2
 };
 
-struct ssl_info {
+struct ssl_info
+{
     uintptr_t buffer;
     __u32 buffer_len;
     __u32 fd;
@@ -59,31 +62,36 @@ struct ssl_info {
     struct address_info address_info;
 
     // for ssl_write and ssl_read must be zero
-    // for ssl_write_ex and ssl_read_ex save the *written/*readbytes pointer. 
+    // for ssl_write_ex and ssl_read_ex save the *written/*readbytes pointer.
     //
     uintptr_t count_ptr;
 };
 
 typedef __u8 conn_flags;
 
-struct goid_offsets {
+struct goid_offsets
+{
     __u64 g_addr_offset;
     __u64 goid_offset;
 };
 
-struct pid_info {
+struct pid_info
+{
     __s64 sys_fd_offset;
     __u64 is_interface;
 };
 
-struct pid_offset {
+struct pid_offset
+{
     __u64 pid;
     __u64 symbol_offset;
 };
 
-struct syscall_event {
+struct syscall_event
+{
     char comm[16];
 
+    __u64 timestamp;
     __u64 cgroup_id;
     __u64 inode_id;
 
@@ -107,11 +115,12 @@ struct syscall_event {
 };
 
 union ip_addr {
-	struct in_addr addr_v4;
-	struct in6_addr addr_v6;
+    struct in_addr addr_v4;
+    struct in6_addr addr_v6;
 };
 
-struct flow_t {
+struct flow_t
+{
     union ip_addr ip_local;
     union ip_addr ip_remote;
     __u16 port_local;
@@ -120,26 +129,28 @@ struct flow_t {
     __u8 ip_version;
 };
 
-struct flow_stats_t {
+struct flow_stats_t
+{
     __u64 last_update_time;
     struct syscall_event event;
 };
 
-#define SWAP_FLOW(_flow) \
-    do { \
+#define SWAP_FLOW(_flow)                           \
+    do {                                           \
         union ip_addr _tmp_addr = _flow->ip_local; \
-        _flow->ip_local = _flow->ip_remote; \
-        _flow->ip_remote = _tmp_addr; \
-        __u16 _tmp_port = _flow->port_local; \
-        _flow->port_local = _flow->port_remote; \
-        _flow->port_remote = _tmp_port; \
+        _flow->ip_local = _flow->ip_remote;        \
+        _flow->ip_remote = _tmp_addr;              \
+        __u16 _tmp_port = _flow->port_local;       \
+        _flow->port_local = _flow->port_remote;    \
+        _flow->port_remote = _tmp_port;            \
     } while (0)
 
 const struct goid_offsets* unused __attribute__((unused));
 
 // Heap-like area for eBPF programs - stack size limited to 512 bytes, we must use maps for bigger (chunk) objects.
 //
-struct {
+struct
+{
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, int);
@@ -151,7 +162,8 @@ struct {
 #define PACKET_DIRECTION_RECEIVED 0
 #define PACKET_DIRECTION_SENT 1
 
-struct socket_cookie_data {
+struct socket_cookie_data
+{
     __u64 cgroup_id;
     __u32 src_ip;
     __u32 dst_ip;
@@ -164,17 +176,19 @@ struct socket_cookie_data {
 
 #define CONFIGURATION_FLAG_CAPTURE_STOPPED (1 << 0)
 #define CONFIGURATION_PASS_ALL_CGROUPS (1 << 1)
-struct configuration {
+struct configuration
+{
     __u32 flags;
 };
 
-#define BPF_MAP(_name, _type, _key_type, _value_type, _max_entries)     \
-    struct {                          \
-        __uint(type, _type);                \
-        __type(key, _key_type);                  \
-        __type(value, _value_type);                \
-        __uint(max_entries, _max_entries); \
-} _name SEC(".maps");
+#define BPF_MAP(_name, _type, _key_type, _value_type, _max_entries) \
+    struct                                                          \
+    {                                                               \
+        __uint(type, _type);                                        \
+        __type(key, _key_type);                                     \
+        __type(value, _value_type);                                 \
+        __uint(max_entries, _max_entries);                          \
+    } _name SEC(".maps");
 
 #define BPF_HASH(_name, _key_type, _value_type) \
     BPF_MAP(_name, BPF_MAP_TYPE_HASH, _key_type, _value_type, MAX_ENTRIES_HASH)
