@@ -7,10 +7,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	commonv1 "github.com/kubeshark/api2/pkg/proto/common/v1"
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
+	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/rawcapture"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -30,6 +32,7 @@ type SyscallEventsTracer struct {
 	eventReader        *perf.Reader
 	eventSocket        *socket.SocketEvent
 	systemStoreManager *rawcapture.Manager
+	tai                tai.TaiInfo
 }
 
 func NewSyscallEventsTracer(procfs string, bpfObjs *bpf.BpfObjects, cgroupController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager) (*SyscallEventsTracer, error) {
@@ -44,6 +47,7 @@ func NewSyscallEventsTracer(procfs string, bpfObjs *bpf.BpfObjects, cgroupContro
 		eventReader:        reader,
 		eventSocket:        socket.NewSocketEvent(misc.GetSyscallEventSocketPath()),
 		systemStoreManager: systemStoreManager,
+		tai:                tai.NewTaiInfo(),
 	}, nil
 }
 
@@ -128,9 +132,15 @@ func (t *SyscallEventsTracer) pollEvents() {
 
 		t.eventSocket.WriteObject(e)
 
+		var tstamp time.Time
+		if ev.Timestamp != 0 {
+			tstamp = time.Unix(0, int64(ev.Timestamp)-int64(t.tai.GetTAIOffset()))
+		} else {
+			tstamp = time.Now()
+		}
 		// persist syscall event to disk
 		bin := &raw.SyscallEvent{
-			Ts:            timestamppb.Now(),
+			Ts:            timestamppb.New(tstamp),
 			EventId:       uint32(e.EventId),
 			IpSrc:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpSrc)},
 			IpDst:         &commonv1.IP{Ip: ipv4ToIPv6Mapped(e.IpDst)},
