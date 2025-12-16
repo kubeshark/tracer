@@ -91,8 +91,8 @@ struct syscall_event
 {
     char comm[16];
 
-    __u64 timestamp
-        __u64 cgroup_id;
+    __u64 timestamp;
+    __u64 cgroup_id;
     __u64 inode_id;
 
     __u64 packets_sent;

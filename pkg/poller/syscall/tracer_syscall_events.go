@@ -14,6 +14,7 @@ import (
 	raw "github.com/kubeshark/api2/pkg/proto/raw_capture"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/rawcapture"
+	"github.com/kubeshark/tracer/pkg/utils"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/cilium/ebpf/perf"
@@ -53,6 +54,7 @@ func NewSyscallEventsTracer(procfs string, bpfObjs *bpf.BpfObjects, cgroupContro
 
 func (t *SyscallEventsTracer) Start() {
 	go t.pollEvents()
+	go t.populateExistingFlows()
 }
 
 func (t *SyscallEventsTracer) Stop() (err error) {
@@ -81,7 +83,7 @@ func (t *SyscallEventsTracer) pollEvents() {
 			continue
 		}
 
-		const expectedSize = 108
+		const expectedSize = 116
 		if len(record.RawSample) != expectedSize {
 			log.Fatal().Int("size", len(record.RawSample)).Int("expected", expectedSize).Msg("wrong syscall event size")
 			return
@@ -165,4 +167,43 @@ func ipv4ToIPv6Mapped(v uint32) []byte {
 	b[11] = 0xff
 	binary.LittleEndian.PutUint32(b[12:], v)
 	return b
+}
+
+func (t *SyscallEventsTracer) populateExistingFlows() {
+	isCgroupV2, err := utils.IsCgroupV2()
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to check cgroup version")
+		return
+	}
+
+	addFlowEntry := func(localIp, remoteIp net.IP, localPort, remotePort uint16, ipProto uint8, sysProps *commonv1.SystemProperties) {
+		tstamp := time.Now()
+
+		// Prepare IP bytes
+		localIpBytes := localIp.To16()
+		remoteIpBytes := remoteIp.To16()
+
+		bin := &raw.SyscallEvent{
+			Ts:            timestamppb.New(tstamp),
+			EventId:       0, // Treat existing flow as "Connect"
+			IpSrc:         &commonv1.IP{Ip: localIpBytes},
+			IpDst:         &commonv1.IP{Ip: remoteIpBytes},
+			PortSrc:       uint32(localPort),
+			PortDst:       uint32(remotePort),
+			CgroupId:      *sysProps.CgroupId,
+			HostPid:       *sysProps.HostPid,
+			HostParentPid: *sysProps.HostPpid,
+			Pid:           *sysProps.Pid,
+			ParentPid:     *sysProps.Ppid,
+			Command:       string(sysProps.ProcessName),
+			ProcessPath:   "", // Not easily available without resolving
+			ContainerId:   t.cgroupController.GetContainerID(*sysProps.CgroupId),
+		}
+		t.systemStoreManager.EnqueueSyscall(bin)
+	}
+
+	log.Info().Msg("Populating existing TCP flows...")
+	resolver.GetAllFlows(t.procfs, isCgroupV2, "tcp", addFlowEntry)
+	log.Info().Msg("Populating existing UDP flows...")
+	resolver.GetAllFlows(t.procfs, isCgroupV2, "udp", addFlowEntry)
 }
