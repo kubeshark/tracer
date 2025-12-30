@@ -316,7 +316,7 @@ func (p *PacketsPoller) logPeriodicStats() {
 			Float64("chunks_per_sec", chunksPerSec).
 			Float64("packets_per_sec", packetsPerSec).
 			Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
-			Msg("PacketsPoller statistics")
+			Msg("PacketsPoller stats")
 
 		// Update last stats and time
 		p.lastStats = p.stats

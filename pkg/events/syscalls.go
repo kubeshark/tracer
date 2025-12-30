@@ -22,8 +22,9 @@ type SyscallEventStats struct {
 type SyscallEventMessage struct {
 	Command [16]byte
 
-	CgroupID uint64
-	SocketID uint64
+	Timestamp uint64
+	CgroupID  uint64
+	SocketID  uint64
 
 	Stats SyscallEventStats
 

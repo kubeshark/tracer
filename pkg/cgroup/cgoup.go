@@ -60,7 +60,7 @@ type Cgroups struct {
 	hid      int     // default cgroup controller hierarchy ID
 }
 
-func NewCgroups() (*Cgroups, error) {
+func NewCgroups(procfs string) (*Cgroups, error) {
 	var err error
 	var cgrp *Cgroup
 	var cgroupv1, cgroupv2 Cgroup
@@ -73,7 +73,7 @@ func NewCgroups() (*Cgroups, error) {
 
 	// only start cgroupv1 if it is the OS default (or else it isn't needed)
 	if defaultVersion == CgroupVersion1 {
-		cgroupv1, err = NewCgroup(CgroupVersion1)
+		cgroupv1, err = NewCgroup(procfs, CgroupVersion1)
 		if err != nil {
 			if _, ok := err.(*VersionNotSupported); !ok {
 				return nil, errfmt.WrapError(err)
@@ -82,7 +82,7 @@ func NewCgroups() (*Cgroups, error) {
 	}
 
 	// start cgroupv2 (if supported)
-	cgroupv2, err = NewCgroup(CgroupVersion2)
+	cgroupv2, err = NewCgroup(procfs, CgroupVersion2)
 	if err != nil {
 		if _, ok := err.(*VersionNotSupported); !ok {
 			return nil, errfmt.WrapError(err)
@@ -172,14 +172,14 @@ type Cgroup interface {
 	GetVersion() CgroupVersion
 }
 
-func NewCgroup(ver CgroupVersion) (Cgroup, error) {
+func NewCgroup(procfs string, ver CgroupVersion) (Cgroup, error) {
 	var c Cgroup
 
 	switch ver {
 	case CgroupVersion1:
-		c = &CgroupV1{}
+		c = &CgroupV1{procfs: procfs}
 	case CgroupVersion2:
-		c = &CgroupV2{}
+		c = &CgroupV2{procfs: procfs}
 	}
 
 	return c, c.init()
@@ -188,6 +188,7 @@ func NewCgroup(ver CgroupVersion) (Cgroup, error) {
 // cgroupv1
 
 type CgroupV1 struct {
+	procfs     string
 	mounted    *mount.MountHostOnce
 	mountpoint string
 	hid        int
@@ -195,7 +196,7 @@ type CgroupV1 struct {
 
 func (c *CgroupV1) init() error {
 	// 0. check if cgroup type is supported
-	supported, err := mount.IsFileSystemSupported(CgroupVersion1.String())
+	supported, err := mount.IsFileSystemSupported(c.procfs, CgroupVersion1.String())
 	if err != nil {
 		return errfmt.WrapError(err)
 	}
@@ -205,6 +206,7 @@ func (c *CgroupV1) init() error {
 
 	// 1. mount cgroup (if needed)
 	c.mounted, err = mount.NewMountHostOnce(
+		c.procfs,
 		CgroupV1FsType,
 		CgroupV1FsType,
 		CgroupDefaultController,
@@ -239,6 +241,7 @@ func (c *CgroupV1) GetVersion() CgroupVersion {
 // cgroupv2
 
 type CgroupV2 struct {
+	procfs     string
 	mounted    *mount.MountHostOnce
 	mountpoint string
 	hid        int
@@ -246,7 +249,7 @@ type CgroupV2 struct {
 
 func (c *CgroupV2) init() error {
 	// 0. check if cgroup type is supported
-	supported, err := mount.IsFileSystemSupported(CgroupVersion2.String())
+	supported, err := mount.IsFileSystemSupported(c.procfs, CgroupVersion2.String())
 	if err != nil {
 		return errfmt.WrapError(err)
 	}
@@ -256,6 +259,7 @@ func (c *CgroupV2) init() error {
 
 	// 1. mount cgroup (if needed)
 	c.mounted, err = mount.NewMountHostOnce(
+		c.procfs,
 		CgroupV2FsType,
 		CgroupV2FsType,
 		"",          // cgroupv2 has no default controller

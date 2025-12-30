@@ -33,9 +33,9 @@ type ResolverImpl struct {
 	udpMap     connectionsMap
 }
 
-type addFlowEntryFunc func(localIp, remoteIp net.IP, localPort, remotePort uint16, ipProto uint8, sysProps *common.SystemProperties)
+type AddFlowEntryFunc func(localIp, remoteIp net.IP, localPort, remotePort uint16, ipProto uint8, sysProps *common.SystemProperties)
 
-func NewResolver(procfs string, addFlowEntry addFlowEntryFunc) (Resolver, error) {
+func NewResolver(procfs string, addFlowEntry AddFlowEntryFunc) (Resolver, error) {
 	isCgroupV2, err := utils.IsCgroupV2()
 	if err != nil {
 		return nil, errors.New("get cgroupv2 failed")
@@ -48,8 +48,8 @@ func NewResolver(procfs string, addFlowEntry addFlowEntryFunc) (Resolver, error)
 		udpMap:     make(connectionsMap),
 	}
 
-	res.tcpMap = getAllFlows(procfs, isCgroupV2, "tcp", addFlowEntry)
-	res.udpMap = getAllFlows(procfs, isCgroupV2, "udp", addFlowEntry)
+	res.tcpMap = GetAllFlows(procfs, isCgroupV2, "tcp", addFlowEntry)
+	res.udpMap = GetAllFlows(procfs, isCgroupV2, "udp", addFlowEntry)
 
 	return res, nil
 }
@@ -134,7 +134,7 @@ func (r *ResolverImpl) ResolveDestUDP(cInfo *api.ConnectionInfo) *api.Resolution
 	return r.resolveUDP(cInfo.ServerIP, cInfo.ServerPort, cInfo.ClientIP, cInfo.ClientPort)
 }
 
-func getAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry addFlowEntryFunc) connectionsMap {
+func GetAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry AddFlowEntryFunc) connectionsMap {
 	res := make(connectionsMap)
 	cgroups, err := getAllCgroups(procfs, isCgroupV2)
 	if err != nil {
@@ -154,9 +154,9 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry addF
 		var conns []IpSocketLine
 		for i := range pids {
 			if proto == "tcp" {
-				conns, err = getTCPConnections(fmt.Sprintf("%v", pids[i].hostPid))
+				conns, err = getTCPConnections(procfs, fmt.Sprintf("%v", pids[i].hostPid))
 			} else {
-				conns, err = getUDPConnections(fmt.Sprintf("%v", pids[i].hostPid))
+				conns, err = getUDPConnections(procfs, fmt.Sprintf("%v", pids[i].hostPid))
 			}
 			if err != nil {
 				// process can be short-living
@@ -240,6 +240,9 @@ func getAllFlows(procfs string, isCgroupV2 bool, proto string, addFlowEntry addF
 }
 
 func getAllCgroups(procfs string, isCgroupV2 bool) (ret map[string]uint64, err error) {
+	if procfs == "" {
+		return nil, nil
+	}
 	ret = make(map[string]uint64)
 	procDir, err := os.Open(procfs)
 	if err != nil {
@@ -491,10 +494,10 @@ func findCgroupsEndWith(isCgroupsV2 bool, pidPaths map[string]struct{}) (paths m
 	return paths, err
 }
 
-func getTCPConnections(pid string) (lines []IpSocketLine, err error) {
-	return getSocketLines("tcp", pid)
+func getTCPConnections(procfs string, pid string) (lines []IpSocketLine, err error) {
+	return getSocketLines(procfs, "tcp", pid)
 }
 
-func getUDPConnections(pid string) (lines []IpSocketLine, err error) {
-	return getSocketLines("udp", pid)
+func getUDPConnections(procfs string, pid string) (lines []IpSocketLine, err error) {
+	return getSocketLines(procfs, "udp", pid)
 }

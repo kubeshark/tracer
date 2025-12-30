@@ -34,7 +34,7 @@ func GatherPidsTCPMap(procfs string, isCgroupV2 bool) (tcpMap map[uint64]bool, e
 
 		var conns []IpSocketLine
 		for i := range pids {
-			conns, err = getTCPConnections(fmt.Sprintf("%v", pids[i].hostPid))
+			conns, err = getTCPConnections(procfs, fmt.Sprintf("%v", pids[i].hostPid))
 			if err != nil {
 				// process can be short-living
 				continue

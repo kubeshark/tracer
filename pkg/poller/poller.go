@@ -20,11 +20,11 @@ type BpfPollerImpl struct {
 	logPoller     *logPoller.BpfLogger
 }
 
-func NewBpfPoller(bpfObjs *bpf.BpfObjects, cgroupsController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager, tlsLogDisabled bool) (BpfPoller, error) {
+func NewBpfPoller(procfs string, bpfObjs *bpf.BpfObjects, cgroupsController cgroup.CgroupsController, systemStoreManager *rawcapture.Manager, tlsLogDisabled bool) (BpfPoller, error) {
 	var err error
 	p := BpfPollerImpl{}
 
-	if p.syscallPoller, err = syscallPoller.NewSyscallEventsTracer(bpfObjs, cgroupsController, systemStoreManager); err != nil {
+	if p.syscallPoller, err = syscallPoller.NewSyscallEventsTracer(procfs, bpfObjs, cgroupsController, systemStoreManager); err != nil {
 		return nil, fmt.Errorf("create syscall poller failed: %v", err)
 	}
 
