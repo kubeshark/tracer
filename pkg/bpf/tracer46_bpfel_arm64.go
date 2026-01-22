@@ -110,6 +110,7 @@ type Tracer46FlowStatsT struct {
 	LastUpdateTime uint64
 	Event          struct {
 		Comm          [16]int8
+		Timestamp     uint64
 		CgroupId      uint64
 		InodeId       uint64
 		PacketsSent   uint64

@@ -123,6 +123,7 @@ type TracerFlowStatsT struct {
 	LastUpdateTime uint64
 	Event          struct {
 		Comm          [16]int8
+		Timestamp     uint64
 		CgroupId      uint64
 		InodeId       uint64
 		PacketsSent   uint64
@@ -381,6 +382,7 @@ type TracerMapSpecs struct {
 	PerfFoundPid             *ebpf.MapSpec `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.MapSpec `ebpf:"pids_info"`
 	PktHeap                  *ebpf.MapSpec `ebpf:"pkt_heap"`
+	PktHeapHash              *ebpf.MapSpec `ebpf:"pkt_heap_hash"`
 	PktId                    *ebpf.MapSpec `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.MapSpec `ebpf:"pkts_buffer"`
 	ProgramsConfiguration    *ebpf.MapSpec `ebpf:"programs_configuration"`
@@ -450,6 +452,7 @@ type TracerMaps struct {
 	PerfFoundPid             *ebpf.Map `ebpf:"perf_found_pid"`
 	PidsInfo                 *ebpf.Map `ebpf:"pids_info"`
 	PktHeap                  *ebpf.Map `ebpf:"pkt_heap"`
+	PktHeapHash              *ebpf.Map `ebpf:"pkt_heap_hash"`
 	PktId                    *ebpf.Map `ebpf:"pkt_id"`
 	PktsBuffer               *ebpf.Map `ebpf:"pkts_buffer"`
 	ProgramsConfiguration    *ebpf.Map `ebpf:"programs_configuration"`
@@ -502,6 +505,7 @@ func (m *TracerMaps) Close() error {
 		m.PerfFoundPid,
 		m.PidsInfo,
 		m.PktHeap,
+		m.PktHeapHash,
 		m.PktId,
 		m.PktsBuffer,
 		m.ProgramsConfiguration,

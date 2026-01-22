@@ -42,6 +42,10 @@ var (
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS" -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS" -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
 
+// Ringbuf variant (Linux >= 5.8). Preferred for packet ordering.
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS -DUSE_RINGBUF_PKTS" -type tls_chunk -type goid_offsets TracerRingbuf ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS -DUSE_RINGBUF_PKTS" -type tls_chunk -type goid_offsets TracerRingbuf ../../bpf/tracer.c
+
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets TracerNoEbpf ../../bpf/tracer.c
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets TracerNoEbpf ../../bpf/tracer.c
 
@@ -127,6 +131,7 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	objs := BpfObjects{}
 
 	var errLoadPlain error
+	var errLoadRingbufPlain error
 	var errLoadTls error
 
 	pinMap := func(mapName string, mapObj *ebpf.Map) error {
@@ -144,6 +149,10 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	defer func() {
 		if errLoadPlain != nil {
 			log.Warn().Msg(fmt.Sprintf("eBPF plain load error: %v", errLoadPlain))
+		}
+
+		if errLoadRingbufPlain != nil {
+			log.Warn().Msg(fmt.Sprintf("eBPF ringbuf plain load error: %v", errLoadRingbufPlain))
 		}
 
 		if errLoadTls != nil {
@@ -175,6 +184,10 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 
 		objects := &BpfObjectsImpl{
 			bpfObjs: &TracerObjects{},
+		}
+
+		objectsRingbuf := &BpfObjectsImpl{
+			bpfObjs: &TracerRingbufObjects{},
 		}
 
 		objectsNoEbpf := &BpfObjectsImpl{
@@ -226,17 +239,58 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 			return err
 		}
 
-		if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
-			objs = BpfObjects{}
-			if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
+		loadTracerRingbuf := func(obj *TracerObjects) (err error) {
+			if err = objectsRingbuf.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerRingbufBytes)); err != nil {
+				err = fmt.Errorf("load tracer ringbuf objects failed: %v", err)
+				return err
+			}
+
+			o := objectsRingbuf.bpfObjs.(*TracerRingbufObjects)
+			if err = copier.Copy(&obj.TracerPrograms, &o.TracerRingbufPrograms); err != nil {
+				err = fmt.Errorf("copy program objects failed: %v", err)
+				return err
+			}
+			if err = copier.Copy(&obj.TracerMaps, &o.TracerRingbufMaps); err != nil {
+				err = fmt.Errorf("copy map objects failed: %v", err)
+				return err
+			}
+			return err
+		}
+
+		tryRingbuf := kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 5, Major: 8, Minor: 0}) >= 0 && features.HaveMapType(ebpf.RingBuf) == nil
+		if tryRingbuf {
+			log.Info().Msg("Attempting to load ringbuf packet capture backend")
+			if errLoadRingbufPlain = loadTracerRingbuf(&objs.BpfObjs); errLoadRingbufPlain == nil {
+				plainEnabled = true
 				tlsEnabled = true
 			} else {
-				err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
-				return pObjs, tlsEnabled, plainEnabled, err
+				log.Warn().Err(errLoadRingbufPlain).Msg("Ringbuf tracer load failed, falling back to perf buffer")
+				if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
+					objs = BpfObjects{}
+					if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
+						tlsEnabled = true
+					} else {
+						err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
+						return pObjs, tlsEnabled, plainEnabled, err
+					}
+				} else {
+					plainEnabled = true
+					tlsEnabled = true
+				}
 			}
 		} else {
-			plainEnabled = true
-			tlsEnabled = true
+			if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
+				objs = BpfObjects{}
+				if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
+					tlsEnabled = true
+				} else {
+					err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
+					return pObjs, tlsEnabled, plainEnabled, err
+				}
+			} else {
+				plainEnabled = true
+				tlsEnabled = true
+			}
 		}
 	}
 
