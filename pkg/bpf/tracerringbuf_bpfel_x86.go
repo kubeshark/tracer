@@ -12,11 +12,11 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type TracerAcceptData struct{ Sock uint64 }
+type TracerRingbufAcceptData struct{ Sock uint64 }
 
-type TracerAcceptInfo struct{ Addrlen uint64 }
+type TracerRingbufAcceptInfo struct{ Addrlen uint64 }
 
-type TracerAddressInfo struct {
+type TracerRingbufAddressInfo struct {
 	Family uint32
 	Saddr4 uint32
 	Daddr4 uint32
@@ -26,7 +26,7 @@ type TracerAddressInfo struct {
 	Dport  uint16
 }
 
-type TracerAllStats struct {
+type TracerRingbufAllStats struct {
 	PktSnifferStats struct {
 		PacketsTotal          uint64
 		PacketsProgramEnabled uint64
@@ -77,9 +77,9 @@ type TracerAllStats struct {
 	}
 }
 
-type TracerBufT struct{ Buf [32768]uint8 }
+type TracerRingbufBufT struct{ Buf [32768]uint8 }
 
-type TracerCgroupSignal struct {
+type TracerRingbufCgroupSignal struct {
 	Path        [4096]uint8
 	CgroupId    uint64
 	HierarchyId uint32
@@ -88,17 +88,17 @@ type TracerCgroupSignal struct {
 	_           [1]byte
 }
 
-type TracerConfiguration struct{ Flags uint32 }
+type TracerRingbufConfiguration struct{ Flags uint32 }
 
-type TracerConnectInfo struct {
+type TracerRingbufConnectInfo struct {
 	Fd      uint64
 	Addrlen uint32
 	_       [4]byte
 }
 
-type TracerEntry struct{ Args [6]uint64 }
+type TracerRingbufEntry struct{ Args [6]uint64 }
 
-type TracerFilePath struct {
+type TracerRingbufFilePath struct {
 	Path     [4096]int8
 	CgroupId uint64
 	Inode    uint64
@@ -108,7 +108,7 @@ type TracerFilePath struct {
 	_        [1]byte
 }
 
-type TracerFlowKeyT struct {
+type TracerRingbufFlowKeyT struct {
 	CgroupId   uint64
 	IpLocal    [16]uint8
 	IpRemote   [16]uint8
@@ -119,7 +119,7 @@ type TracerFlowKeyT struct {
 	IpVersion  uint8
 }
 
-type TracerFlowStatsT struct {
+type TracerRingbufFlowStatsT struct {
 	LastUpdateTime uint64
 	Event          struct {
 		Comm          [16]int8
@@ -143,7 +143,7 @@ type TracerFlowStatsT struct {
 	}
 }
 
-type TracerFlowT struct {
+type TracerRingbufFlowT struct {
 	IpLocal struct {
 		AddrV4 struct{ S_addr uint32 }
 		_      [12]byte
@@ -159,7 +159,7 @@ type TracerFlowT struct {
 	_          [2]byte
 }
 
-type TracerFlowValueT struct {
+type TracerRingbufFlowValueT struct {
 	FirstUpdateTime uint64
 	LastUpdateTime  uint64
 	PktsSent        uint64
@@ -168,18 +168,18 @@ type TracerFlowValueT struct {
 	BytesRecv       uint64
 }
 
-type TracerFoundPid struct {
+type TracerRingbufFoundPid struct {
 	Cgroup uint64
 	Pid    uint32
 	Pad1   uint32
 }
 
-type TracerGoidOffsets struct {
+type TracerRingbufGoidOffsets struct {
 	G_addrOffset uint64
 	GoidOffset   uint64
 }
 
-type TracerIndexerT struct {
+type TracerRingbufIndexerT struct {
 	Ts     uint64
 	IpCsum uint16
 	_      [2]byte
@@ -188,17 +188,17 @@ type TracerIndexerT struct {
 	_      [4]byte
 }
 
-type TracerPidInfo struct {
+type TracerRingbufPidInfo struct {
 	SysFdOffset int64
 	IsInterface uint64
 }
 
-type TracerPidOffset struct {
+type TracerRingbufPidOffset struct {
 	Pid          uint64
 	SymbolOffset uint64
 }
 
-type TracerPkt struct {
+type TracerRingbufPkt struct {
 	Timestamp uint64
 	CgroupId  uint64
 	Id        uint64
@@ -213,22 +213,22 @@ type TracerPkt struct {
 	_         [5]byte
 }
 
-type TracerPktIdT struct {
+type TracerRingbufPktIdT struct {
 	Id   uint64
 	Lock struct{ Val uint32 }
 	_    [4]byte
 }
 
-type TracerSslInfo struct {
+type TracerRingbufSslInfo struct {
 	Buffer        uint64
 	BufferLen     uint32
 	Fd            uint32
 	CreatedAtNano uint64
-	AddressInfo   TracerAddressInfo
+	AddressInfo   TracerRingbufAddressInfo
 	CountPtr      uint64
 }
 
-type TracerTlsChunk struct {
+type TracerRingbufTlsChunk struct {
 	Timestamp   uint64
 	CgroupId    uint32
 	Pid         uint32
@@ -238,34 +238,34 @@ type TracerTlsChunk struct {
 	Recorded    uint32
 	Fd          uint32
 	Flags       uint32
-	AddressInfo TracerAddressInfo
+	AddressInfo TracerRingbufAddressInfo
 	Direction   uint8
 	Data        [4096]uint8
 	_           [7]byte
 }
 
-// LoadTracer returns the embedded CollectionSpec for Tracer.
-func LoadTracer() (*ebpf.CollectionSpec, error) {
-	reader := bytes.NewReader(_TracerBytes)
+// LoadTracerRingbuf returns the embedded CollectionSpec for TracerRingbuf.
+func LoadTracerRingbuf() (*ebpf.CollectionSpec, error) {
+	reader := bytes.NewReader(_TracerRingbufBytes)
 	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
-		return nil, fmt.Errorf("can't load Tracer: %w", err)
+		return nil, fmt.Errorf("can't load TracerRingbuf: %w", err)
 	}
 
 	return spec, err
 }
 
-// LoadTracerObjects loads Tracer and converts it into a struct.
+// LoadTracerRingbufObjects loads TracerRingbuf and converts it into a struct.
 //
 // The following types are suitable as obj argument:
 //
-//	*TracerObjects
-//	*TracerPrograms
-//	*TracerMaps
+//	*TracerRingbufObjects
+//	*TracerRingbufPrograms
+//	*TracerRingbufMaps
 //
 // See ebpf.CollectionSpec.LoadAndAssign documentation for details.
-func LoadTracerObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
-	spec, err := LoadTracer()
+func LoadTracerRingbufObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
+	spec, err := LoadTracerRingbuf()
 	if err != nil {
 		return err
 	}
@@ -273,18 +273,18 @@ func LoadTracerObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
 	return spec.LoadAndAssign(obj, opts)
 }
 
-// TracerSpecs contains maps and programs before they are loaded into the kernel.
+// TracerRingbufSpecs contains maps and programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type TracerSpecs struct {
-	TracerProgramSpecs
-	TracerMapSpecs
+type TracerRingbufSpecs struct {
+	TracerRingbufProgramSpecs
+	TracerRingbufMapSpecs
 }
 
-// TracerSpecs contains programs before they are loaded into the kernel.
+// TracerRingbufSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type TracerProgramSpecs struct {
+type TracerRingbufProgramSpecs struct {
 	CgroupBpfRunFilterSkb         *ebpf.ProgramSpec `ebpf:"cgroup_bpf_run_filter_skb"`
 	CgroupMkdirSignal             *ebpf.ProgramSpec `ebpf:"cgroup_mkdir_signal"`
 	CgroupRmdirSignal             *ebpf.ProgramSpec `ebpf:"cgroup_rmdir_signal"`
@@ -341,10 +341,10 @@ type TracerProgramSpecs struct {
 	VfsRmdir                      *ebpf.ProgramSpec `ebpf:"vfs_rmdir"`
 }
 
-// TracerMapSpecs contains maps before they are loaded into the kernel.
+// TracerRingbufMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type TracerMapSpecs struct {
+type TracerRingbufMapSpecs struct {
 	AcceptContext            *ebpf.MapSpec `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.MapSpec `ebpf:"accept_syscall_context"`
 	AllFlowsStats            *ebpf.MapSpec `ebpf:"all_flows_stats"`
@@ -396,25 +396,25 @@ type TracerMapSpecs struct {
 	TcpConnectFlowContext    *ebpf.MapSpec `ebpf:"tcp_connect_flow_context"`
 }
 
-// TracerObjects contains all objects after they have been loaded into the kernel.
+// TracerRingbufObjects contains all objects after they have been loaded into the kernel.
 //
-// It can be passed to LoadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
-type TracerObjects struct {
-	TracerPrograms
-	TracerMaps
+// It can be passed to LoadTracerRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
+type TracerRingbufObjects struct {
+	TracerRingbufPrograms
+	TracerRingbufMaps
 }
 
-func (o *TracerObjects) Close() error {
-	return _TracerClose(
-		&o.TracerPrograms,
-		&o.TracerMaps,
+func (o *TracerRingbufObjects) Close() error {
+	return _TracerRingbufClose(
+		&o.TracerRingbufPrograms,
+		&o.TracerRingbufMaps,
 	)
 }
 
-// TracerMaps contains all maps after they have been loaded into the kernel.
+// TracerRingbufMaps contains all maps after they have been loaded into the kernel.
 //
-// It can be passed to LoadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
-type TracerMaps struct {
+// It can be passed to LoadTracerRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
+type TracerRingbufMaps struct {
 	AcceptContext            *ebpf.Map `ebpf:"accept_context"`
 	AcceptSyscallContext     *ebpf.Map `ebpf:"accept_syscall_context"`
 	AllFlowsStats            *ebpf.Map `ebpf:"all_flows_stats"`
@@ -466,8 +466,8 @@ type TracerMaps struct {
 	TcpConnectFlowContext    *ebpf.Map `ebpf:"tcp_connect_flow_context"`
 }
 
-func (m *TracerMaps) Close() error {
-	return _TracerClose(
+func (m *TracerRingbufMaps) Close() error {
+	return _TracerRingbufClose(
 		m.AcceptContext,
 		m.AcceptSyscallContext,
 		m.AllFlowsStats,
@@ -520,10 +520,10 @@ func (m *TracerMaps) Close() error {
 	)
 }
 
-// TracerPrograms contains all programs after they have been loaded into the kernel.
+// TracerRingbufPrograms contains all programs after they have been loaded into the kernel.
 //
-// It can be passed to LoadTracerObjects or ebpf.CollectionSpec.LoadAndAssign.
-type TracerPrograms struct {
+// It can be passed to LoadTracerRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
+type TracerRingbufPrograms struct {
 	CgroupBpfRunFilterSkb         *ebpf.Program `ebpf:"cgroup_bpf_run_filter_skb"`
 	CgroupMkdirSignal             *ebpf.Program `ebpf:"cgroup_mkdir_signal"`
 	CgroupRmdirSignal             *ebpf.Program `ebpf:"cgroup_rmdir_signal"`
@@ -580,8 +580,8 @@ type TracerPrograms struct {
 	VfsRmdir                      *ebpf.Program `ebpf:"vfs_rmdir"`
 }
 
-func (p *TracerPrograms) Close() error {
-	return _TracerClose(
+func (p *TracerRingbufPrograms) Close() error {
+	return _TracerRingbufClose(
 		p.CgroupBpfRunFilterSkb,
 		p.CgroupMkdirSignal,
 		p.CgroupRmdirSignal,
@@ -639,7 +639,7 @@ func (p *TracerPrograms) Close() error {
 	)
 }
 
-func _TracerClose(closers ...io.Closer) error {
+func _TracerRingbufClose(closers ...io.Closer) error {
 	for _, closer := range closers {
 		if err := closer.Close(); err != nil {
 			return err
@@ -650,5 +650,5 @@ func _TracerClose(closers ...io.Closer) error {
 
 // Do not access this directly.
 //
-//go:embed tracer_bpfel_x86.o
-var _TracerBytes []byte
+//go:embed tracerringbuf_bpfel_x86.o
+var _TracerRingbufBytes []byte

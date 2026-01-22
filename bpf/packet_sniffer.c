@@ -98,7 +98,17 @@ struct
     __type(value, struct pkt_id_t);
 } pkt_id SEC(".maps");
 
+// Packet output buffer
+// For Linux <5.8 we fallback to using perf events
+#ifdef USE_RINGBUF_PKTS
+struct
+{
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, PKTS_RINGBUF_SIZE);
+} pkts_buffer SEC(".maps");
+#else
 BPF_PERF_OUTPUT_LARGE(pkts_buffer);
+#endif
 
 struct
 {
@@ -638,11 +648,13 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
     }
 
     // send initial chunk before the first packet
+#ifndef USE_RINGBUF_PKTS
     if (unlikely(packet_id == 0)) {
         if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, 0)) {
             log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
         }
     }
+#endif
 
     p->timestamp = compat_get_uprobe_timestamp();
     p->cgroup_id = cgroup_id;
@@ -738,9 +750,14 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
             }
         }
 
-        long err_perf =
-            bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
-                                  sizeof(struct pkt));
+        long err_perf = 0;
+#ifdef USE_RINGBUF_PKTS
+        err_perf = bpf_ringbuf_output(&pkts_buffer, p, sizeof(struct pkt), 0);
+#else
+        err_perf = bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
+            sizeof(struct pkt)); err_perf = bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
+            sizeof(struct pkt));
+#endif
         if (err_perf) {
             if (!ret) {
                 ret = err_perf;
