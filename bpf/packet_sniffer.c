@@ -99,7 +99,7 @@ struct
 } pkt_id SEC(".maps");
 
 // Packet output buffer
-// For Linux <5.8 we fallback to using perf events
+// For kernel <5.8 we fallback to using perf events
 #ifdef USE_RINGBUF_PKTS
 struct
 {
