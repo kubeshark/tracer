@@ -217,6 +217,7 @@ func NewPacketsPoller(
 
 	// Decide which userspace reader to use based on the pinned map type.
 	if info, infoErr := perfBuffer.Info(); infoErr == nil && info.Type == ebpf.RingBuf {
+		log.Info().Msg("Using ring buffer for packets polling")
 		poller.useRingbuf = true
 		poller.forceCopySingleChunk = true
 		rr, rerr := ringbuf.NewReader(perfBuffer)
@@ -224,7 +225,9 @@ func NewPacketsPoller(
 			return nil, errors.Wrap(rerr, 0)
 		}
 		poller.ringReader = &ringbufReaderWrapper{r: rr}
+		log.Info().Msg("Initialized ring buffer for packets polling")
 	} else {
+		log.Info().Msg("Using perf buffer for packets polling")
 		if infoErr != nil {
 			log.Debug().Err(infoErr).Msg("Failed to read packets map info; falling back to perf reader")
 		}
