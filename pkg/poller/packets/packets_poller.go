@@ -393,10 +393,13 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 		pktBufferPool.Put(chunk)
 		return false, nil
 	}
-	const expectedChunkSize = 4148
-	if len(data) != expectedChunkSize {
+	expectedChunkSize := int(unsafe.Sizeof(tracerPacketsData{}))
+	if len(data) < expectedChunkSize {
 		pktBufferPool.Put(chunk)
-		return false, fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
+		return false, fmt.Errorf("bad pkt chunk: size %v expected at least: %v", len(data), expectedChunkSize)
+	}
+	if len(data) != expectedChunkSize {
+		data = data[:expectedChunkSize]
 	}
 
 	ptr := (*tracerPacketsData)(unsafe.Pointer(&data[0]))
