@@ -210,30 +210,21 @@ func NewPacketsPoller(
 		poller.pktsMaps[i] = make(map[uint64]*pktBuffer)
 	}
 
-	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
-	if err != nil {
-		return nil, errors.Wrap(err, 0)
-	}
-
-	// Decide which userspace reader to use based on the pinned map type.
-	if info, infoErr := perfBuffer.Info(); infoErr == nil && info.Type == ebpf.RingBuf {
+	// Decide which userspace reader to use.
+	if rr, rerr := ringbuf.NewReader(perfBuffer); rerr == nil {
 		log.Info().Msg("Using ring buffer for packets polling")
 		poller.useRingbuf = true
 		poller.forceCopySingleChunk = true
-		rr, rerr := ringbuf.NewReader(perfBuffer)
-		if rerr != nil {
-			return nil, errors.Wrap(rerr, 0)
-		}
 		poller.ringReader = &ringbufReaderWrapper{r: rr}
 		log.Info().Msg("Initialized ring buffer for packets polling")
 	} else {
 		log.Info().Msg("Using perf buffer for packets polling")
-		if infoErr != nil {
-			log.Debug().Err(infoErr).Msg("Failed to read packets map info; falling back to perf reader")
-		}
 		poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
 		if err != nil {
-			return nil, errors.Wrap(err, 0)
+			return nil, errors.Wrap(
+				fmt.Errorf("failed to create ringbuf reader: %v; failed to create perf reader: %w", rerr, err),
+				0,
+			)
 		}
 	}
 
