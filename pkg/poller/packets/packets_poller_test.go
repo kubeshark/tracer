@@ -3,13 +3,13 @@ package packets
 import (
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf/perf"
+	"github.com/cilium/ebpf/ringbuf"
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/decodedpacket"
@@ -56,11 +56,57 @@ func (f *fakePerfReader) SetDeadline(t time.Time) {
 	f.mu.Unlock()
 }
 
+type fakeRingbufReader struct {
+	mu      sync.Mutex
+	samples [][]byte
+	idx     int
+	closed  bool
+}
+
+func (f *fakeRingbufReader) Read() (any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.closed {
+		return nil, ringbuf.ErrClosed
+	}
+	if f.idx >= len(f.samples) {
+		f.closed = true
+		return nil, ringbuf.ErrClosed
+	}
+
+	s := f.samples[f.idx]
+	f.idx++
+	return ringbuf.Record{RawSample: s}, nil
+}
+
+func (f *fakeRingbufReader) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	return nil
+}
+
+func chunkWireSize() int {
+	return int(unsafe.Sizeof(tracerPacketsData{}))
+}
+
 func makeChunk(tpd tracerPacketsData) []byte {
-	const expectedChunkSize = 4148
-	b := make([]byte, expectedChunkSize)
+	b := make([]byte, chunkWireSize())
 	h := (*tracerPacketsData)(unsafe.Pointer(&b[0]))
 	*h = tpd
+	return b
+}
+
+// makeChunkWithPadding simulates perfbuf returning a larger sample than the struct size.
+func makeChunkWithPadding(tpd tracerPacketsData, pad int) []byte {
+	b := make([]byte, chunkWireSize()+pad)
+	h := (*tracerPacketsData)(unsafe.Pointer(&b[0]))
+	*h = tpd
+	// Make the trailing bytes non-zero to ensure we truly ignore them.
+	for i := chunkWireSize(); i < len(b); i++ {
+		b[i] = 0xAA
+	}
 	return b
 }
 
@@ -238,6 +284,73 @@ func TestFastPathSingleChunk_NoGopacket(t *testing.T) {
 	}
 }
 
+func TestHandlePktChunk_AcceptsPaddedRawSampleSize(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	done := make(chan int, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) {
+		select {
+		case done <- len(b):
+		default:
+		}
+	}
+
+	td := tracerPacketsData{
+		Timestamp: uint64(time.Now().UnixNano()),
+		ID:        555,
+		Len:       64,
+		TotLen:    64,
+		Num:       0,
+		Last:      1,
+		IPHdrType: 0x0800,
+		Direction: 0,
+	}
+
+	// Simulate perfbuf returning struct + 4 bytes padding/trailer.
+	raw := makeChunkWithPadding(td, 4)
+
+	fr := &fakePerfReader{
+		records: []perf.Record{
+			{RawSample: raw, CPU: 0},
+		},
+	}
+	p.chunksReader = fr
+
+	p.pollChunksPerfBuffer()
+
+	if p.stats.ChunksHandled != 1 {
+		t.Fatalf("expected 1 handled chunk, got %d", p.stats.ChunksHandled)
+	}
+	select {
+	case n := <-done:
+		if n != int(td.Len) {
+			t.Fatalf("expected raw packet len %d, got %d", td.Len, n)
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Fatalf("raw writer not called")
+	}
+}
+
+func TestHandlePktChunk_RejectsTooSmallRawSampleSize(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	raw := make([]byte, chunkWireSize()-1) // intentionally too small
+
+	chunk := pktBufferPool.Get().(*pktBuffer)
+	chunk.reset()
+	chunk.reusableRecord = perf.Record{RawSample: raw, CPU: 0}
+
+	ok, err := p.handlePktChunk(chunk)
+	if ok {
+		t.Fatalf("expected ok=false for undersized sample")
+	}
+	if err == nil {
+		t.Fatalf("expected error for undersized sample")
+	}
+}
+
 func TestReassemblyTwoChunks_NoGopacket(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
@@ -292,6 +405,87 @@ func TestReassemblyTwoChunks_NoGopacket(t *testing.T) {
 	}
 	if _, ok := p.pktsMaps[0][id]; ok {
 		t.Fatalf("expected flow %d to be deleted after Last chunk", id)
+	}
+}
+
+func TestRingbufFastPathSingleChunk_NoGopacket(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	p.useRingbuf = true
+	p.forceCopySingleChunk = true
+
+	done := make(chan struct{}, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) { done <- struct{}{} }
+
+	td := tracerPacketsData{
+		Timestamp: uint64(time.Now().UnixNano()),
+		ID:        1,
+		Len:       64,
+		TotLen:    64,
+		Num:       0,
+		Last:      1,
+		IPHdrType: 0x0800,
+		Direction: 0,
+	}
+
+	p.ringReader = &fakeRingbufReader{samples: [][]byte{makeChunk(td)}}
+
+	p.pollChunksRingBuffer()
+
+	if p.stats.ChunksHandled != 1 {
+		t.Fatalf("expected 1 handled chunk, got %d", p.stats.ChunksHandled)
+	}
+	select {
+	case <-done:
+	case <-time.After(50 * time.Millisecond):
+		t.Fatalf("raw writer not called")
+	}
+}
+
+func TestRingbufReassemblyTwoChunks_NoGopacket(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	p.useRingbuf = true
+	p.forceCopySingleChunk = true
+
+	gotLen := make(chan int, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) { gotLen <- len(b) }
+
+	id := uint64(4242)
+
+	first := tracerPacketsData{
+		ID:        id,
+		Len:       32,
+		TotLen:    48,
+		Num:       0,
+		Last:      0,
+		IPHdrType: 0x0800,
+	}
+	second := tracerPacketsData{
+		ID:        id,
+		Len:       16,
+		TotLen:    48,
+		Num:       1,
+		Last:      1,
+		IPHdrType: 0x0800,
+	}
+
+	p.ringReader = &fakeRingbufReader{samples: [][]byte{makeChunk(first), makeChunk(second)}}
+
+	p.pollChunksRingBuffer()
+
+	if p.receivedPackets != 1 {
+		t.Fatalf("expected one reassembled packet, got %d", p.receivedPackets)
+	}
+	select {
+	case n := <-gotLen:
+		if want := int(first.Len + second.Len); n != want {
+			t.Fatalf("expected reassembled length %d, got %d", want, n)
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Fatalf("raw writer not called")
 	}
 }
 
@@ -566,7 +760,7 @@ func TestReassembly_ParseError_ReturnsOkTrueAndNoWriter(t *testing.T) {
 	firstLen := len(bad) / 2
 
 	first := tracerPacketsData{
-		ID:        id,
+		ID:        uint64(id),
 		Len:       uint32(firstLen),
 		TotLen:    uint32(len(bad)),
 		Num:       0,
@@ -574,7 +768,7 @@ func TestReassembly_ParseError_ReturnsOkTrueAndNoWriter(t *testing.T) {
 		IPHdrType: 0x0800,
 	}
 	second := tracerPacketsData{
-		ID:        id,
+		ID:        uint64(id),
 		Len:       uint32(len(bad) - firstLen),
 		TotLen:    uint32(len(bad)),
 		Num:       1,
@@ -607,24 +801,42 @@ func TestReassembly_ParseError_ReturnsOkTrueAndNoWriter(t *testing.T) {
 	}
 }
 
-func TestWritePacket_RecordsExactTCPOptionsErrorStyle(t *testing.T) {
+func TestWorkerPool_PreservesPacketOrder(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {}
+	const n = 128
+	got := make(chan uint64, n)
 
-	opts := []byte{2, 49, 0xaa, 0xbb}
-	tcp := tcpHeader(6, opts)
-	ipv4 := makeIPv4Packet(6, tcp, nil)
-
-	buf := &pktBuffer{layerParser: decodedpacket.NewLayerParser(), len: uint32(len(ipv4))}
-	copy(buf.buf[:len(ipv4)], ipv4)
-
-	td := &tracerPacketsData{Len: uint32(len(ipv4))}
-
-	ok, err := p.writePacket(buf, td)
-	if ok || err != nil {
-		t.Fatalf("expect ok=false, err=nil from writePacket on parse error; got ok=%v err=%v", ok, err)
+	p.gopacketWriter = func(pkt gopacket.Packet, _ bool) {
+		got <- pkt.Metadata().CaptureInfo.CgroupID
 	}
-	_ = strings.Contains
+
+	for i := 0; i < n; i++ {
+		pktBytes := makeIPv4Packet(17, udpHeader(), []byte{byte(i)})
+		buf := &pktBuffer{layerParser: decodedpacket.NewLayerParser(), len: uint32(len(pktBytes))}
+		copy(buf.buf[:len(pktBytes)], pktBytes)
+
+		td := &tracerPacketsData{
+			CgroupID:  uint64(i),
+			Direction: 0,
+			Len:       uint32(len(pktBytes)),
+		}
+
+		ok, err := p.writePacket(buf, td)
+		if err != nil || !ok {
+			t.Fatalf("writePacket failed: ok=%v err=%v", ok, err)
+		}
+	}
+
+	for i := 0; i < n; i++ {
+		select {
+		case id := <-got:
+			if id != uint64(i) {
+				t.Fatalf("packet reordered: got %d want %d", id, i)
+			}
+		case <-time.After(250 * time.Millisecond):
+			t.Fatalf("timed out waiting for packets")
+		}
+	}
 }
