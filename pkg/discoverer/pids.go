@@ -231,6 +231,11 @@ func (p *pids) installGoHook(e foundPidEvent) (goHook *goHooks.GoHooks, goPath, 
 		envoyPath = path
 	}
 
+	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
+		goPath = path
+		return goHook, goPath, envoyPath
+	}
+
 	ex, err := link.OpenExecutable(path)
 	if err != nil {
 		log.Debug().Err(err).Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("Open executable failed")
@@ -243,10 +248,6 @@ func (p *pids) installGoHook(e foundPidEvent) (goHook *goHooks.GoHooks, goPath, 
 		return goHook, goPath, envoyPath
 	}
 	log.Debug().Uint32("pid", e.pid).Uint64("cgroup", e.cgroup).Str("path", path).Msg("gotls found")
-	if _, ok := p.targetedCgroups.Get(e.cgroup); !ok {
-		goPath = path
-		return goHook, goPath, envoyPath
-	}
 	hook := goHooks.GoHooks{}
 
 	err = hook.InstallHooks(p.bpfObjs, ex, offsets)
