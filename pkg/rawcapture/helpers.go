@@ -103,9 +103,13 @@ func StartCapture(manager *Manager, id string, cfg *raw.Config) (*raw.StartRespo
 func StopCapture(manager *Manager, id string) (*raw.StopResponse, error) {
 	id = strings.TrimSpace(id)
 	stats := gatherStats(manager, id)
-	writer := manager.Get(id)
-	if writer != nil {
-		writer.Destroy()
+	if !manager.Destroy(id) {
+		log.Info().Str("target", manager.target.String()).Str("id", id).Stringer("stats", stats).Msg("capture not found")
+		return &raw.StopResponse{
+			Target: raw.Target_TARGET_SYSCALLS,
+			Id:     "", // empty means error
+			Stats:  nil,
+		}, nil
 	}
 	log.Info().Str("target", manager.target.String()).Str("id", id).Stringer("stats", stats).Msg("stopped capture")
 	return &raw.StopResponse{
@@ -147,7 +151,7 @@ func GetCaptureStatus(manager *Manager, target raw.Target, id string) (*raw.Stat
 
 // CleanupCaptures cleans up all syscall capture data
 func CleanupCaptures(manager *Manager) (*raw.CleanupResponse, error) {
-	manager.Destroy()
+	manager.DestroyAll()
 	dir := captureBaseDir(manager.baseDir)
 	if dir != "" {
 		if err := os.RemoveAll(dir); err != nil {

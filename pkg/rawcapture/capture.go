@@ -149,8 +149,21 @@ func (m *Manager) Get(id string) *Writer {
 	return m.writers[id]
 }
 
+func (m *Manager) Destroy(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	w := m.writers[id]
+	if w != nil {
+		w.Destroy()
+		delete(m.writers, id)
+		return true
+	}
+	return false
+}
+
 // Destroy stops and removes the writer (calls cancel()).
-func (m *Manager) Destroy() {
+func (m *Manager) DestroyAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
