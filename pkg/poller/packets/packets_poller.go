@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-errors/errors"
 
 	"github.com/kubeshark/gopacket"
+	"github.com/kubeshark/gopacket/layers"
 	"github.com/kubeshark/tracer/internal/tai"
 	"github.com/kubeshark/tracer/pkg/bpf"
 	"github.com/kubeshark/tracer/pkg/decodedpacket"
@@ -70,38 +72,51 @@ var pktBufferPool = sync.Pool{
 
 // Worker pool for packet processing
 type packetJob struct {
+	seq  uint64
 	pkt  gopacket.Packet
 	pkts *pktBuffer
 }
 
 // startWorkerPool starts worker goroutines for packet processing
 func (p *PacketsPoller) startWorkerPool() {
-	// Using multiple workers here can reorder packets, so we use a single worker
-	p.packetJobs = make(chan packetJob, runtime.NumCPU()*1024)
-	p.workerPool = make([]chan struct{}, 1)
+	shards := runtime.GOMAXPROCS(0)
+	if shards < 1 {
+		shards = 1
+	}
 
-	p.workerPool[0] = make(chan struct{})
-	go func() {
-		defer close(p.workerPool[0])
-		for job := range p.packetJobs {
-			if p.gopacketWriter != nil {
-				t0 := time.Now()
-				p.gopacketWriter(job.pkt, p.dissectionDisabled)
-				dt := time.Since(t0)
+	p.packetJobs = make([]chan packetJob, shards)
+	p.workerPool = make([]chan struct{}, shards)
 
-				atomic.AddUint64(&p.diagWriterNanos, uint64(dt))
-				atomic.AddUint64(&p.diagWriterCalls, 1)
-				atomicMaxUint64(&p.diagMaxWriterNs, uint64(dt))
+	for i := 0; i < shards; i++ {
+		p.packetJobs[i] = make(chan packetJob, 1024)
+		p.workerPool[i] = make(chan struct{})
+
+		jobs := p.packetJobs[i]
+		done := p.workerPool[i]
+
+		go func() {
+			defer close(done)
+			for job := range jobs {
+				if p.gopacketWriter != nil {
+					t0 := time.Now()
+					p.gopacketWriter(job.pkt, p.dissectionDisabled)
+					dt := time.Since(t0)
+
+					atomic.AddUint64(&p.diagWriterNanos, uint64(dt))
+					atomic.AddUint64(&p.diagWriterCalls, 1)
+					atomicMaxUint64(&p.diagMaxWriterNs, uint64(dt))
+				}
+				pktBufferPool.Put(job.pkts)
 			}
-			pktBufferPool.Put(job.pkts)
-		}
-	}()
+		}()
+	}
 }
 
 // stopWorkerPool stops all worker goroutines
 func (p *PacketsPoller) stopWorkerPool() {
-	close(p.packetJobs)
-	// Wait for all workers to finish
+	for _, ch := range p.packetJobs {
+		close(ch)
+	}
 	for _, done := range p.workerPool {
 		<-done
 	}
@@ -157,7 +172,7 @@ type PacketsPoller struct {
 	ethernetDecoder gopacket.Decoder
 	ethhdrContent   []byte
 	// Worker pool fields
-	packetJobs chan packetJob
+	packetJobs []chan packetJob
 	workerPool []chan struct{}
 	// Per-CPU packet maps to avoid contention
 	pktsMaps []map[uint64]*pktBuffer // one map per CPU
@@ -404,8 +419,12 @@ func (p *PacketsPoller) logPeriodicStats() {
 			Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
 			Msg("PacketsPoller stats")
 
-		qLen := len(p.packetJobs)
-		qCap := cap(p.packetJobs)
+		qLen := 0
+		qCap := 0
+		for _, ch := range p.packetJobs {
+			qLen += len(ch)
+			qCap += cap(ch)
+		}
 		qMax := atomic.LoadUint64(&p.diagMaxQueueLen)
 
 		blkN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
@@ -636,14 +655,17 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 
 	job := packetJob{pkt: packet, pkts: pktBuf}
 
+	shard := int(flowHash(packet) % uint64(len(p.packetJobs)))
+	q := p.packetJobs[shard]
+
 	qlen := len(p.packetJobs)
 	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlen))
 
 	select {
-	case p.packetJobs <- job:
+	case q <- job:
 	default:
 		t0 := time.Now()
-		p.packetJobs <- job
+		q <- job
 		dt := time.Since(t0)
 
 		atomic.AddUint64(&p.diagBlockedEnqueueNanos, uint64(dt))
@@ -783,4 +805,80 @@ func (p *PacketsPoller) pollChunksRingBuffer() {
 			p.stats.ChunksHandled++
 		}
 	}
+}
+
+func hashBytes(h uint64, b []byte) uint64 {
+	const prime = 1099511628211
+	for _, c := range b {
+		h ^= uint64(c)
+		h *= prime
+	}
+	return h
+}
+
+func endpointLess(ipA [16]byte, portA uint16, ipB [16]byte, portB uint16) bool {
+	if c := bytes.Compare(ipA[:], ipB[:]); c != 0 {
+		return c < 0
+	}
+	return portA < portB
+}
+
+func flowHash(pkt gopacket.Packet) uint64 {
+	ci := pkt.Metadata().CaptureInfo
+
+	var srcIP, dstIP [16]byte
+	var srcPort, dstPort uint16
+	var proto uint8
+
+	if nl := pkt.NetworkLayer(); nl != nil {
+		switch ip := nl.(type) {
+		case *layers.IPv4:
+			copy(srcIP[12:], ip.SrcIP)
+			copy(dstIP[12:], ip.DstIP)
+			proto = uint8(ip.Protocol)
+		case *layers.IPv6:
+			copy(srcIP[:], ip.SrcIP)
+			copy(dstIP[:], ip.DstIP)
+			proto = uint8(ip.NextHeader)
+		}
+	}
+
+	if tl := pkt.TransportLayer(); tl != nil {
+		switch t := tl.(type) {
+		case *layers.TCP:
+			srcPort = uint16(t.SrcPort)
+			dstPort = uint16(t.DstPort)
+		case *layers.UDP:
+			srcPort = uint16(t.SrcPort)
+			dstPort = uint16(t.DstPort)
+		case *layers.SCTP:
+			srcPort = uint16(t.SrcPort)
+			dstPort = uint16(t.DstPort)
+		}
+	}
+
+	// Canonicalize endpoints so both directions map to the same shard
+	if endpointLess(dstIP, dstPort, srcIP, srcPort) {
+		srcIP, dstIP = dstIP, srcIP
+		srcPort, dstPort = dstPort, srcPort
+	}
+
+	// FNV-1a-ish
+	h := uint64(1469598103934665603)
+	// include cgroup so same 5‑tuple in different pods doesn’t collide
+	h ^= ci.CgroupID
+	h *= 1099511628211
+
+	h = hashBytes(h, srcIP[:])
+	h ^= uint64(srcPort)
+	h *= 1099511628211
+
+	h = hashBytes(h, dstIP[:])
+	h ^= uint64(dstPort)
+	h *= 1099511628211
+
+	h ^= uint64(proto)
+	h *= 1099511628211
+
+	return h
 }
