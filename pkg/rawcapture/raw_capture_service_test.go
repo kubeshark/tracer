@@ -149,7 +149,11 @@ func TestRawCaptureServer_Stop(t *testing.T) {
 				assert.NotNil(t, resp)
 				if resp != nil {
 					assert.Equal(t, raw.Target_TARGET_SYSCALLS, resp.Target)
-					assert.NotNil(t, resp.Stats)
+					if tt.name == "stop non-existent capture" {
+						assert.Nil(t, resp.Stats)
+					} else {
+						assert.NotNil(t, resp.Stats)
+					}
 				}
 			}
 		})

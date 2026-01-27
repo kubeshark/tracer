@@ -166,12 +166,48 @@ func TestManagerDestroy(t *testing.T) {
 	}
 
 	// Destroy all
-	manager.Destroy()
+	manager.DestroyAll()
 
 	// Verify all writers are gone
 	for _, id := range ids {
 		assert.Nil(t, manager.Get(id))
 	}
+}
+
+func TestManagerDestroyByID(t *testing.T) {
+	tempDir := t.TempDir()
+	manager := NewManager(raw.Target_TARGET_SYSCALLS)
+
+	// Start two captures
+	id1 := "test-1"
+	id2 := "test-2"
+
+	err := manager.StartCapturing(tempDir, id1, true, 0, 0, 0, TTLPolicyDeleteOldest)
+	require.NoError(t, err)
+
+	err = manager.StartCapturing(tempDir, id2, true, 0, 0, 0, TTLPolicyDeleteOldest)
+	require.NoError(t, err)
+
+	// Verify both exist
+	assert.NotNil(t, manager.Get(id1))
+	assert.NotNil(t, manager.Get(id2))
+
+	// Destroy one
+	destroyed := manager.Destroy(id1)
+	assert.True(t, destroyed)
+
+	// Verify one is gone, one remains
+	assert.Nil(t, manager.Get(id1))
+	assert.NotNil(t, manager.Get(id2))
+
+	// Try to destroy the same one again
+	destroyed = manager.Destroy(id1)
+	assert.False(t, destroyed)
+
+	// Destroy the second one
+	destroyed = manager.Destroy(id2)
+	assert.True(t, destroyed)
+	assert.Nil(t, manager.Get(id2))
 }
 
 func TestManagerEnqueueSyscall(t *testing.T) {
