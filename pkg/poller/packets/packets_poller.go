@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -46,6 +47,18 @@ type perfReader interface {
 	SetDeadline(t time.Time)
 }
 
+func atomicMaxUint64(addr *uint64, v uint64) {
+	for {
+		old := atomic.LoadUint64(addr)
+		if v <= old {
+			return
+		}
+		if atomic.CompareAndSwapUint64(addr, old, v) {
+			return
+		}
+	}
+}
+
 // Buffer pool for pktBuffer objects to avoid large allocations
 var pktBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -71,7 +84,15 @@ func (p *PacketsPoller) startWorkerPool() {
 	go func() {
 		defer close(p.workerPool[0])
 		for job := range p.packetJobs {
-			p.gopacketWriter(job.pkt, p.dissectionDisabled)
+			if p.gopacketWriter != nil {
+				t0 := time.Now()
+				p.gopacketWriter(job.pkt, p.dissectionDisabled)
+				dt := time.Since(t0)
+
+				atomic.AddUint64(&p.diagWriterNanos, uint64(dt))
+				atomic.AddUint64(&p.diagWriterCalls, 1)
+				atomicMaxUint64(&p.diagMaxWriterNs, uint64(dt))
+			}
 			pktBufferPool.Put(job.pkts)
 		}
 	}()
@@ -162,6 +183,27 @@ type PacketsPoller struct {
 	stats                PacketsPollerStats
 
 	dissectionDisabled bool
+
+	diagMaxQueueLen uint64
+
+	diagBlockedEnqueueNanos  uint64
+	diagBlockedEnqueueEvents uint64
+	diagMaxBlockedEnqueueNs  uint64
+
+	diagDecodeNanos uint64
+	diagDecodeCalls uint64
+	diagMaxDecodeNs uint64
+
+	diagWriterNanos uint64
+	diagWriterCalls uint64
+	diagMaxWriterNs uint64
+
+	lastDiagBlockedEnqueueNanos  uint64
+	lastDiagBlockedEnqueueEvents uint64
+	lastDiagDecodeNanos          uint64
+	lastDiagDecodeCalls          uint64
+	lastDiagWriterNanos          uint64
+	lastDiagWriterCalls          uint64
 }
 
 type PacketsPollerStats struct {
@@ -362,6 +404,64 @@ func (p *PacketsPoller) logPeriodicStats() {
 			Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
 			Msg("PacketsPoller stats")
 
+		qLen := len(p.packetJobs)
+		qCap := cap(p.packetJobs)
+		qMax := atomic.LoadUint64(&p.diagMaxQueueLen)
+
+		blkN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
+		blkE := atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
+		decN := atomic.LoadUint64(&p.diagDecodeNanos)
+		decC := atomic.LoadUint64(&p.diagDecodeCalls)
+		wrN := atomic.LoadUint64(&p.diagWriterNanos)
+		wrC := atomic.LoadUint64(&p.diagWriterCalls)
+
+		dBlkN := blkN - p.lastDiagBlockedEnqueueNanos
+		dBlkE := blkE - p.lastDiagBlockedEnqueueEvents
+		dDecN := decN - p.lastDiagDecodeNanos
+		dDecC := decC - p.lastDiagDecodeCalls
+		dWrN := wrN - p.lastDiagWriterNanos
+		dWrC := wrC - p.lastDiagWriterCalls
+
+		p.lastDiagBlockedEnqueueNanos = blkN
+		p.lastDiagBlockedEnqueueEvents = blkE
+		p.lastDiagDecodeNanos = decN
+		p.lastDiagDecodeCalls = decC
+		p.lastDiagWriterNanos = wrN
+		p.lastDiagWriterCalls = wrC
+
+		avgUs := func(nanos, calls uint64) float64 {
+			if calls == 0 {
+				return 0
+			}
+			return float64(nanos) / float64(calls) / 1000.0
+		}
+
+		saturated := false
+		if qCap > 0 && qLen*100/qCap >= 80 {
+			saturated = true
+		}
+		if dBlkE > 0 {
+			saturated = true
+		}
+
+		ev := log.Info()
+		if saturated {
+			ev = log.Warn()
+		}
+
+		ev.
+			Int("job_queue_len", qLen).
+			Int("job_queue_cap", qCap).
+			Uint64("job_queue_max", qMax).
+			Uint64("enqueue_blocked_events_5s", dBlkE).
+			Float64("enqueue_blocked_avg_us_5s", avgUs(dBlkN, dBlkE)).
+			Float64("decode_avg_us_5s", avgUs(dDecN, dDecC)).
+			Float64("writer_avg_us_5s", avgUs(dWrN, dWrC)).
+			Float64("decode_max_ms", float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6).
+			Float64("writer_max_ms", float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6).
+			Float64("enqueue_blocked_max_ms", float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs))/1e6).
+			Msg("PacketsPoller diagnostics")
+
 		// Update last stats and time
 		p.lastStats = p.stats
 		p.lastStatsTime = now
@@ -393,6 +493,7 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 		pktBufferPool.Put(chunk)
 		return false, nil
 	}
+
 	expectedChunkSize := int(unsafe.Sizeof(tracerPacketsData{}))
 	if len(data) < expectedChunkSize {
 		pktBufferPool.Put(chunk)
@@ -479,7 +580,6 @@ func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
 
 func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
 	if p.gopacketWriter == nil {
-
 		pktBufferPool.Put(pktBuf)
 		return false, nil
 	}
@@ -516,7 +616,14 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 		DecodeStreamsAsDatagrams: false,
 	}
 
+	decodeStart := time.Now()
 	packet, parseErr := pktBuf.layerParser.CreatePacket(pkt, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction), ci, decodeOptions)
+	dtDecode := time.Since(decodeStart)
+
+	atomic.AddUint64(&p.diagDecodeNanos, uint64(dtDecode))
+	atomic.AddUint64(&p.diagDecodeCalls, 1)
+	atomicMaxUint64(&p.diagMaxDecodeNs, uint64(dtDecode))
+
 	if parseErr != nil {
 		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
 		p.stats.PacketsError++
@@ -527,8 +634,23 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 	p.stats.PacketsGot++
 	p.stats.BytesProcessed += uint64(len(pkt))
 
-	// Send packet job to worker pool
-	p.packetJobs <- packetJob{pkt: packet, pkts: pktBuf}
+	job := packetJob{pkt: packet, pkts: pktBuf}
+
+	qlen := len(p.packetJobs)
+	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlen))
+
+	select {
+	case p.packetJobs <- job:
+	default:
+		t0 := time.Now()
+		p.packetJobs <- job
+		dt := time.Since(t0)
+
+		atomic.AddUint64(&p.diagBlockedEnqueueNanos, uint64(dt))
+		atomic.AddUint64(&p.diagBlockedEnqueueEvents, 1)
+		atomicMaxUint64(&p.diagMaxBlockedEnqueueNs, uint64(dt))
+	}
+
 	return true, nil
 }
 
@@ -612,7 +734,6 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 		} else if ok {
 			p.stats.ChunksHandled++
 		}
-
 	}
 }
 
