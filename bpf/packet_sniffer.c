@@ -46,6 +46,7 @@ functions should be thread-safe
 
 #include "packet_sniffer_v1.c"
 
+#ifndef USE_RINGBUF
 struct pkt
 {
     __u64 timestamp;
@@ -76,6 +77,7 @@ struct
     __type(key, __u64);
     __type(value, struct pkt);
 } pkt_heap_hash SEC(".maps");
+#endif
 
 struct
 {
@@ -100,15 +102,7 @@ struct
 
 // Packet output buffer
 // For kernel <5.8 we fallback to using perf events
-#ifdef USE_RINGBUF_PKTS
-struct
-{
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, PKTS_RINGBUF_SIZE);
-} pkts_buffer SEC(".maps");
-#else
-BPF_PERF_OUTPUT_LARGE(pkts_buffer);
-#endif
+BPF_OUTPUT_LARGE(pkts_buffer);
 
 struct
 {
@@ -596,23 +590,113 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
         rewrite_ip6_src = &ctx->ip.v6.src;
         rewrite_ip6_dst = &ctx->ip.v6.dst;
     }
+
     __u16 rewrite_port_src = ctx->rewrite_port_src;
     __u16 rewrite_port_dst = ctx->rewrite_port_dst;
     __u64 cgroup_id = ctx->cgroup_id;
     __u8 direction = ctx->direction;
+
     __u64 packet_id = 0;
     int zero = 0;
 
     struct pkt_id_t* pkt_id_ptr = bpf_map_lookup_elem(&pkt_id, &zero);
     if (pkt_id_ptr == NULL) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 1, 0l, 0l);
-        ret = 5;
-        goto save_packet_end;
+        return 5;
     }
+
     bpf_spin_lock(&pkt_id_ptr->lock);
     packet_id = ++pkt_id_ptr->id;
     bpf_spin_unlock(&pkt_id_ptr->lock);
 
+#ifdef USE_RINGBUF
+    __u32 pkt_len = skb->len;
+
+    if (pkt_len == 0) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 5, 0l, 0l);
+        return 3;
+    }
+
+    if (pkt_len > PKT_RINGBUF_MAX_LEN) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 6, pkt_len, 0l);
+        return 4;
+    }
+
+    // send initial marker before the first packet
+    if (unlikely(packet_id == 1)) {
+        __u32 z = 0;
+        if (bpf_ringbuf_output(&pkts_buffer, &z, sizeof(z), 0)) {
+            log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
+        }
+    }
+
+    __u32 rec_sz = (__u32)(sizeof(struct pkt_event_hdr) + pkt_len);
+    struct pkt_event_hdr* ev = bpf_ringbuf_reserve(&pkts_buffer, rec_sz, 0);
+    if (!ev) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 15, rec_sz, 0l);
+        return -EAGAIN;
+    }
+
+    ev->timestamp = compat_get_uprobe_timestamp();
+    ev->cgroup_id = cgroup_id;
+    ev->direction = direction;
+    ev->id = packet_id;
+    ev->len = pkt_len;
+    ev->ip_hdr_type = bpf_ntohs(ctx->skb->protocol);
+    ev->__pad = 0;
+
+    unsigned char* payload = (unsigned char*)(ev + 1);
+
+    if (bpf_skb_load_bytes(skb, 0, payload, pkt_len) != 0) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 16, 0l, 0l);
+        bpf_ringbuf_discard(ev, 0);
+        return -EINVAL;
+    }
+
+    // Rewrite IPs/ports in the copied payload (best-effort; bounds-checked)
+    if (ip_version == 6) {
+        if (pkt_len >= sizeof(struct ipv6hdr)) {
+            struct ipv6hdr* ip6 = (struct ipv6hdr*)payload;
+            if (rewrite_ip6_src)
+                __builtin_memcpy(&ip6->saddr, rewrite_ip6_src, sizeof(struct in6_addr));
+            if (rewrite_ip6_dst)
+                __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst, sizeof(struct in6_addr));
+
+            if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
+                if (ctx->transportOffset + 4 <= pkt_len) {
+                    __u16* src_dst = (__u16*)(&payload[ctx->transportOffset]);
+                    if (rewrite_port_src)
+                        *src_dst = rewrite_port_src;
+                    if (rewrite_port_dst)
+                        *(src_dst + 1) = rewrite_port_dst;
+                }
+            }
+        }
+    } else {
+        if (pkt_len >= sizeof(struct iphdr)) {
+            struct iphdr* ip = (struct iphdr*)payload;
+            if (rewrite_ip_src)
+                ip->saddr = rewrite_ip_src;
+            if (rewrite_ip_dst)
+                ip->daddr = rewrite_ip_dst;
+
+            if (ip->protocol == IPPROTO_TCP || ip->protocol == IPPROTO_UDP) {
+                __u32 hdrsize = (__u32)ip->ihl * 4;
+                if (hdrsize >= sizeof(struct iphdr) && (hdrsize + 4) <= pkt_len) {
+                    __u16* src_dst = (__u16*)(&payload[hdrsize]);
+                    if (rewrite_port_src)
+                        *src_dst = rewrite_port_src;
+                    if (rewrite_port_dst)
+                        *(src_dst + 1) = rewrite_port_dst;
+                }
+            }
+        }
+    }
+
+    bpf_ringbuf_submit(ev, 0);
+    return 0;
+
+#else
     struct pkt* pzero = bpf_map_lookup_elem(&pkt_heap, &zero);
     if (pzero == NULL) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 2, 0l, 0l);
@@ -648,13 +732,13 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
     }
 
     // send initial chunk before the first packet
-#ifndef USE_RINGBUF_PKTS
-    if (unlikely(packet_id == 0)) {
-        if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p, 0)) {
+    if (unlikely(packet_id == 1)) {
+        __u32 z = 0;
+        if (bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, &z,
+                                  sizeof(z))) {
             log_error(skb, LOG_ERROR_PKT_SNIFFER, 7, 0l, 0l);
         }
     }
-#endif
 
     p->timestamp = compat_get_uprobe_timestamp();
     p->cgroup_id = cgroup_id;
@@ -682,13 +766,11 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
         } else {
             uint16_t p_len = p->len;
             if (p_len < 1 || p_len > 4095) {
-                // This is assertion if branch - should never happens according above
-                // logic
                 log_error(skb, LOG_ERROR_PKT_SNIFFER, 9, 0l, 0l);
                 ret = 7;
                 goto save_packet_end;
             }
-            p_len -= 1; // to satisfy verifier in below bpf_skb_load_bytes
+            p_len -= 1;
             if (p_len + 1 < sizeof(p->buf)) {
                 if (bpf_skb_load_bytes(skb, i * PKT_PART_LEN, &p->buf[0], p_len + 1) !=
                     0) {
@@ -697,13 +779,12 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
                     goto save_packet_end;
                 }
             } else {
-                // This is assertion if branch - should never happens according above
-                // logic
                 log_error(skb, LOG_ERROR_PKT_SNIFFER, 11, 0l, 0l);
                 ret = 9;
                 goto save_packet_end;
             }
         }
+
         if (ip_version == 6) {
             struct ipv6hdr* ip6 = (struct ipv6hdr*)p->buf;
             if (rewrite_ip6_src)
@@ -750,14 +831,8 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
             }
         }
 
-        long err_perf = 0;
-#ifdef USE_RINGBUF_PKTS
-        err_perf = bpf_ringbuf_output(&pkts_buffer, p, sizeof(struct pkt), 0);
-#else
-        err_perf = bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
-            sizeof(struct pkt)); err_perf = bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
-            sizeof(struct pkt));
-#endif
+        long err_perf = bpf_perf_event_output(skb, &pkts_buffer, BPF_F_CURRENT_CPU, p,
+                                              sizeof(struct pkt));
         if (err_perf) {
             if (!ret) {
                 ret = err_perf;
@@ -765,11 +840,13 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
             log_error(skb, LOG_ERROR_PKT_SNIFFER, 14, err_perf, 0l);
         }
     }
+
 save_packet_end:
     if (packet_id != 0) {
         bpf_map_delete_elem(&pkt_heap_hash, &packet_id);
     }
     return ret;
+#endif
 }
 
 /* parse_packet to find out IP addresses and ports information

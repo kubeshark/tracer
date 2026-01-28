@@ -53,6 +53,8 @@ struct tls_chunk
     __u8 data[CHUNK_SIZE]; // Must be N^2
 };
 
+#define TLS_CHUNK_HDR_SIZE (sizeof(struct tls_chunk) - sizeof(((struct tls_chunk*)0)->data))
+
 struct ssl_info
 {
     uintptr_t buffer;
@@ -157,11 +159,23 @@ struct
     __type(value, struct tls_chunk);
 } heap SEC(".maps");
 
+#define PKT_RINGBUF_MAX_LEN (256 * 1024)
 #define PKT_PART_LEN (4 * 1024)
 #define PKT_MAX_LEN (64 * 1024)
-#define PKTS_RINGBUF_SIZE (64 *1024 * 1024) // 64MB
+#define CAPTURE_RINGBUF_SIZE (64 * 1024 * 1024) // 64MB
 #define PACKET_DIRECTION_RECEIVED 0
 #define PACKET_DIRECTION_SENT 1
+
+struct pkt_event_hdr
+{
+    __u64 timestamp;
+    __u64 cgroup_id;
+    __u64 id;
+    __u32 len;
+    __u16 ip_hdr_type;
+    __u8 direction;
+    __u8 __pad;
+};
 
 struct socket_cookie_data
 {
@@ -207,10 +221,30 @@ struct configuration
 #define BPF_ARRAY(_name, _key_type, _value_type, _max_entries) \
     BPF_MAP(_name, BPF_MAP_TYPE_ARRAY, _key_type, _value_type, _max_entries)
 
+#ifdef USE_RINGBUF
+#define BPF_RINGBUF(_name, _size) \
+    struct { \
+        __uint(type, BPF_MAP_TYPE_RINGBUF); \
+        __uint(max_entries, _size); \
+    } _name SEC(".maps");
+
+#define BPF_OUTPUT(_name) \
+    BPF_RINGBUF(_name, CAPTURE_RINGBUF_SIZE)
+
+#define BPF_OUTPUT_LARGE(_name) \
+    BPF_RINGBUF(_name, CAPTURE_RINGBUF_SIZE)
+#else
+#define BPF_OUTPUT(_name) \
+    BPF_PERF_OUTPUT(_name)
+
+#define BPF_OUTPUT_LARGE(_name) \
+    BPF_PERF_OUTPUT_LARGE(_name)
+#endif
+
 // Generic
 BPF_HASH(pids_info, struct pid_offset, struct pid_info);
 BPF_LRU_HASH(connection_context, __u64, conn_flags);
-BPF_PERF_OUTPUT(chunks_buffer);
+BPF_OUTPUT(chunks_buffer);
 BPF_PERF_OUTPUT(log_buffer);
 BPF_ARRAY(settings, __u32, struct configuration, 1);
 BPF_ARRAY(programs_configuration, __u32, __u32, 1);
