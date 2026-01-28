@@ -142,6 +142,18 @@ type DecodedPacket struct {
 
 // NewDecodedPacket creates a new packet from pre-decoded layers
 func NewDecodedPacket(data []byte, layers []gopacket.Layer, cgroupID uint64, direction unixpacket.PacketDirection, ci gopacket.CaptureInfo, decodeOptions gopacket.DecodeOptions) *DecodedPacket {
+	caplen := len(data)
+
+	if ci.CaptureLength != caplen {{
+		ci.CaptureLength = caplen
+	}
+
+	if ci.Length == 0 {
+		ci.Length = caplen
+	} else if ci.Length < caplen {
+		ci.Length = caplen
+	}
+
 	pkt := &DecodedPacket{
 		data:          data,
 		layers:        layers,
