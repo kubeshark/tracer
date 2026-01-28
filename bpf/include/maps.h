@@ -53,7 +53,7 @@ struct tls_chunk
     __u8 data[CHUNK_SIZE]; // Must be N^2
 };
 
-#define TLS_CHUNK_HDR_SIZE (sizeof(struct tls_chunk) - sizeof(((struct tls_chunk*)0)->data))
+#define TLS_CHUNK_HDR_SIZE ((__u32)(__u64)(&((struct tls_chunk*)0)->data))
 
 struct ssl_info
 {

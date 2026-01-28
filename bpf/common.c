@@ -71,10 +71,11 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
     }
 
 #ifdef USE_RINGBUF
-    return bpf_ringbuf_output(&chunks_buffer, chunk, sizeof(struct tls_chunk), 0);
-#else
     __u32 out_sz = (__u32)(TLS_CHUNK_HDR_SIZE + chunk->recorded);
     return bpf_ringbuf_output(&chunks_buffer, chunk, out_sz, 0);
+#else
+    return bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU,
+                                 chunk, sizeof(struct tls_chunk));
 #endif
 }
 
