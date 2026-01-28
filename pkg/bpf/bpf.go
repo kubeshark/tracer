@@ -156,15 +156,17 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 		return nil
 	}
 
+	// Kernel version int for BPF constants.
 	kernelVersionInt := uint64(1_000_000)*uint64(kernelVersion.Kernel) +
 		uint64(1_000)*uint64(kernelVersion.Major) +
 		uint64(kernelVersion.Minor)
 
-	// Kernel < 4.6: TLS-only (no plain capture backend)
+	// --- kernel < 4.6 special-case: TLS-only (no plain capture backend) ---
 	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
 		if err := LoadTracer46Objects(&objs.BpfObjs, nil); err != nil {
 			return nil, false, false, fmt.Errorf("%w: load tracer 4.6 objects failed", ErrBpfOperationFailed)
 		}
+
 		tlsEnabled = true
 		plainEnabled = false
 
@@ -174,7 +176,8 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 		return &objs, tlsEnabled, plainEnabled, nil
 	}
 
-	// Kernel >= 4.6: decide between ringbuf, perf, and fallback no-ebpf (TLS-only)
+	// --- kernel >= 4.6: decide between ringbuf, perf, and fallback no-ebpf (TLS-only) ---
+	// Resolve host namespace inode (best-effort).
 	var procIno uint64
 	if fi, statErr := os.Stat(fmt.Sprintf("%s/1/ns/pid", procfs)); statErr != nil {
 		log.Warn().Err(statErr).Msg("Get host netns failed")
@@ -201,6 +204,7 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 		"HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns": programHelperExists(ebpf.TracePoint, asm.FnKtimeGetTaiNs),
 	}
 
+	// Loaders (kept as small units; used by the candidates list below).
 	loadPerf := func(dst *TracerObjects) error {
 		impl := &BpfObjectsImpl{bpfObjs: dst}
 		if err := impl.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerBytes)); err != nil {
@@ -242,47 +246,77 @@ func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion
 	tryRingbuf := kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 5, Major: 8, Minor: 0}) >= 0 &&
 		features.HaveMapType(ebpf.RingBuf) == nil
 
-	if tryRingbuf {
-		log.Info().Msg("Attempting to load ringbuf backend")
-		if err := loadRingbuf(&objs.BpfObjs); err == nil {
-			plainEnabled = true
-			tlsEnabled = true
-
-			if err := pinEnabledMaps(); err != nil {
-				return nil, tlsEnabled, plainEnabled, err
-			}
-			return &objs, tlsEnabled, plainEnabled, nil
-		} else {
-			log.Warn().Err(err).Msg("Ringbuf tracer load failed, falling back to perf backend")
-		}
+	type candidate struct {
+		name    string
+		load    func(dst *TracerObjects) error
+		tls     bool
+		plain   bool
+		skip    bool
+		skipMsg string
 	}
 
-	if err := loadPerf(&objs.BpfObjs); err == nil {
-		plainEnabled = true
-		tlsEnabled = true
+	candidates := []candidate{
+		{
+			name:    "ringbuf",
+			load:    loadRingbuf,
+			tls:     true,
+			plain:   true,
+			skip:    !tryRingbuf,
+			skipMsg: "ringbuf not supported (kernel < 5.8 or map type unavailable)",
+		},
+		{
+			name:  "perf",
+			load:  loadPerf,
+			tls:   true,
+			plain: true,
+		},
+		{
+			name:  "no-ebpf (TLS only)",
+			load:  loadNoEbpf,
+			tls:   true,
+			plain: false,
+		},
+	}
+
+	var lastErr error
+	for _, c := range candidates {
+		if c.skip {
+			log.Debug().Str("backend", c.name).Msg(c.skipMsg)
+			continue
+		}
+
+		// Reset objects each attempt to avoid partial state.
+		objs = BpfObjects{}
+		tlsEnabled = false
+		plainEnabled = false
+
+		log.Info().Str("backend", c.name).Msg("Attempting to load tracer backend")
+		if err := c.load(&objs.BpfObjs); err != nil {
+			lastErr = err
+			log.Warn().Err(err).Str("backend", c.name).Msg("Tracer backend load failed")
+			continue
+		}
+
+		plainEnabled = c.plain
+		tlsEnabled = c.tls
 
 		if err := pinEnabledMaps(); err != nil {
 			return nil, tlsEnabled, plainEnabled, err
 		}
+
+		log.Info().
+			Str("backend", c.name).
+			Bool("plain_enabled", plainEnabled).
+			Bool("tls_enabled", tlsEnabled).
+			Msg("Tracer backend loaded successfully")
+
 		return &objs, tlsEnabled, plainEnabled, nil
-	} else {
-		log.Warn().Err(err).Msg("Perf tracer load failed, falling back to no-ebpf backend (TLS only)")
 	}
 
-	objs = BpfObjects{}
-	if err := loadNoEbpf(&objs.BpfObjs); err != nil {
-		log.Warn().Err(err).Msg("No-ebpf tracer load failed")
-		return nil, false, false, fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
+	if lastErr != nil {
+		return nil, false, false, fmt.Errorf("%w: load tracer objects failed: %v", ErrBpfOperationFailed, lastErr)
 	}
-
-	tlsEnabled = true
-	plainEnabled = false
-
-	if err := pinEnabledMaps(); err != nil {
-		return nil, tlsEnabled, plainEnabled, err
-	}
-
-	return &objs, tlsEnabled, plainEnabled, nil
+	return nil, false, false, fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
 }
 
 func isMounted(procfs string, target string) (bool, error) {
