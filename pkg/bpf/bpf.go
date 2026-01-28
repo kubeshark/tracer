@@ -37,14 +37,12 @@ var (
 	ErrBpfOperationFailed = errors.New("bpf fs operation failed")
 )
 
-// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we build object files per kernel version.
-
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS" -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS" -type tls_chunk -type goid_offsets Tracer ../../bpf/tracer.c
 
-// Ringbuf variant (Linux >= 5.8). Preferred for packet ordering.
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS -DUSE_RINGBUF_PKTS" -type tls_chunk -type goid_offsets TracerRingbuf ../../bpf/tracer.c
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS -DUSE_RINGBUF_PKTS" -type tls_chunk -type goid_offsets TracerRingbuf ../../bpf/tracer.c
+// Ringbuf variant (Linux >= 5.8).
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS -DUSE_RINGBUF" -type tls_chunk -type goid_offsets TracerRingbuf ../../bpf/tracer.c
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS -DUSE_RINGBUF" -type tls_chunk -type goid_offsets TracerRingbuf ../../bpf/tracer.c
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target amd64 -cflags "$BPF_CFLAGS -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets TracerNoEbpf ../../bpf/tracer.c
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go@v0.12.3 -target arm64 -cflags "$BPF_CFLAGS -DDISABLE_EBPF_CAPTURE_BACKEND" -type tls_chunk -type goid_offsets TracerNoEbpf ../../bpf/tracer.c
@@ -76,6 +74,7 @@ func (objs *BpfObjectsImpl) loadBpfObjects(bpfConstants map[string]uint64, mapRe
 	opts := ebpf.CollectionOptions{
 		MapReplacements: mapReplacements,
 	}
+
 	err = objs.specs.LoadAndAssign(objs.bpfObjs, &opts)
 	if err != nil {
 		var ve *ebpf.VerifierError
@@ -102,226 +101,188 @@ func programHelperExists(pt ebpf.ProgramType, helper asm.BuiltinFunc) uint64 {
 }
 
 func NewBpfObjects(procfs string, preferCgroupV1, isCgroupV2 bool, kernelVersion *kernel.VersionInfo) (pObjs *BpfObjects, tlsEnabled, plainEnabled bool, err error) {
-	var mounted bool
-	mounted, err = isMounted(procfs, "/sys/fs/bpf")
+	mounted, err := isMounted(procfs, "/sys/fs/bpf")
 	if err != nil {
-		err = fmt.Errorf("%w: mount check failed: %v", ErrBpfMountFailed, err)
-		return pObjs, tlsEnabled, plainEnabled, err
+		return nil, false, false, fmt.Errorf("%w: mount check failed: %v", ErrBpfMountFailed, err)
 	}
 	if !mounted {
-		err = fmt.Errorf("%w: /sys/fs/bpf is not mounted", ErrBpfMountFailed)
-		return pObjs, tlsEnabled, plainEnabled, err
+		return nil, false, false, fmt.Errorf("%w: /sys/fs/bpf is not mounted", ErrBpfMountFailed)
 	}
 
 	if err = os.MkdirAll(PinPath, 0o700); err != nil {
-		err = fmt.Errorf("%w: mkdir pin path failed: %v", ErrBpfOperationFailed, err)
-		return pObjs, tlsEnabled, plainEnabled, err
+		return nil, false, false, fmt.Errorf("%w: mkdir pin path failed: %v", ErrBpfOperationFailed, err)
 	}
 
-	var files []string
-	if files, err = utils.RemoveAllFilesInDir(PinPath); err != nil {
-		err = fmt.Errorf("%w: bpf fs directory cleanup failed: %v", ErrBpfOperationFailed, err)
-		return pObjs, tlsEnabled, plainEnabled, err
-	} else {
-		for _, file := range files {
-			log.Debug().Str("path", file).Msg("removed bpf entry")
-		}
+	files, err := utils.RemoveAllFilesInDir(PinPath)
+	if err != nil {
+		return nil, false, false, fmt.Errorf("%w: bpf fs directory cleanup failed: %v", ErrBpfOperationFailed, err)
+	}
+	for _, file := range files {
+		log.Debug().Str("path", file).Msg("removed bpf entry")
 	}
 
 	objs := BpfObjects{}
 
-	var errLoadPlain error
-	var errLoadRingbufPlain error
-	var errLoadTls error
-
 	pinMap := func(mapName string, mapObj *ebpf.Map) error {
 		p := filepath.Join(PinPath, mapName)
-		if err = os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("%w: remove flows map failed: %v", ErrBpfOperationFailed, err)
+		if rmErr := os.Remove(p); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return fmt.Errorf("%w: remove pinned map failed (%s): %v", ErrBpfOperationFailed, mapName, rmErr)
+		}
+		return mapObj.Pin(p)
+	}
+
+	pinEnabledMaps := func() error {
+		if plainEnabled {
+			if err := pinMap(PinNamePlainPackets, objs.BpfObjs.PktsBuffer); err != nil {
+				return fmt.Errorf("%w: pin packets buffer failed: %v", ErrBpfOperationFailed, err)
+			}
+			if err := pinMap(PinNameFlows, objs.BpfObjs.AllFlowsStats); err != nil {
+				return fmt.Errorf("%w: pin flows failed: %v", ErrBpfOperationFailed, err)
+			}
 		}
 
-		if err = mapObj.Pin(filepath.Join(PinPath, mapName)); err != nil {
-			return err
+		if tlsEnabled {
+			if err := pinMap(PinNameTLSPackets, objs.BpfObjs.ChunksBuffer); err != nil {
+				return fmt.Errorf("%w: pin tls buffer failed: %v", ErrBpfOperationFailed, err)
+			}
+		}
+
+		if plainEnabled || tlsEnabled {
+			if err := pinMap(PinNameProgramsConfiguration, objs.BpfObjs.ProgramsConfiguration); err != nil {
+				return fmt.Errorf("%w: pin programs configuration failed: %v", ErrBpfOperationFailed, err)
+			}
+		}
+
+		return nil
+	}
+
+	kernelVersionInt := uint64(1_000_000)*uint64(kernelVersion.Kernel) +
+		uint64(1_000)*uint64(kernelVersion.Major) +
+		uint64(kernelVersion.Minor)
+
+	// Kernel < 4.6: TLS-only (no plain capture backend)
+	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
+		if err := LoadTracer46Objects(&objs.BpfObjs, nil); err != nil {
+			return nil, false, false, fmt.Errorf("%w: load tracer 4.6 objects failed", ErrBpfOperationFailed)
+		}
+		tlsEnabled = true
+		plainEnabled = false
+
+		if err := pinEnabledMaps(); err != nil {
+			return nil, tlsEnabled, plainEnabled, err
+		}
+		return &objs, tlsEnabled, plainEnabled, nil
+	}
+
+	// Kernel >= 4.6: decide between ringbuf, perf, and fallback no-ebpf (TLS-only)
+	var procIno uint64
+	if fi, statErr := os.Stat(fmt.Sprintf("%s/1/ns/pid", procfs)); statErr != nil {
+		log.Warn().Err(statErr).Msg("Get host netns failed")
+	} else {
+		procIno = fi.Sys().(*syscall.Stat_t).Ino
+		log.Info().Uint64("ns", procIno).Msg("Setting host ns")
+	}
+
+	preferCgroupV1Capture := uint64(0)
+	if preferCgroupV1 {
+		preferCgroupV1Capture = 1
+	}
+
+	cgroupV1 := uint64(1)
+	if isCgroupV2 {
+		cgroupV1 = 0
+	}
+
+	bpfConsts := map[string]uint64{
+		"KERNEL_VERSION":                kernelVersionInt,
+		"TRACER_NS_INO":                 procIno,
+		"CGROUP_V1":                     cgroupV1,
+		"PREFER_CGROUP_V1_EBPF_CAPTURE": preferCgroupV1Capture,
+		"HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns": programHelperExists(ebpf.TracePoint, asm.FnKtimeGetTaiNs),
+	}
+
+	loadPerf := func(dst *TracerObjects) error {
+		impl := &BpfObjectsImpl{bpfObjs: dst}
+		if err := impl.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerBytes)); err != nil {
+			return fmt.Errorf("load tracer objects failed: %v", err)
 		}
 		return nil
 	}
 
-	defer func() {
-		if errLoadPlain != nil {
-			log.Warn().Msg(fmt.Sprintf("eBPF plain load error: %v", errLoadPlain))
+	loadRingbuf := func(dst *TracerObjects) error {
+		tmp := &TracerRingbufObjects{}
+		impl := &BpfObjectsImpl{bpfObjs: tmp}
+		if err := impl.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerRingbufBytes)); err != nil {
+			return fmt.Errorf("load tracer ringbuf objects failed: %v", err)
 		}
-
-		if errLoadRingbufPlain != nil {
-			log.Warn().Msg(fmt.Sprintf("eBPF ringbuf plain load error: %v", errLoadRingbufPlain))
+		if err := copier.Copy(&dst.TracerPrograms, &tmp.TracerRingbufPrograms); err != nil {
+			return fmt.Errorf("copy ringbuf program objects failed: %v", err)
 		}
-
-		if errLoadTls != nil {
-			log.Warn().Msg(fmt.Sprintf("eBPF tls load error: %v", errLoadTls))
+		if err := copier.Copy(&dst.TracerMaps, &tmp.TracerRingbufMaps); err != nil {
+			return fmt.Errorf("copy ringbuf map objects failed: %v", err)
 		}
-	}()
+		return nil
+	}
 
-	kernelVersionInt := uint64(1_000_000)*uint64(kernelVersion.Kernel) + uint64(1_000)*uint64(kernelVersion.Major) + uint64(kernelVersion.Minor)
+	loadNoEbpf := func(dst *TracerObjects) error {
+		tmp := &TracerNoEbpfObjects{}
+		impl := &BpfObjectsImpl{bpfObjs: tmp}
+		if err := impl.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
+			return fmt.Errorf("load tracer no-ebpf objects failed: %v", err)
+		}
+		if err := copier.Copy(&dst.TracerPrograms, &tmp.TracerNoEbpfPrograms); err != nil {
+			return fmt.Errorf("copy no-ebpf program objects failed: %v", err)
+		}
+		if err := copier.Copy(&dst.TracerMaps, &tmp.TracerNoEbpfMaps); err != nil {
+			return fmt.Errorf("copy no-ebpf map objects failed: %v", err)
+		}
+		return nil
+	}
 
-	// TODO: cilium/ebpf does not support .kconfig Therefore; for now, we load object files according to kernel version.
-	if kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 4, Major: 6, Minor: 0}) < 1 {
-		if errLoadTls = LoadTracer46Objects(&objs.BpfObjs, nil); errLoadTls == nil {
+	tryRingbuf := kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 5, Major: 8, Minor: 0}) >= 0 &&
+		features.HaveMapType(ebpf.RingBuf) == nil
+
+	if tryRingbuf {
+		log.Info().Msg("Attempting to load ringbuf backend")
+		if err := loadRingbuf(&objs.BpfObjs); err == nil {
+			plainEnabled = true
 			tlsEnabled = true
+
+			if err := pinEnabledMaps(); err != nil {
+				return nil, tlsEnabled, plainEnabled, err
+			}
+			return &objs, tlsEnabled, plainEnabled, nil
 		} else {
-			err = fmt.Errorf("%w: load tracer 4.6 objects failed", ErrBpfOperationFailed)
-			return pObjs, tlsEnabled, plainEnabled, err
+			log.Warn().Err(err).Msg("Ringbuf tracer load failed, falling back to perf backend")
 		}
+	}
+
+	if err := loadPerf(&objs.BpfObjs); err == nil {
+		plainEnabled = true
+		tlsEnabled = true
+
+		if err := pinEnabledMaps(); err != nil {
+			return nil, tlsEnabled, plainEnabled, err
+		}
+		return &objs, tlsEnabled, plainEnabled, nil
 	} else {
-		var procIno uint64
-		var fileInfo os.FileInfo
-		fileInfo, err = os.Stat(fmt.Sprintf("%s/1/ns/pid", procfs))
-		if err != nil {
-			// services like "apparmor" on EKS can reject access to system pid information
-			log.Warn().Err(err).Msg("Get host netns failed")
-		} else {
-			procIno = fileInfo.Sys().(*syscall.Stat_t).Ino
-			log.Info().Uint64("ns", procIno).Msg("Setting host ns")
-		}
-
-		objects := &BpfObjectsImpl{
-			bpfObjs: &TracerObjects{},
-		}
-
-		objectsRingbuf := &BpfObjectsImpl{
-			bpfObjs: &TracerRingbufObjects{},
-		}
-
-		objectsNoEbpf := &BpfObjectsImpl{
-			bpfObjs: &TracerNoEbpfObjects{},
-		}
-
-		preferCgroupV1Capture := uint64(0)
-		if preferCgroupV1 {
-			preferCgroupV1Capture = 1
-		}
-
-		cgroupV1 := uint64(1)
-		if isCgroupV2 {
-			cgroupV1 = 0
-		}
-		bpfConsts := map[string]uint64{
-			"KERNEL_VERSION": kernelVersionInt,
-			"TRACER_NS_INO":  procIno,
-			//"HELPER_EXISTS_KPROBE_bpf_strncmp":          programHelperExists(ebpf.Kprobe, asm.FnStrncmp),
-			"CGROUP_V1":                                 cgroupV1,
-			"PREFER_CGROUP_V1_EBPF_CAPTURE":             preferCgroupV1Capture,
-			"HELPER_EXISTS_UPROBE_bpf_ktime_get_tai_ns": programHelperExists(ebpf.TracePoint, asm.FnKtimeGetTaiNs),
-		}
-
-		loadTracer := func(obj *TracerObjects) (err error) {
-			if err = objects.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerBytes)); err != nil {
-				err = fmt.Errorf("load tracer objects failed: %v", err)
-				return err
-			}
-			*obj = *objects.bpfObjs.(*TracerObjects)
-			return err
-		}
-
-		loadTracerNoEbpf := func(obj *TracerObjects) (err error) {
-			if err = objectsNoEbpf.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerNoEbpfBytes)); err != nil {
-				err = fmt.Errorf("load tracer noBpf objects failed: %v", err)
-				return err
-			}
-
-			o := objectsNoEbpf.bpfObjs.(*TracerNoEbpfObjects)
-			if err = copier.Copy(&obj.TracerPrograms, &o.TracerNoEbpfPrograms); err != nil {
-				err = fmt.Errorf("copy program objects failed: %v", err)
-				return err
-			}
-			if err = copier.Copy(&obj.TracerMaps, &o.TracerNoEbpfMaps); err != nil {
-				err = fmt.Errorf("copy map objects failed: %v", err)
-				return err
-			}
-			return err
-		}
-
-		loadTracerRingbuf := func(obj *TracerObjects) (err error) {
-			if err = objectsRingbuf.loadBpfObjects(bpfConsts, nil, bytes.NewReader(_TracerRingbufBytes)); err != nil {
-				err = fmt.Errorf("load tracer ringbuf objects failed: %v", err)
-				return err
-			}
-
-			o := objectsRingbuf.bpfObjs.(*TracerRingbufObjects)
-			if err = copier.Copy(&obj.TracerPrograms, &o.TracerRingbufPrograms); err != nil {
-				err = fmt.Errorf("copy program objects failed: %v", err)
-				return err
-			}
-			if err = copier.Copy(&obj.TracerMaps, &o.TracerRingbufMaps); err != nil {
-				err = fmt.Errorf("copy map objects failed: %v", err)
-				return err
-			}
-			return err
-		}
-
-		tryRingbuf := kernel.CompareKernelVersion(*kernelVersion, kernel.VersionInfo{Kernel: 5, Major: 8, Minor: 0}) >= 0 && features.HaveMapType(ebpf.RingBuf) == nil
-		if tryRingbuf {
-			log.Info().Msg("Attempting to load ringbuf packet capture backend")
-			if errLoadRingbufPlain = loadTracerRingbuf(&objs.BpfObjs); errLoadRingbufPlain == nil {
-				plainEnabled = true
-				tlsEnabled = true
-			} else {
-				log.Warn().Err(errLoadRingbufPlain).Msg("Ringbuf tracer load failed, falling back to perf buffer")
-				if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
-					objs = BpfObjects{}
-					if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
-						tlsEnabled = true
-					} else {
-						err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
-						return pObjs, tlsEnabled, plainEnabled, err
-					}
-				} else {
-					plainEnabled = true
-					tlsEnabled = true
-				}
-			}
-		} else {
-			if errLoadPlain = loadTracer(&objs.BpfObjs); errLoadPlain != nil {
-				objs = BpfObjects{}
-				if errLoadTls = loadTracerNoEbpf(&objs.BpfObjs); errLoadTls == nil {
-					tlsEnabled = true
-				} else {
-					err = fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
-					return pObjs, tlsEnabled, plainEnabled, err
-				}
-			} else {
-				plainEnabled = true
-				tlsEnabled = true
-			}
-		}
+		log.Warn().Err(err).Msg("Perf tracer load failed, falling back to no-ebpf backend (TLS only)")
 	}
 
-	if plainEnabled {
-		if err = pinMap(PinNamePlainPackets, objs.BpfObjs.PktsBuffer); err != nil {
-			err = fmt.Errorf("%w: pin packets buffer failed: %v", ErrBpfOperationFailed, err)
-			return pObjs, tlsEnabled, plainEnabled, err
-		}
-
-		if err = pinMap(PinNameFlows, objs.BpfObjs.AllFlowsStats); err != nil {
-			err = fmt.Errorf("%w: pin flows failed: %v", ErrBpfOperationFailed, err)
-			return pObjs, tlsEnabled, plainEnabled, err
-		}
+	objs = BpfObjects{}
+	if err := loadNoEbpf(&objs.BpfObjs); err != nil {
+		log.Warn().Err(err).Msg("No-ebpf tracer load failed")
+		return nil, false, false, fmt.Errorf("%w: load tracer objects failed", ErrBpfOperationFailed)
 	}
 
-	if tlsEnabled {
-		if err = pinMap(PinNameTLSPackets, objs.BpfObjs.ChunksBuffer); err != nil {
-			err = fmt.Errorf("%w: pin tls buffer failed: %v", ErrBpfOperationFailed, err)
-			return pObjs, tlsEnabled, plainEnabled, err
-		}
+	tlsEnabled = true
+	plainEnabled = false
+
+	if err := pinEnabledMaps(); err != nil {
+		return nil, tlsEnabled, plainEnabled, err
 	}
 
-	if plainEnabled || tlsEnabled {
-		if err = pinMap(PinNameProgramsConfiguration, objs.BpfObjs.ProgramsConfiguration); err != nil {
-			err = fmt.Errorf("%w: pin programs configuration failed: %v", ErrBpfOperationFailed, err)
-			return pObjs, tlsEnabled, plainEnabled, err
-		}
-	}
-
-	pObjs = &objs
-	return pObjs, tlsEnabled, plainEnabled, err
+	return &objs, tlsEnabled, plainEnabled, nil
 }
 
 func isMounted(procfs string, target string) (bool, error) {
