@@ -630,10 +630,34 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
         }
     }
 
-    __u32 rec_sz = (__u32)(sizeof(struct pkt_event_hdr) + pkt_len);
-    struct pkt_event_hdr* ev = bpf_ringbuf_reserve(&pkts_buffer, rec_sz, 0);
+    // Bucketed reserve: each call uses a constant size (verifier requirement).
+    struct pkt_event_hdr* ev = 0;
+    if (pkt_len <= 256) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(256), 0);
+    } else if (pkt_len <= 512) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(512), 0);
+    } else if (pkt_len <= 1024) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(1024), 0);
+    } else if (pkt_len <= 2048) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(2048), 0);
+    } else if (pkt_len <= 4096) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(4096), 0);
+    } else if (pkt_len <= 8192) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(8192), 0);
+    } else if (pkt_len <= 16384) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(16384), 0);
+    } else if (pkt_len <= 32768) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(32768), 0);
+    } else if (pkt_len <= 65536) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(65536), 0);
+    } else if (pkt_len <= 131072) {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(131072), 0);
+    } else {
+        ev = bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(PKT_RINGBUF_MAX_LEN), 0);
+    }
+
     if (!ev) {
-        log_error(skb, LOG_ERROR_PKT_SNIFFER, 15, rec_sz, 0l);
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 15, pkt_len, 0l);
         return -EAGAIN;
     }
 
@@ -695,7 +719,6 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
 
     bpf_ringbuf_submit(ev, 0);
     return 0;
-
 #else
     struct pkt* pzero = bpf_map_lookup_elem(&pkt_heap, &zero);
     if (pzero == NULL) {
