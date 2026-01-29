@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -139,14 +140,18 @@ func (p *pktBuffer) reset() {
 type PacketsPoller struct {
 	ethernetDecoder gopacket.Decoder
 	ethhdrContent   []byte
+
 	// Worker pool fields
 	packetJobs chan packetJob
 	workerPool []chan struct{}
+
 	// Per-CPU packet maps to avoid contention
 	pktsMaps []map[uint64]*pktBuffer // one map per CPU
 	maxCPUs  int
+
 	// Cleanup mechanism
 	stopCleanup chan struct{} // Signal channel to stop cleanup goroutine
+
 	// Original fields
 	chunksReader    perfReader
 	gopacketWriter  bpf.GopacketWriter
@@ -162,7 +167,12 @@ type PacketsPoller struct {
 
 	dissectionDisabled bool
 
-	// --- Diagnostics (atomic; safe across workers) ---
+	// --- Diagnostics output file (instead of logs) ---
+	diagFilePath string
+	diagFile     *os.File
+	diagBuf      *bufio.Writer
+
+	// --- Diagnostics counters (atomic; updated from poll goroutine + workers) ---
 	diagDecodeNanos uint64
 	diagDecodeCalls uint64
 	diagMaxDecodeNs uint64
@@ -175,23 +185,17 @@ type PacketsPoller struct {
 	diagBlockedEnqueueCalls uint64
 	diagMaxBlockedEnqueueNs uint64
 	diagMaxQueueLen         uint64
-
-	diagHandleNanos uint64
-	diagHandleCalls uint64
-	diagMaxHandleNs uint64
-
-	// last snapshots for periodic deltas (read/written by poll goroutine)
-	lastDiagDecodeNanos uint64
-	lastDiagDecodeCalls uint64
-
-	lastDiagWriterNanos uint64
-	lastDiagWriterCalls uint64
-
-	lastDiagBlockedEnqueueNanos uint64
-	lastDiagBlockedEnqueueCalls uint64
-
-	lastDiagHandleNanos uint64
-	lastDiagHandleCalls uint64
+	diagHandleNanos         uint64
+	diagHandleCalls         uint64
+	diagMaxHandleNs         uint64
+	lastDiagDecodeNanos     uint64
+	lastDiagDecodeCalls     uint64
+	lastDiagWriterNanos     uint64
+	lastDiagWriterCalls     uint64
+	lastDiagBlockedEnqNanos uint64
+	lastDiagBlockedEnqCalls uint64
+	lastDiagHandleNanos     uint64
+	lastDiagHandleCalls     uint64
 }
 
 type PacketsPollerStats struct {
@@ -201,6 +205,47 @@ type PacketsPollerStats struct {
 	PacketsGot     uint64
 	PacketsError   uint64
 	BytesProcessed uint64
+}
+
+func (p *PacketsPoller) initDiagFile() {
+	// If you want to override the path:
+	//   export KUBESHARK_PACKETS_DIAG_FILE=/path/to/file.log
+	// To disable:
+	//   export KUBESHARK_PACKETS_DIAG_FILE=disabled
+	path := os.Getenv("KUBESHARK_PACKETS_DIAG_FILE")
+	switch path {
+	case "disabled", "disable", "off", "0":
+		return
+	}
+	if path == "" {
+		path = fmt.Sprintf("/tmp/kubeshark_packets_poller_diag.%d.log", os.Getpid())
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		// We keep running without diagnostics if the file can't be created.
+		log.Error().Err(err).Str("path", path).Msg("PacketsPoller: failed to open diagnostics file")
+		return
+	}
+
+	p.diagFilePath = path
+	p.diagFile = f
+	p.diagBuf = bufio.NewWriterSize(f, 64*1024)
+
+	// Header (one-time)
+	_, _ = fmt.Fprintf(p.diagBuf, "# PacketsPoller diagnostics\n")
+	_, _ = fmt.Fprintf(p.diagBuf, "# started=%s pid=%d\n", time.Now().UTC().Format(time.RFC3339Nano), os.Getpid())
+	_, _ = fmt.Fprintf(p.diagBuf, "# fields: ts dissection_disabled chunks_per_sec chunks_handled_per_sec chunks_lost_5s packets_per_sec bytes_per_sec packet_errors_5s decode_avg_us_5s writer_avg_us_5s enqueue_blocked_avg_us_5s enqueue_blocked_events_5s handle_avg_us_5s decode_max_ms writer_max_ms enqueue_blocked_max_ms handle_max_ms max_queue_len\n")
+	_ = p.diagBuf.Flush()
+}
+
+func (p *PacketsPoller) diagWriteLine(line string) {
+	if p.diagBuf == nil {
+		return
+	}
+	_, _ = p.diagBuf.WriteString(line)
+	_ = p.diagBuf.WriteByte('\n')
+	_ = p.diagBuf.Flush()
 }
 
 func NewPacketsPoller(
@@ -245,6 +290,9 @@ func NewPacketsPoller(
 		return nil, errors.Wrap(err, 0)
 	}
 
+	// Diagnostics file (instead of periodic logs)
+	poller.initDiagFile()
+
 	// Pre-warm the pool to reduce initial allocation pressure
 	preWarmPool()
 
@@ -267,6 +315,17 @@ func (p *PacketsPoller) Stop() error {
 	}
 
 	p.stopWorkerPool()
+
+	// Close diagnostics file
+	if p.diagBuf != nil {
+		_ = p.diagBuf.Flush()
+	}
+	if p.diagFile != nil {
+		_ = p.diagFile.Close()
+		p.diagFile = nil
+		p.diagBuf = nil
+	}
+
 	return p.chunksReader.Close()
 }
 
@@ -348,7 +407,7 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// logPeriodicStats logs statistics every 5 seconds (INFO level for easy comparison vs branch)
+// logPeriodicStats writes statistics every 5 seconds into the diagnostics file.
 func (p *PacketsPoller) logPeriodicStats() {
 	now := time.Now()
 	elapsed := now.Sub(p.lastStatsTime).Seconds()
@@ -356,7 +415,7 @@ func (p *PacketsPoller) logPeriodicStats() {
 		return
 	}
 
-	// --- throughput deltas (single goroutine, non-atomic) ---
+	// Throughput deltas (single goroutine)
 	chunksDelta := p.stats.ChunksGot - p.lastStats.ChunksGot
 	handledDelta := p.stats.ChunksHandled - p.lastStats.ChunksHandled
 	lostDelta := p.stats.ChunksLost - p.lastStats.ChunksLost
@@ -369,7 +428,7 @@ func (p *PacketsPoller) logPeriodicStats() {
 	packetsPerSec := float64(packetsDelta) / elapsed
 	bytesPerSec := float64(bytesDelta) / elapsed
 
-	// --- diag deltas (atomic; includes workers) ---
+	// Diag deltas (atomic)
 	decodeN := atomic.LoadUint64(&p.diagDecodeNanos)
 	decodeC := atomic.LoadUint64(&p.diagDecodeCalls)
 
@@ -386,8 +445,8 @@ func (p *PacketsPoller) logPeriodicStats() {
 	dDecodeC := decodeC - p.lastDiagDecodeCalls
 	dWriterN := writerN - p.lastDiagWriterNanos
 	dWriterC := writerC - p.lastDiagWriterCalls
-	dEnqN := enqN - p.lastDiagBlockedEnqueueNanos
-	dEnqC := enqC - p.lastDiagBlockedEnqueueCalls
+	dEnqN := enqN - p.lastDiagBlockedEnqNanos
+	dEnqC := enqC - p.lastDiagBlockedEnqCalls
 	dHandleN := handleN - p.lastDiagHandleNanos
 	dHandleC := handleC - p.lastDiagHandleCalls
 
@@ -398,27 +457,30 @@ func (p *PacketsPoller) logPeriodicStats() {
 		return float64(nanos) / float64(calls) / 1000.0
 	}
 
-	log.Info().
-		Bool("dissection_disabled", p.dissectionDisabled).
-		Float64("chunks_per_sec", chunksPerSec).
-		Float64("chunks_handled_per_sec", handledPerSec).
-		Uint64("chunks_lost_5s", lostDelta).
-		Float64("packets_per_sec", packetsPerSec).
-		Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
-		Uint64("packet_errors_5s", errorsDelta).
-		Float64("decode_avg_us_5s", avgUs(dDecodeN, dDecodeC)).
-		Float64("writer_avg_us_5s", avgUs(dWriterN, dWriterC)).
-		Float64("enqueue_blocked_avg_us_5s", avgUs(dEnqN, dEnqC)).
-		Uint64("enqueue_blocked_events_5s", dEnqC).
-		Float64("handle_avg_us_5s", avgUs(dHandleN, dHandleC)).
-		Float64("decode_max_ms", float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6).
-		Float64("writer_max_ms", float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6).
-		Float64("enqueue_blocked_max_ms", float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs))/1e6).
-		Float64("handle_max_ms", float64(atomic.LoadUint64(&p.diagMaxHandleNs))/1e6).
-		Uint64("max_queue_len", atomic.LoadUint64(&p.diagMaxQueueLen)).
-		Msg("PacketsPoller diagnostics")
+	// One line, easy diffing/grepping
+	p.diagWriteLine(fmt.Sprintf(
+		"ts=%s dissection_disabled=%t chunks_per_sec=%.2f chunks_handled_per_sec=%.2f chunks_lost_5s=%d packets_per_sec=%.2f bytes_per_sec=%s packet_errors_5s=%d decode_avg_us_5s=%.2f writer_avg_us_5s=%.2f enqueue_blocked_avg_us_5s=%.2f enqueue_blocked_events_5s=%d handle_avg_us_5s=%.2f decode_max_ms=%.3f writer_max_ms=%.3f enqueue_blocked_max_ms=%.3f handle_max_ms=%.3f max_queue_len=%d",
+		now.UTC().Format(time.RFC3339Nano),
+		p.dissectionDisabled,
+		chunksPerSec,
+		handledPerSec,
+		lostDelta,
+		packetsPerSec,
+		formatBytes(uint64(bytesPerSec)),
+		errorsDelta,
+		avgUs(dDecodeN, dDecodeC),
+		avgUs(dWriterN, dWriterC),
+		avgUs(dEnqN, dEnqC),
+		dEnqC,
+		avgUs(dHandleN, dHandleC),
+		float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6,
+		float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6,
+		float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs))/1e6,
+		float64(atomic.LoadUint64(&p.diagMaxHandleNs))/1e6,
+		atomic.LoadUint64(&p.diagMaxQueueLen),
+	))
 
-	// Update last stats and time (throughput)
+	// Update last stats/time
 	p.lastStats = p.stats
 	p.lastStatsTime = now
 
@@ -427,8 +489,8 @@ func (p *PacketsPoller) logPeriodicStats() {
 	p.lastDiagDecodeCalls = decodeC
 	p.lastDiagWriterNanos = writerN
 	p.lastDiagWriterCalls = writerC
-	p.lastDiagBlockedEnqueueNanos = enqN
-	p.lastDiagBlockedEnqueueCalls = enqC
+	p.lastDiagBlockedEnqNanos = enqN
+	p.lastDiagBlockedEnqCalls = enqC
 	p.lastDiagHandleNanos = handleN
 	p.lastDiagHandleCalls = handleC
 }
@@ -637,7 +699,7 @@ func (p *PacketsPoller) pollChunksPerfBuffer() {
 	p.chunksReader.SetDeadline(time.Time{})
 
 	for {
-		// Log periodic statistics every 5 seconds (INFO)
+		// Write periodic stats to file every 5 seconds
 		p.logPeriodicStats()
 
 		if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != p.lostChunks {
