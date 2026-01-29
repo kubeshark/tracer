@@ -696,17 +696,17 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
             if (rewrite_ip6_dst)
                 __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst, sizeof(struct in6_addr));
 
-                if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
-                    __u32 off = ctx->transportOffset;
-                    if (off + 4 <= pkt_len) {
-                        if (rewrite_port_src) {
-                            payload[off + 0] = (__u8)(rewrite_port_src >> 8);
-                            payload[off + 1] = (__u8)(rewrite_port_src & 0xff);
-                        }
-                        if (rewrite_port_dst) {
-                            payload[off + 2] = (__u8)(rewrite_port_dst >> 8);
-                            payload[off + 3] = (__u8)(rewrite_port_dst & 0xff);
-                        }
+            if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
+                __u32 off = ctx->transportOffset;
+
+                if (off + 4 <= pkt_len) {
+                    if (rewrite_port_src) {
+                        payload[off + 0] = (__u8)(rewrite_port_src >> 8);
+                        payload[off + 1] = (__u8)(rewrite_port_src & 0xff);
+                    }
+                    if (rewrite_port_dst) {
+                        payload[off + 2] = (__u8)(rewrite_port_dst >> 8);
+                        payload[off + 3] = (__u8)(rewrite_port_dst & 0xff);
                     }
                 }
             }
