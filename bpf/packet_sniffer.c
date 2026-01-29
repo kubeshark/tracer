@@ -150,6 +150,16 @@ struct
     __type(value, struct flow_key_t);
 } heap_flow_key SEC(".maps");
 
+#ifndef RB_ALIGN
+#define RB_ALIGN 8
+#endif
+#ifndef RB_ROUND_UP
+#define RB_ROUND_UP(x) (((x) + (RB_ALIGN - 1)) & ~(RB_ALIGN - 1))
+#endif
+#ifndef RB_REC_SZ
+#define RB_REC_SZ(payload_sz) RB_ROUND_UP((__u32)sizeof(struct pkt_event_hdr) + (__u32)(payload_sz))
+#endif
+
 #define NSEC_PER_SEC 1000000000
 
 /*
