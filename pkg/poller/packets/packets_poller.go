@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"runtime"
@@ -161,6 +162,11 @@ type PacketsPoller struct {
 	dissectionDisabled uint32
 
 	tai tai.TaiInfo
+
+	statsFilePath string
+	statsFile     *os.File
+	statsWriter   *bufio.Writer
+	statsMu       sync.Mutex
 }
 
 type PacketsPollerStats struct {
@@ -197,6 +203,60 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+func (p *PacketsPoller) initStatsFile() {
+	path := os.Getenv("KUBESHARK_PACKETS_POLLER_STATS_FILE")
+	if path == "" {
+		path = os.Getenv("KUBESHARK_PACKETS_DIAG_FILE")
+	}
+	switch path {
+	case "disabled", "disable", "off", "0":
+		return
+	}
+	if path == "" {
+		path = fmt.Sprintf("/tmp/kubeshark_packets_poller_stats.%d.log", os.Getpid())
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Error().Err(err).Str("path", path).Msg("PacketsPoller: failed to open stats file")
+		return
+	}
+
+	p.statsFilePath = path
+	p.statsFile = f
+	p.statsWriter = bufio.NewWriterSize(f, 64*1024)
+
+	p.statsWriteLine(fmt.Sprintf("# PacketsPoller stats file"))
+	p.statsWriteLine(fmt.Sprintf("# started=%s pid=%d use_ringbuf=%t", time.Now().UTC().Format(time.RFC3339Nano), os.Getpid(), p.useRingbuf))
+	p.statsWriteLine("# fields: ts use_ringbuf dissection_disabled recv_pkts_per_sec chunks_per_sec handled_per_sec lost_chunks_5s decoded_pkts_per_sec decode_errors_5s bytes_per_sec max_queue_len enqueue_blocked_events_5s enqueue_blocked_avg_us_5s decode_avg_us_5s writer_avg_us_5s decode_max_ms writer_max_ms")
+}
+
+func (p *PacketsPoller) statsWriteLine(line string) {
+	if p.statsWriter == nil {
+		return
+	}
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+
+	_, _ = p.statsWriter.WriteString(line)
+	_ = p.statsWriter.WriteByte('\n')
+	_ = p.statsWriter.Flush()
+}
+
+func (p *PacketsPoller) closeStatsFile() {
+	p.statsMu.Lock()
+	defer p.statsMu.Unlock()
+
+	if p.statsWriter != nil {
+		_ = p.statsWriter.Flush()
+		p.statsWriter = nil
+	}
+	if p.statsFile != nil {
+		_ = p.statsFile.Close()
+		p.statsFile = nil
+	}
+}
+
 func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
 	gopacketWriter bpf.GopacketWriter,
@@ -220,7 +280,7 @@ func NewPacketsPoller(
 		stopPoll:    make(chan struct{}),
 		stopCleanup: make(chan struct{}),
 
-		tai:          tai.NewTaiInfo(),
+		tai:           tai.NewTaiInfo(),
 		lastLostCheck: time.Now(),
 	}
 
@@ -241,6 +301,8 @@ func NewPacketsPoller(
 		p.chunksReader = pr
 		log.Info().Msg("PacketsPoller: using perf backend")
 	}
+
+	p.initStatsFile()
 
 	p.startWorkerPool()
 	return p, nil
@@ -485,12 +547,45 @@ func (p *PacketsPoller) cleanupStalePackets() {
 	}
 }
 
+// Writes periodic stats into the stats file (instead of logs).
 func (p *PacketsPoller) logPeriodicStatsLoop() {
 	ticker := time.NewTicker(statsInterval)
 	defer ticker.Stop()
 
 	var last PacketsPollerStats
+	var lastRecv uint64
+
+	// Diagnostics snapshots (cumulative counters)
+	var lastDecodeN, lastDecodeC uint64
+	var lastWriterN, lastWriterC uint64
+	var lastEnqN, lastEnqE uint64
+
 	lastTime := time.Now()
+
+	// Initialize snapshots
+	last = PacketsPollerStats{
+		ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
+		ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
+		ChunksLost:     atomic.LoadUint64(&p.stats.ChunksLost),
+		PacketsGot:     atomic.LoadUint64(&p.stats.PacketsGot),
+		PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
+		BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
+	}
+	lastRecv = atomic.LoadUint64(&p.receivedPackets)
+
+	lastDecodeN = atomic.LoadUint64(&p.diagDecodeNanos)
+	lastDecodeC = atomic.LoadUint64(&p.diagDecodeCalls)
+	lastWriterN = atomic.LoadUint64(&p.diagWriterNanos)
+	lastWriterC = atomic.LoadUint64(&p.diagWriterCalls)
+	lastEnqN = atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
+	lastEnqE = atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
+
+	avgUs := func(nanos, calls uint64) float64 {
+		if calls == 0 {
+			return 0
+		}
+		return float64(nanos) / float64(calls) / 1000.0
+	}
 
 	for {
 		select {
@@ -510,26 +605,63 @@ func (p *PacketsPoller) logPeriodicStatsLoop() {
 				PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
 				BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
 			}
+			currRecv := atomic.LoadUint64(&p.receivedPackets)
 
 			dChunks := curr.ChunksGot - last.ChunksGot
 			dHandled := curr.ChunksHandled - last.ChunksHandled
 			dLost := curr.ChunksLost - last.ChunksLost
 			dPkts := curr.PacketsGot - last.PacketsGot
+			dErrs := curr.PacketsError - last.PacketsError
 			dBytes := curr.BytesProcessed - last.BytesProcessed
+			dRecv := currRecv - lastRecv
 
-			log.Info().
-				Bool("use_ringbuf", p.useRingbuf).
-				Float64("chunks_per_sec", float64(dChunks)/elapsed).
-				Float64("handled_per_sec", float64(dHandled)/elapsed).
-				Uint64("chunks_lost", dLost).
-				Float64("packets_per_sec", float64(dPkts)/elapsed).
-				Str("bytes_per_sec", formatBytes(uint64(float64(dBytes)/elapsed))).
-				Uint64("max_queue_len", atomic.LoadUint64(&p.diagMaxQueueLen)).
-				Uint64("enqueue_blocked_events", atomic.LoadUint64(&p.diagBlockedEnqueueEvents)).
-				Msg("PacketsPoller stats")
+			// Diagnostics deltas
+			decodeN := atomic.LoadUint64(&p.diagDecodeNanos)
+			decodeC := atomic.LoadUint64(&p.diagDecodeCalls)
+			writerN := atomic.LoadUint64(&p.diagWriterNanos)
+			writerC := atomic.LoadUint64(&p.diagWriterCalls)
+			enqN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
+			enqE := atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
 
+			dDecodeN := decodeN - lastDecodeN
+			dDecodeC := decodeC - lastDecodeC
+			dWriterN := writerN - lastWriterN
+			dWriterC := writerC - lastWriterC
+			dEnqN := enqN - lastEnqN
+			dEnqE := enqE - lastEnqE
+
+			p.statsWriteLine(fmt.Sprintf(
+				"ts=%s use_ringbuf=%t dissection_disabled=%t recv_pkts_per_sec=%.2f chunks_per_sec=%.2f handled_per_sec=%.2f lost_chunks_5s=%d decoded_pkts_per_sec=%.2f decode_errors_5s=%d bytes_per_sec=%s max_queue_len=%d enqueue_blocked_events_5s=%d enqueue_blocked_avg_us_5s=%.2f decode_avg_us_5s=%.2f writer_avg_us_5s=%.2f decode_max_ms=%.3f writer_max_ms=%.3f",
+				now.UTC().Format(time.RFC3339Nano),
+				p.useRingbuf,
+				p.dissectionOff(),
+				float64(dRecv)/elapsed,
+				float64(dChunks)/elapsed,
+				float64(dHandled)/elapsed,
+				dLost,
+				float64(dPkts)/elapsed,
+				dErrs,
+				formatBytes(uint64(float64(dBytes)/elapsed)),
+				atomic.LoadUint64(&p.diagMaxQueueLen),
+				dEnqE,
+				avgUs(dEnqN, dEnqE),
+				avgUs(dDecodeN, dDecodeC),
+				avgUs(dWriterN, dWriterC),
+				float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6,
+				float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6,
+			))
+
+			// Update snapshots
 			last = curr
+			lastRecv = currRecv
 			lastTime = now
+
+			lastDecodeN = decodeN
+			lastDecodeC = decodeC
+			lastWriterN = writerN
+			lastWriterC = writerC
+			lastEnqN = enqN
+			lastEnqE = enqE
 
 		case <-p.stopPoll:
 			return
@@ -677,7 +809,7 @@ func (p *PacketsPoller) pollPerf() {
 				p.pktsMapsMu[cpu].Unlock()
 			}
 
-			// Periodic warning (same spirit as master)
+			// Keep the warning behavior (but periodic stats go to file)
 			lost := atomic.LoadUint64(&p.lostChunks)
 			if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != lost {
 				log.Warn().Msgf("Perf buffer dropped %d chunks", lost-p.lastLostChunks)
@@ -733,7 +865,6 @@ func (p *PacketsPoller) pollPerf() {
 			delete(cpuMap, ptr.ID)
 			p.pktsMapsMu[cpu].Unlock()
 			pktBufferPool.Put(pb)
-			// chunk handled but packet lost/invalid
 			atomic.AddUint64(&p.stats.ChunksHandled, 1)
 			continue
 		}
@@ -840,6 +971,9 @@ func (p *PacketsPoller) Stop() error {
 
 	// Stop workers last (they release pktBuffers)
 	p.stopWorkerPool()
+
+	// Close stats file last (no goroutine should be writing anymore)
+	p.closeStatsFile()
 
 	return nil
 }
