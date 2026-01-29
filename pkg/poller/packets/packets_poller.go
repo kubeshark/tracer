@@ -31,9 +31,10 @@ const (
 	stalePktCleanupInterval = 30 * time.Second
 	stalePktThreshold       = 30 * time.Second
 
-	diagInterval = 5 * time.Second
+	statsInterval = 5 * time.Second
 )
 
+// Ringbuf variable-size packet record header (must match C struct pkt_event_hdr)
 type ringbufPktEventHdr struct {
 	Timestamp uint64
 	CgroupID  uint64
@@ -88,7 +89,6 @@ type pktBuffer struct {
 	direction uint8
 
 	layerParser *decodedpacket.LayerParser
-	reusableRec perf.Record
 	firstSeen   time.Time
 }
 
@@ -118,10 +118,11 @@ type PacketsPoller struct {
 	useRingbuf   bool
 
 	// Assembly state (perf only)
-	pktsMaps []map[uint64]*pktBuffer
-	maxCPUs  int
+	pktsMaps   []map[uint64]*pktBuffer
+	pktsMapsMu []sync.Mutex
+	maxCPUs    int
 
-	// Worker pool (sharded)
+	// Worker pool (sharded, preserves ordering within shard)
 	workers     []chan *pktBuffer
 	workerCount int
 	workersWg   sync.WaitGroup
@@ -129,6 +130,7 @@ type PacketsPoller struct {
 	// Control
 	stopPoll    chan struct{}
 	stopCleanup chan struct{}
+	runWg       sync.WaitGroup
 
 	// Writers
 	gopacketWriter  bpf.GopacketWriter
@@ -138,15 +140,16 @@ type PacketsPoller struct {
 	receivedPackets uint64
 	lostChunks      uint64
 	stats           PacketsPollerStats
-	lastStats       PacketsPollerStats
-	lastStatsTime   time.Time
 
-	// Diagnostics
+	lastLostChunks uint64
+	lastLostCheck  time.Time
+
+	// Diagnostics (queue backpressure)
 	diagBlockedEnqueueNanos  uint64
 	diagBlockedEnqueueEvents uint64
-	diagMaxBlockedEnqueueNs  uint64
+	diagMaxQueueLen          uint64
 
-	diagMaxQueueLen uint64
+	// Decode/Writer diagnostics
 	diagDecodeNanos uint64
 	diagDecodeCalls uint64
 	diagMaxDecodeNs uint64
@@ -154,6 +157,8 @@ type PacketsPoller struct {
 	diagWriterNanos uint64
 	diagWriterCalls uint64
 	diagMaxWriterNs uint64
+
+	dissectionDisabled uint32
 
 	tai tai.TaiInfo
 }
@@ -199,21 +204,31 @@ func NewPacketsPoller(
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
 
+	maxCPUs := runtime.NumCPU()
+	if maxCPUs < 1 {
+		maxCPUs = 1
+	}
+
 	p := &PacketsPoller{
 		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
-		maxCPUs:         runtime.NumCPU(),
-		pktsMaps:        make([]map[uint64]*pktBuffer, runtime.NumCPU()),
-		stopPoll:        make(chan struct{}),
-		stopCleanup:     make(chan struct{}),
-		lastStatsTime:   time.Now(),
-		tai:             tai.NewTaiInfo(),
+
+		maxCPUs:    maxCPUs,
+		pktsMaps:   make([]map[uint64]*pktBuffer, maxCPUs),
+		pktsMapsMu: make([]sync.Mutex, maxCPUs),
+
+		stopPoll:    make(chan struct{}),
+		stopCleanup: make(chan struct{}),
+
+		tai:          tai.NewTaiInfo(),
+		lastLostCheck: time.Now(),
 	}
 
 	for i := 0; i < p.maxCPUs; i++ {
 		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
 	}
 
+	// Decide backend
 	if rr, err := ringbuf.NewReader(perfBuffer); err == nil {
 		p.useRingbuf = true
 		p.ringReader = &ringbufReaderWrapper{r: rr}
@@ -259,6 +274,13 @@ func (p *PacketsPoller) stopWorkerPool() {
 	p.workersWg.Wait()
 }
 
+func (p *PacketsPoller) Pause()  { atomic.StoreUint32(&p.dissectionDisabled, 1) }
+func (p *PacketsPoller) Resume() { atomic.StoreUint32(&p.dissectionDisabled, 0) }
+
+func (p *PacketsPoller) dissectionOff() bool {
+	return atomic.LoadUint32(&p.dissectionDisabled) != 0
+}
+
 func (p *PacketsPoller) toUnixTime(ts uint64) time.Time {
 	if ts == 0 {
 		return time.Now()
@@ -267,25 +289,24 @@ func (p *PacketsPoller) toUnixTime(ts uint64) time.Time {
 	return time.Unix(0, int64(ts)-int64(p.tai.GetTAIOffset()))
 }
 
+// IMPORTANT: raw writing is done in poll goroutine (single-threaded) to preserve master behavior.
+func (p *PacketsPoller) writeRawPacket(bpfTimestamp uint64, pkt []byte) {
+	if p.rawPacketWriter == nil {
+		return
+	}
+	ts := p.toUnixTime(bpfTimestamp)
+	p.rawPacketWriter(uint64(ts.UnixNano()), pkt)
+}
+
 func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
-	// Fast bailouts
-	if p.rawPacketWriter == nil && p.gopacketWriter == nil {
+	// By construction, we only enqueue when gopacketWriter != nil and dissection is ON.
+	// Still keep this defensive.
+	if p.gopacketWriter == nil {
 		pktBufferPool.Put(pkt)
 		return
 	}
 
 	timestamp := p.toUnixTime(pkt.timestamp)
-
-	// Raw writer (if enabled)
-	if p.rawPacketWriter != nil {
-		p.rawPacketWriter(uint64(timestamp.UnixNano()), pkt.buf)
-	}
-
-	// Gopacket writer (if enabled)
-	if p.gopacketWriter == nil {
-		pktBufferPool.Put(pkt)
-		return
-	}
 
 	ci := gopacket.CaptureInfo{
 		Timestamp:      timestamp,
@@ -331,7 +352,7 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 	atomic.AddUint64(&p.stats.BytesProcessed, uint64(len(pkt.buf)))
 
 	writerStart := time.Now()
-	p.gopacketWriter(packet, false)
+	p.gopacketWriter(packet, p.dissectionOff())
 	dtWriter := time.Since(writerStart)
 
 	atomic.AddUint64(&p.diagWriterCalls, 1)
@@ -341,40 +362,62 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 	pktBufferPool.Put(pkt)
 }
 
-// flowShard hashes a packet into a worker shard. Goal: keep per-flow ordering
-// while allowing parallelism across flows.
+// flowShard hashes a packet into a worker shard.
+// Goal: keep per-flow ordering (including both directions) while allowing parallelism across flows.
 //
-// This is intentionally light-weight: IP version + src/dst IPs.
+// We normalize endpoints so A<->B maps to same shard in both directions.
 func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 	if shards <= 1 || len(pkt) < 1 {
 		return int(cgroupID % uint64(shards))
 	}
 
-	ipVer := pkt[0] >> 4
+	// FNV-1a
 	h := uint64(1469598103934665603)
-
 	hash := func(b byte) {
 		h ^= uint64(b)
 		h *= 1099511628211
 	}
 
+	ipVer := pkt[0] >> 4
 	hash(byte(ipVer))
+
+	var a, b []byte
 
 	switch ipVer {
 	case 4:
 		if len(pkt) < 20 {
-			break
+			return int(cgroupID % uint64(shards))
 		}
-		for i := 12; i < 20; i++ {
-			hash(pkt[i])
+		// src(12:16), dst(16:20)
+		s := pkt[12:16]
+		d := pkt[16:20]
+		// normalize order
+		if string(s) <= string(d) {
+			a, b = s, d
+		} else {
+			a, b = d, s
 		}
 	case 6:
 		if len(pkt) < 40 {
-			break
+			return int(cgroupID % uint64(shards))
 		}
-		for i := 8; i < 40; i++ {
-			hash(pkt[i])
+		// src(8:24), dst(24:40)
+		s := pkt[8:24]
+		d := pkt[24:40]
+		if string(s) <= string(d) {
+			a, b = s, d
+		} else {
+			a, b = d, s
 		}
+	default:
+		return int(cgroupID % uint64(shards))
+	}
+
+	for _, bb := range a {
+		hash(bb)
+	}
+	for _, bb := range b {
+		hash(bb)
 	}
 
 	return int(h % uint64(shards))
@@ -382,33 +425,30 @@ func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 
 func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 	ch := p.workers[shard]
-
-	// Record queue pressure (best-effort)
-	qlenAfter := len(ch) + 1
-	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlenAfter))
+	qlen := len(ch)
+	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlen))
 
 	select {
 	case ch <- pkt:
-		atomic.AddUint64(&p.stats.ChunksHandled, 1)
 	default:
 		// backpressure: measure how long we block
 		t0 := time.Now()
 		ch <- pkt
 		dt := time.Since(t0)
 
-		atomic.AddUint64(&p.stats.ChunksHandled, 1)
 		atomic.AddUint64(&p.diagBlockedEnqueueEvents, 1)
 		atomic.AddUint64(&p.diagBlockedEnqueueNanos, uint64(dt))
-		atomicMaxUint64(&p.diagMaxBlockedEnqueueNs, uint64(dt))
 	}
 }
 
 func (p *PacketsPoller) resetPerfState() {
-	for i := 0; i < p.maxCPUs; i++ {
-		for _, pb := range p.pktsMaps[i] {
+	for cpu := 0; cpu < p.maxCPUs; cpu++ {
+		p.pktsMapsMu[cpu].Lock()
+		for _, pb := range p.pktsMaps[cpu] {
 			pktBufferPool.Put(pb)
 		}
-		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
+		p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
+		p.pktsMapsMu[cpu].Unlock()
 	}
 }
 
@@ -423,6 +463,7 @@ func (p *PacketsPoller) cleanupStalePackets() {
 			cleaned := 0
 
 			for cpu := 0; cpu < p.maxCPUs; cpu++ {
+				p.pktsMapsMu[cpu].Lock()
 				m := p.pktsMaps[cpu]
 				for id, pb := range m {
 					if !pb.firstSeen.IsZero() && pb.firstSeen.Before(threshold) {
@@ -431,6 +472,7 @@ func (p *PacketsPoller) cleanupStalePackets() {
 						cleaned++
 					}
 				}
+				p.pktsMapsMu[cpu].Unlock()
 			}
 
 			if cleaned > 0 {
@@ -443,23 +485,12 @@ func (p *PacketsPoller) cleanupStalePackets() {
 	}
 }
 
-func (p *PacketsPoller) logPeriodicDiagnosticsLoop() {
-	ticker := time.NewTicker(diagInterval)
+func (p *PacketsPoller) logPeriodicStatsLoop() {
+	ticker := time.NewTicker(statsInterval)
 	defer ticker.Stop()
 
+	var last PacketsPollerStats
 	lastTime := time.Now()
-
-	var lastStats PacketsPollerStats
-	var lastBlkN, lastBlkE uint64
-	var lastDecN, lastDecC uint64
-	var lastWrN, lastWrC uint64
-
-	avgUs := func(nanos, calls uint64) float64 {
-		if calls == 0 {
-			return 0
-		}
-		return float64(nanos) / float64(calls) / 1000.0
-	}
 
 	for {
 		select {
@@ -480,92 +511,24 @@ func (p *PacketsPoller) logPeriodicDiagnosticsLoop() {
 				BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
 			}
 
-			dChunksGot := curr.ChunksGot - lastStats.ChunksGot
-			dChunksHandled := curr.ChunksHandled - lastStats.ChunksHandled
-			dChunksLost := curr.ChunksLost - lastStats.ChunksLost
-			dPkts := curr.PacketsGot - lastStats.PacketsGot
-			dPktsErr := curr.PacketsError - lastStats.PacketsError
-			dBytes := curr.BytesProcessed - lastStats.BytesProcessed
-
-			blkN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
-			blkE := atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
-
-			decN := atomic.LoadUint64(&p.diagDecodeNanos)
-			decC := atomic.LoadUint64(&p.diagDecodeCalls)
-
-			wrN := atomic.LoadUint64(&p.diagWriterNanos)
-			wrC := atomic.LoadUint64(&p.diagWriterCalls)
-
-			dBlkN := blkN - lastBlkN
-			dBlkE := blkE - lastBlkE
-			dDecN := decN - lastDecN
-			dDecC := decC - lastDecC
-			dWrN := wrN - lastWrN
-			dWrC := wrC - lastWrC
-
-			lastBlkN, lastBlkE = blkN, blkE
-			lastDecN, lastDecC = decN, decC
-			lastWrN, lastWrC = wrN, wrC
-
-			// Snapshot queue occupancy (safe to call len/cap concurrently)
-			maxQLen := 0
-			maxQCap := 0
-			totalQLen := 0
-			for _, ch := range p.workers {
-				l := len(ch)
-				c := cap(ch)
-				totalQLen += l
-				if l > maxQLen {
-					maxQLen = l
-					maxQCap = c
-				}
-			}
-
-			// Max queue len observed during enqueue attempts in the last interval
-			queueMaxSeen := atomic.SwapUint64(&p.diagMaxQueueLen, 0)
-
-			// Global max latencies since start
-			decodeMaxMs := float64(atomic.LoadUint64(&p.diagMaxDecodeNs)) / 1e6
-			writerMaxMs := float64(atomic.LoadUint64(&p.diagMaxWriterNs)) / 1e6
-			blockMaxMs := float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs)) / 1e6
-
-			bytesPerSec := uint64(float64(dBytes) / elapsed)
-
-			saturated := false
-			if maxQCap > 0 && maxQLen*100/maxQCap >= 80 {
-				saturated = true
-			}
-			if dBlkE > 0 {
-				saturated = true
-			}
-			if dChunksLost > 0 {
-				saturated = true
-			}
+			dChunks := curr.ChunksGot - last.ChunksGot
+			dHandled := curr.ChunksHandled - last.ChunksHandled
+			dLost := curr.ChunksLost - last.ChunksLost
+			dPkts := curr.PacketsGot - last.PacketsGot
+			dBytes := curr.BytesProcessed - last.BytesProcessed
 
 			log.Info().
 				Bool("use_ringbuf", p.useRingbuf).
-				Int("workers", p.workerCount).
-				Bool("saturated", saturated).
-				Float64("chunks_per_sec", float64(dChunksGot)/elapsed).
-				Float64("chunks_handled_per_sec", float64(dChunksHandled)/elapsed).
-				Uint64("chunks_lost_5s", dChunksLost).
+				Float64("chunks_per_sec", float64(dChunks)/elapsed).
+				Float64("handled_per_sec", float64(dHandled)/elapsed).
+				Uint64("chunks_lost", dLost).
 				Float64("packets_per_sec", float64(dPkts)/elapsed).
-				Uint64("packets_error_5s", dPktsErr).
-				Str("bytes_per_sec", formatBytes(bytesPerSec)).
-				Int("worker_queue_max_len", maxQLen).
-				Int("worker_queue_max_cap", maxQCap).
-				Int("worker_queue_total_len", totalQLen).
-				Uint64("worker_queue_max_seen_5s", queueMaxSeen).
-				Uint64("enqueue_blocked_events_5s", dBlkE).
-				Float64("enqueue_blocked_avg_us_5s", avgUs(dBlkN, dBlkE)).
-				Float64("decode_avg_us_5s", avgUs(dDecN, dDecC)).
-				Float64("writer_avg_us_5s", avgUs(dWrN, dWrC)).
-				Float64("enqueue_blocked_max_ms", blockMaxMs).
-				Float64("decode_max_ms", decodeMaxMs).
-				Float64("writer_max_ms", writerMaxMs).
-				Msg("PacketsPoller diagnostics")
+				Str("bytes_per_sec", formatBytes(uint64(float64(dBytes)/elapsed))).
+				Uint64("max_queue_len", atomic.LoadUint64(&p.diagMaxQueueLen)).
+				Uint64("enqueue_blocked_events", atomic.LoadUint64(&p.diagBlockedEnqueueEvents)).
+				Msg("PacketsPoller stats")
 
-			lastStats = curr
+			last = curr
 			lastTime = now
 
 		case <-p.stopPoll:
@@ -638,7 +601,6 @@ func (p *PacketsPoller) pollRingbuf() {
 		pkt.reset()
 
 		if cap(pkt.buf) < len(payload) {
-			// allocate a larger backing array once; reuse thereafter
 			pkt.buf = make([]byte, 0, len(payload))
 		}
 		pkt.buf = pkt.buf[:len(payload)]
@@ -650,8 +612,19 @@ func (p *PacketsPoller) pollRingbuf() {
 
 		atomic.AddUint64(&p.receivedPackets, 1)
 
+		// Raw write is always allowed (even if dissection disabled), and serialized here.
+		p.writeRawPacket(pkt.timestamp, pkt.buf)
+
+		// Restore master behavior: do NOT decode / do NOT write gopacket when dissection is disabled.
+		if p.dissectionOff() || p.gopacketWriter == nil {
+			pktBufferPool.Put(pkt)
+			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			continue
+		}
+
 		shard := flowShard(pkt.buf, pkt.cgroupID, p.workerCount)
 		p.enqueuePacket(shard, pkt)
+		atomic.AddUint64(&p.stats.ChunksHandled, 1)
 	}
 }
 
@@ -696,10 +669,20 @@ func (p *PacketsPoller) pollPerf() {
 
 			cpu := rec.CPU
 			if cpu >= 0 && cpu < p.maxCPUs {
+				p.pktsMapsMu[cpu].Lock()
 				for _, pb := range p.pktsMaps[cpu] {
 					pktBufferPool.Put(pb)
 				}
 				p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
+				p.pktsMapsMu[cpu].Unlock()
+			}
+
+			// Periodic warning (same spirit as master)
+			lost := atomic.LoadUint64(&p.lostChunks)
+			if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != lost {
+				log.Warn().Msgf("Perf buffer dropped %d chunks", lost-p.lastLostChunks)
+				p.lastLostChunks = lost
+				p.lastLostCheck = time.Now()
 			}
 			continue
 		}
@@ -724,12 +707,19 @@ func (p *PacketsPoller) pollPerf() {
 			continue
 		}
 
+		// Handle perf chunk under CPU lock to avoid map races with cleanup.
+		var completed *pktBuffer
+		var completedTS uint64
+
+		p.pktsMapsMu[cpu].Lock()
 		cpuMap := p.pktsMaps[cpu]
+
 		pb, ok := cpuMap[ptr.ID]
 		if !ok {
 			pb = pktBufferPool.Get().(*pktBuffer)
 			pb.reset()
 			pb.id = ptr.ID
+			pb.num = 0
 			pb.timestamp = ptr.Timestamp
 			pb.cgroupID = ptr.CgroupID
 			pb.direction = ptr.Direction
@@ -737,57 +727,94 @@ func (p *PacketsPoller) pollPerf() {
 			cpuMap[ptr.ID] = pb
 		}
 
-		// Reassembly ordering check
+		// Ordering check
 		if ptr.Num != pb.num {
-			pktBufferPool.Put(pb)
+			// Drop assembly state for this packet ID
 			delete(cpuMap, ptr.ID)
+			p.pktsMapsMu[cpu].Unlock()
+			pktBufferPool.Put(pb)
+			// chunk handled but packet lost/invalid
+			atomic.AddUint64(&p.stats.ChunksHandled, 1)
 			continue
 		}
 
-		// Append payload chunk
 		need := int(ptr.Len)
 		if need < 0 || need > len(ptr.Data) {
-			pktBufferPool.Put(pb)
 			delete(cpuMap, ptr.ID)
+			p.pktsMapsMu[cpu].Unlock()
+			pktBufferPool.Put(pb)
+			atomic.AddUint64(&p.stats.ChunksHandled, 1)
 			continue
 		}
 
+		// Append chunk
 		if cap(pb.buf) < len(pb.buf)+need {
 			newCap := len(pb.buf) + need
 			nb := make([]byte, len(pb.buf), newCap)
 			copy(nb, pb.buf)
 			pb.buf = nb
 		}
-		pb.buf = pb.buf[:len(pb.buf)+need]
-		copy(pb.buf[len(pb.buf)-need:], ptr.Data[:need])
+		oldLen := len(pb.buf)
+		pb.buf = pb.buf[:oldLen+need]
+		copy(pb.buf[oldLen:], ptr.Data[:need])
 
 		if ptr.Last != 0 {
 			atomic.AddUint64(&p.receivedPackets, 1)
+			// detach from map before unlocking
 			delete(cpuMap, ptr.ID)
-
-			shard := flowShard(pb.buf, pb.cgroupID, p.workerCount)
-			p.enqueuePacket(shard, pb)
+			completed = pb
+			completedTS = ptr.Timestamp
 		} else {
 			pb.num++
 		}
+
+		p.pktsMapsMu[cpu].Unlock()
+
+		atomic.AddUint64(&p.stats.ChunksHandled, 1)
+
+		if completed == nil {
+			continue
+		}
+
+		// Raw write (serialized here)
+		p.writeRawPacket(completedTS, completed.buf)
+
+		// Restore master behavior: if dissection disabled, do not decode/write.
+		if p.dissectionOff() || p.gopacketWriter == nil {
+			pktBufferPool.Put(completed)
+			continue
+		}
+
+		shard := flowShard(completed.buf, completed.cgroupID, p.workerCount)
+		p.enqueuePacket(shard, completed)
 	}
 }
 
 func (p *PacketsPoller) Start() {
-	go p.poll()
-	go p.cleanupStalePackets()
+	p.runWg.Add(3)
 
-	go p.logPeriodicDiagnosticsLoop()
+	go func() {
+		defer p.runWg.Done()
+		p.poll()
+	}()
+
+	go func() {
+		defer p.runWg.Done()
+		p.cleanupStalePackets()
+	}()
+
+	go func() {
+		defer p.runWg.Done()
+		p.logPeriodicStatsLoop()
+	}()
 }
 
 func (p *PacketsPoller) Stop() error {
-	// Stop cleanup first (it touches pktsMaps)
+	// Signal goroutines
 	close(p.stopCleanup)
-
-	// Stop poll loop + diagnostics loop (they select on this)
 	close(p.stopPoll)
 
-	// Close reader to unblock Read() / ReadInto()
+	// Close readers to unblock Read/ReadInto
 	if p.useRingbuf {
 		if p.ringReader != nil {
 			_ = p.ringReader.Close()
@@ -798,12 +825,17 @@ func (p *PacketsPoller) Stop() error {
 		}
 	}
 
+	// Wait for poll/cleanup/stats loops to exit (prevents enqueue-after-close panics)
+	p.runWg.Wait()
+
 	// Return any still-assembled perf packets to pool
-	for i := 0; i < p.maxCPUs; i++ {
-		for _, pb := range p.pktsMaps[i] {
+	for cpu := 0; cpu < p.maxCPUs; cpu++ {
+		p.pktsMapsMu[cpu].Lock()
+		for _, pb := range p.pktsMaps[cpu] {
 			pktBufferPool.Put(pb)
 		}
-		p.pktsMaps[i] = nil
+		p.pktsMaps[cpu] = nil
+		p.pktsMapsMu[cpu].Unlock()
 	}
 
 	// Stop workers last (they release pktBuffers)
@@ -823,551 +855,3 @@ func (p *PacketsPoller) GetLostChunks() uint64 {
 func (p *PacketsPoller) GetExtendedStats() interface{} {
 	return p.stats
 }
-
-<<<<<<< HEAD
-func (p *PacketsPoller) Pause() {
-	p.dissectionDisabled = true
-}
-
-func (p *PacketsPoller) Resume() {
-	p.dissectionDisabled = false
-}
-
-// formatBytes formats bytes into human readable format with K/M suffixes
-func formatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-// logPeriodicStats logs statistics every 5 seconds
-func (p *PacketsPoller) logPeriodicStats() {
-	now := time.Now()
-	elapsed := now.Sub(p.lastStatsTime).Seconds()
-
-	if elapsed < 5.0 {
-		return
-	}
-
-	chunksDelta := p.stats.ChunksGot - p.lastStats.ChunksGot
-	packetsDelta := p.stats.PacketsGot - p.lastStats.PacketsGot
-	bytesDelta := p.stats.BytesProcessed - p.lastStats.BytesProcessed
-
-	chunksPerSec := float64(chunksDelta) / elapsed
-	packetsPerSec := float64(packetsDelta) / elapsed
-	bytesPerSec := float64(bytesDelta) / elapsed
-
-	log.Debug().
-		Float64("chunks_per_sec", chunksPerSec).
-		Float64("packets_per_sec", packetsPerSec).
-		Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
-		Msg("PacketsPoller stats")
-
-	qLen := 0
-	qCap := 0
-	qMax := atomic.LoadUint64(&p.diagMaxQueueLen)
-
-	blkN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
-	blkE := atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
-
-	decN := atomic.LoadUint64(&p.diagDecodeNanos)
-	decC := atomic.LoadUint64(&p.diagDecodeCalls)
-
-	wrN := atomic.LoadUint64(&p.diagWriterNanos)
-	wrC := atomic.LoadUint64(&p.diagWriterCalls)
-
-	cpN := atomic.LoadUint64(&p.diagCopyNanos)
-	cpC := atomic.LoadUint64(&p.diagCopyCalls)
-
-	dBlkN := blkN - p.lastDiagBlockedEnqueueNanos
-	dBlkE := blkE - p.lastDiagBlockedEnqueueEvents
-	dDecN := decN - p.lastDiagDecodeNanos
-	dDecC := decC - p.lastDiagDecodeCalls
-	dWrN := wrN - p.lastDiagWriterNanos
-	dWrC := wrC - p.lastDiagWriterCalls
-	dCpN := cpN - p.lastDiagCopyNanos
-	dCpC := cpC - p.lastDiagCopyCalls
-
-	p.lastDiagBlockedEnqueueNanos = blkN
-	p.lastDiagBlockedEnqueueEvents = blkE
-	p.lastDiagDecodeNanos = decN
-	p.lastDiagDecodeCalls = decC
-	p.lastDiagWriterNanos = wrN
-	p.lastDiagWriterCalls = wrC
-	p.lastDiagCopyNanos = cpN
-	p.lastDiagCopyCalls = cpC
-
-	avgUs := func(nanos, calls uint64) float64 {
-		if calls == 0 {
-			return 0
-		}
-		return float64(nanos) / float64(calls) / 1000.0
-	}
-
-	saturated := false
-	if qCap > 0 && qLen*100/qCap >= 80 {
-		saturated = true
-	}
-	if dBlkE > 0 {
-		saturated = true
-	}
-
-	ev := log.Info()
-	if saturated {
-		ev = log.Warn()
-	}
-
-	ev.
-		Bool("use_ringbuf", p.useRingbuf).
-		Int("job_queue_len", qLen).
-		Int("job_queue_cap", qCap).
-		Uint64("job_queue_max", qMax).
-		Uint64("enqueue_blocked_events_5s", dBlkE).
-		Float64("enqueue_blocked_avg_us_5s", avgUs(dBlkN, dBlkE)).
-		Float64("copy_avg_us_5s", avgUs(dCpN, dCpC)).
-		Float64("decode_avg_us_5s", avgUs(dDecN, dDecC)).
-		Float64("writer_avg_us_5s", avgUs(dWrN, dWrC)).
-		Float64("copy_max_ms", float64(atomic.LoadUint64(&p.diagMaxCopyNs))/1e6).
-		Float64("decode_max_ms", float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6).
-		Float64("writer_max_ms", float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6).
-		Float64("enqueue_blocked_max_ms", float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs))/1e6).
-		Msg("PacketsPoller diagnostics")
-
-	p.lastStats = p.stats
-	p.lastStatsTime = now
-}
-
-func (p *PacketsPoller) poll() {
-	// tracerPktsChunk is generated by bpf2go.
-	if p.useRingbuf {
-		p.pollChunksRingBuffer()
-		return
-	}
-
-	p.pollChunksPerfBuffer()
-}
-
-func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
-	data := chunk.reusableRecord.RawSample
-	cpu := chunk.reusableRecord.CPU
-
-	if len(data) == 4 {
-		// zero packet to reset - return all pktBuffers to pool
-		log.Info().Msg("Resetting plain packets buffer")
-		for i := 0; i < p.maxCPUs; i++ {
-			for _, pkts := range p.pktsMaps[i] {
-				pktBufferPool.Put(pkts)
-			}
-			p.pktsMaps[i] = make(map[uint64]*pktBuffer)
-		}
-		pktBufferPool.Put(chunk)
-		return false, nil
-	}
-
-	expectedChunkSize := int(unsafe.Sizeof(tracerPacketsData{}))
-	if len(data) < expectedChunkSize {
-		pktBufferPool.Put(chunk)
-		return false, fmt.Errorf("bad pkt chunk: size %v expected at least: %v", len(data), expectedChunkSize)
-	}
-	if len(data) != expectedChunkSize {
-		data = data[:expectedChunkSize]
-	}
-
-	ptr := (*tracerPacketsData)(unsafe.Pointer(&data[0]))
-
-	if ptr.Num == 0 && ptr.Last != 0 {
-		// Fast path - single-chunk packet.
-		if p.forceCopySingleChunk {
-			if ptr.Len > uint32(len(chunk.buf)) {
-				pktBufferPool.Put(chunk)
-				return false, fmt.Errorf("packet too large for buffer: %d", ptr.Len)
-			}
-			copy(chunk.buf[:ptr.Len], ptr.Data[:ptr.Len])
-			chunk.len = ptr.Len
-			p.writeRawPacket(ptr.Timestamp, chunk.buf[:chunk.len])
-		} else {
-			p.writeRawPacket(ptr.Timestamp, ptr.Data[:ptr.Len])
-		}
-		if _, err := p.writePacket(chunk, ptr); err != nil {
-			pktBufferPool.Put(chunk)
-		}
-		// packet will be released by writePacket
-		return true, nil
-	}
-
-	if cpu < 0 || cpu >= p.maxCPUs {
-		log.Fatal().Int("cpu", cpu).Msg("Invalid CPU number")
-		pktBufferPool.Put(chunk)
-		return false, nil
-	}
-	cpuMap := p.pktsMaps[cpu]
-
-	pkts, ok := cpuMap[ptr.ID]
-	if !ok {
-		// Get pktBuffer from pool and initialize it
-		pkts = pktBufferPool.Get().(*pktBuffer)
-		// Safety: ensure layerParser exists for pre-warmed buffers created before initialization change
-		if pkts.layerParser == nil {
-			pkts.layerParser = decodedpacket.NewLayerParser()
-		}
-		pkts.reset()
-		pkts.id = ptr.ID
-		pkts.firstSeen = time.Now() // Track when incomplete packet was created
-		cpuMap[ptr.ID] = pkts
-	}
-	if ptr.Num != pkts.num {
-		// chunk was lost
-		log.Debug().Msgf("lost packet message id: (%v %v) num: (%v %v) len: %v last: %v dir: %v tot_len: %v cpu: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction, ptr.TotLen, cpu)
-		pktBufferPool.Put(chunk)
-		return false, nil
-	}
-
-	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
-	pkts.len += uint32(ptr.Len)
-	pktBufferPool.Put(chunk)
-
-	if ptr.Last != 0 {
-		p.receivedPackets++
-
-		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
-
-		p.writeRawPacket(ptr.Timestamp, pkts.buf[:pkts.len])
-		if !p.dissectionDisabled {
-			if _, err := p.writePacket(pkts, ptr); err != nil {
-				pktBufferPool.Put(pkts)
-				return false, fmt.Errorf("write packet failed: %w", err)
-			}
-		} else {
-			pktBufferPool.Put(pkts)
-		}
-		delete(cpuMap, ptr.ID)
-	} else {
-		pkts.num++
-	}
-
-	return true, nil
-}
-
-func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
-	if p.gopacketWriter == nil {
-		pktBufferPool.Put(pktBuf)
-		return false, nil
-	}
-
-	// Calculate timestamp once
-	var timestamp time.Time
-	if ptr.Timestamp != 0 {
-		timestamp = time.Unix(0, int64(ptr.Timestamp)-int64(p.tai.GetTAIOffset()))
-	} else {
-		timestamp = time.Now()
-	}
-
-	var pkt []byte
-	if pktBuf.len > 0 {
-		pkt = pktBuf.buf[:pktBuf.len]
-	} else {
-		pkt = ptr.Data[:ptr.Len]
-	}
-
-	// Use LayerParser for efficient packet decoding
-	ci := gopacket.CaptureInfo{
-		Timestamp:      timestamp,
-		CaptureLength:  len(pkt),
-		Length:         len(pkt),
-		CaptureBackend: gopacket.CaptureBackendEbpf,
-		CgroupID:       ptr.CgroupID,
-		Direction:      unixpacket.PacketDirection(ptr.Direction),
-	}
-
-	decodeOptions := gopacket.DecodeOptions{
-		Lazy:                     false,
-		NoCopy:                   true,
-		SkipDecodeRecovery:       false,
-		DecodeStreamsAsDatagrams: false,
-	}
-
-	decodeStart := time.Now()
-	packet, parseErr := pktBuf.layerParser.CreatePacket(pkt, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction), ci, decodeOptions)
-	dtDecode := time.Since(decodeStart)
-
-	atomic.AddUint64(&p.diagDecodeNanos, uint64(dtDecode))
-	atomic.AddUint64(&p.diagDecodeCalls, 1)
-	atomicMaxUint64(&p.diagMaxDecodeNs, uint64(dtDecode))
-
-	if parseErr != nil {
-		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
-		p.stats.PacketsError++
-		pktBufferPool.Put(pktBuf)
-		// gopacket.NewPacket is recovers in case of errors, so we can return nil
-		return false, nil
-	}
-
-	p.stats.PacketsGot++
-	p.stats.BytesProcessed += uint64(len(pkt))
-
-	t0 := time.Now()
-	p.gopacketWriter(packet, p.dissectionDisabled)
-	dtWriter := time.Since(t0)
-
-	atomic.AddUint64(&p.diagWriterNanos, uint64(dtWriter))
-	atomic.AddUint64(&p.diagWriterCalls, 1)
-	atomicMaxUint64(&p.diagMaxWriterNs, uint64(dtWriter))
-
-	pktBufferPool.Put(pktBuf)
-	return true, nil
-}
-
-func (p *PacketsPoller) writeRawPacket(timestamp uint64, pkt []byte) {
-	if p.rawPacketWriter == nil {
-		return
-	}
-	var ts time.Time
-	if timestamp != 0 {
-		ts = time.Unix(0, int64(timestamp)-int64(p.tai.GetTAIOffset()))
-	} else {
-		ts = time.Now()
-	}
-
-	p.rawPacketWriter(uint64(ts.UnixNano()), pkt)
-}
-
-func (p *PacketsPoller) pollChunksPerfBuffer() {
-	log.Info().Msg("Start polling for packet events")
-
-	// remove all existing records
-	p.chunksReader.SetDeadline(time.Unix(1, 0))
-	var emptyRecord perf.Record
-	for {
-		err := p.chunksReader.ReadInto(&emptyRecord)
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			break
-		} else if err != nil {
-			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
-			return
-		}
-	}
-	p.chunksReader.SetDeadline(time.Time{})
-
-	for {
-		// Log periodic statistics every 5 seconds
-		p.logPeriodicStats()
-
-		if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != p.lostChunks {
-			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks-p.lastLostChunks))
-			p.lastLostChunks = p.lostChunks
-			p.lastLostCheck = time.Now()
-		}
-
-		// Get a pktBuffer from the pool to use its reusableRecord
-		readBuffer := pktBufferPool.Get().(*pktBuffer)
-		readBuffer.reset()
-
-		err := p.chunksReader.ReadInto(&readBuffer.reusableRecord)
-		if err != nil {
-			// Return the buffer to pool before handling error
-			pktBufferPool.Put(readBuffer)
-			if errors.Is(err, perf.ErrClosed) {
-				log.Info().Err(err).Msg("perf buffer is closed")
-				return
-			}
-
-			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
-			return
-		}
-
-		if readBuffer.reusableRecord.LostSamples != 0 {
-			p.lostChunks += readBuffer.reusableRecord.LostSamples
-			p.stats.ChunksLost += readBuffer.reusableRecord.LostSamples
-			// Cleanup per-CPU packet state for the CPU that experienced the loss
-			cpu := readBuffer.reusableRecord.CPU
-			if cpu >= 0 && cpu < p.maxCPUs {
-				for _, pkts := range p.pktsMaps[cpu] {
-					pktBufferPool.Put(pkts)
-				}
-				p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
-			}
-			// Return buffer to pool before continuing
-			pktBufferPool.Put(readBuffer)
-			continue
-		}
-
-		p.stats.ChunksGot++
-
-		var ok bool
-		if ok, err = p.handlePktChunk(readBuffer); err != nil {
-			log.Error().Err(err).Msg("handle chunk failed")
-		} else if ok {
-			p.stats.ChunksHandled++
-		}
-	}
-}
-
-func (p *PacketsPoller) resetPerfState() {
-	log.Info().Msg("Resetting plain packets buffer")
-	for i := 0; i < p.maxCPUs; i++ {
-		for _, pkts := range p.pktsMaps[i] {
-			pktBufferPool.Put(pkts)
-		}
-		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
-	}
-}
-
-func (p *PacketsPoller) writePacketBytes(pktBuf *pktBuffer, ts uint64, cgroupID uint64, direction uint8, pkt []byte) (bool, error) {
-	if p.gopacketWriter == nil {
-		pktBufferPool.Put(pktBuf)
-		return false, nil
-	}
-
-	var timestamp time.Time
-	if ts != 0 {
-		timestamp = time.Unix(0, int64(ts)-int64(p.tai.GetTAIOffset()))
-	} else {
-		timestamp = time.Now()
-	}
-
-	ci := gopacket.CaptureInfo{
-		Timestamp:      timestamp,
-		CaptureLength:  len(pkt),
-		Length:         len(pkt),
-		CaptureBackend: gopacket.CaptureBackendEbpf,
-		CgroupID:       cgroupID,
-		Direction:      unixpacket.PacketDirection(direction),
-	}
-
-	decodeOptions := gopacket.DecodeOptions{
-		Lazy:                     false,
-		NoCopy:                   true,
-		SkipDecodeRecovery:       false,
-		DecodeStreamsAsDatagrams: false,
-	}
-
-	decodeStart := time.Now()
-	packet, parseErr := pktBuf.layerParser.CreatePacket(pkt, cgroupID, unixpacket.PacketDirection(direction), ci, decodeOptions)
-	dtDecode := time.Since(decodeStart)
-
-	atomic.AddUint64(&p.diagDecodeNanos, uint64(dtDecode))
-	atomic.AddUint64(&p.diagDecodeCalls, 1)
-	atomicMaxUint64(&p.diagMaxDecodeNs, uint64(dtDecode))
-
-	if parseErr != nil {
-		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
-		p.stats.PacketsError++
-		pktBufferPool.Put(pktBuf)
-		return false, nil
-	}
-
-	p.stats.PacketsGot++
-	p.stats.BytesProcessed += uint64(len(pkt))
-
-	t0 := time.Now()
-	p.gopacketWriter(packet, p.dissectionDisabled)
-	dtWriter := time.Since(t0)
-
-	atomic.AddUint64(&p.diagWriterNanos, uint64(dtWriter))
-	atomic.AddUint64(&p.diagWriterCalls, 1)
-	atomicMaxUint64(&p.diagMaxWriterNs, uint64(dtWriter))
-
-	pktBufferPool.Put(pktBuf)
-	return true, nil
-}
-
-func (p *PacketsPoller) handleRingbufPacket(raw []byte) (bool, error) {
-	if len(raw) < ringbufPktEventHdrSize {
-		return false, fmt.Errorf("bad ringbuf pkt record: size %d < hdr %d", len(raw), ringbufPktEventHdrSize)
-	}
-
-	hdr := (*ringbufPktEventHdr)(unsafe.Pointer(&raw[0]))
-	pktLen := int(hdr.Len)
-
-	if pktLen < 0 || ringbufPktEventHdrSize+pktLen > len(raw) {
-		return false, fmt.Errorf("bad ringbuf pkt record: hdrLen=%d pktLen=%d total=%d", ringbufPktEventHdrSize, pktLen, len(raw))
-	}
-
-	payload := raw[ringbufPktEventHdrSize : ringbufPktEventHdrSize+pktLen]
-
-	// Copy to a reusable scratch buffer (consistent with NoCopy decoding assumption and record lifetime safety)
-	t0 := time.Now()
-	if cap(p.ringScratch) < pktLen {
-		p.ringScratch = make([]byte, pktLen)
-	}
-	p.ringScratch = p.ringScratch[:pktLen]
-	copy(p.ringScratch, payload)
-	dtCopy := time.Since(t0)
-
-	atomic.AddUint64(&p.diagCopyNanos, uint64(dtCopy))
-	atomic.AddUint64(&p.diagCopyCalls, 1)
-	atomicMaxUint64(&p.diagMaxCopyNs, uint64(dtCopy))
-
-	p.receivedPackets++
-	binary.BigEndian.PutUint16(p.ethhdrContent[12:14], hdr.IPHdrType)
-
-	p.writeRawPacket(hdr.Timestamp, p.ringScratch)
-
-	// Use a pooled pktBuffer just for its LayerParser reuse
-	pktBuf := pktBufferPool.Get().(*pktBuffer)
-	if pktBuf.layerParser == nil {
-		pktBuf.layerParser = decodedpacket.NewLayerParser()
-	}
-	pktBuf.reset()
-
-	ok, err := p.writePacketBytes(pktBuf, hdr.Timestamp, hdr.CgroupID, hdr.Direction, p.ringScratch)
-	// writePacketBytes returns pktBuf to pool itself
-	return ok, err
-}
-
-func (p *PacketsPoller) pollChunksRingBuffer() {
-	log.Info().Msg("Start polling for packet events (ringbuf)")
-
-	for {
-		p.logPeriodicStats()
-
-		recAny, err := p.ringReader.Read()
-		if err != nil {
-			if errors.Is(err, ringbuf.ErrClosed) {
-				log.Info().Err(err).Msg("ringbuf is closed")
-				return
-			}
-			log.Fatal().Err(err).Msg("Error reading chunks from pkts ringbuf, aborting!")
-			return
-		}
-
-		var rawSample []byte
-		switch rec := recAny.(type) {
-		case ringbuf.Record:
-			rawSample = rec.RawSample
-		case *ringbuf.Record:
-			rawSample = rec.RawSample
-		default:
-			log.Fatal().Msgf("Unexpected ringbuf record type: %T", recAny)
-			return
-		}
-
-		p.stats.ChunksGot++
-
-		// reset marker (kept for compatibility)
-		if len(rawSample) == 4 {
-			p.resetPerfState()
-			continue
-		}
-
-		ok, herr := p.handleRingbufPacket(rawSample)
-		if herr != nil {
-			log.Error().Err(herr).Msg("handle ringbuf packet failed")
-			continue
-		}
-		if ok {
-			p.stats.ChunksHandled++
-		}
-	}
-}
-=======
-func (p *PacketsPoller) Pause()  {}
-func (p *PacketsPoller) Resume() {}
->>>>>>> ca13101 (Address bottleneck issue)
