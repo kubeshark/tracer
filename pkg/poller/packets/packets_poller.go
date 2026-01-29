@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"sync"
@@ -29,6 +30,8 @@ const (
 
 	stalePktCleanupInterval = 30 * time.Second
 	stalePktThreshold       = 30 * time.Second
+
+	diagInterval = 5 * time.Second
 )
 
 type ringbufPktEventHdr struct {
@@ -141,8 +144,9 @@ type PacketsPoller struct {
 	// Diagnostics
 	diagBlockedEnqueueNanos  uint64
 	diagBlockedEnqueueEvents uint64
-	diagMaxQueueLen          uint64
+	diagMaxBlockedEnqueueNs  uint64
 
+	diagMaxQueueLen uint64
 	diagDecodeNanos uint64
 	diagDecodeCalls uint64
 	diagMaxDecodeNs uint64
@@ -173,6 +177,19 @@ func atomicMaxUint64(addr *uint64, v uint64) {
 			return
 		}
 	}
+}
+
+func formatBytes(bytes uint64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func NewPacketsPoller(
@@ -365,8 +382,10 @@ func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 
 func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 	ch := p.workers[shard]
-	qlen := len(ch)
-	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlen))
+
+	// Record queue pressure (best-effort)
+	qlenAfter := len(ch) + 1
+	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlenAfter))
 
 	select {
 	case ch <- pkt:
@@ -380,6 +399,7 @@ func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 		atomic.AddUint64(&p.stats.ChunksHandled, 1)
 		atomic.AddUint64(&p.diagBlockedEnqueueEvents, 1)
 		atomic.AddUint64(&p.diagBlockedEnqueueNanos, uint64(dt))
+		atomicMaxUint64(&p.diagMaxBlockedEnqueueNs, uint64(dt))
 	}
 }
 
@@ -418,6 +438,137 @@ func (p *PacketsPoller) cleanupStalePackets() {
 			}
 
 		case <-p.stopCleanup:
+			return
+		}
+	}
+}
+
+func (p *PacketsPoller) logPeriodicDiagnosticsLoop() {
+	ticker := time.NewTicker(diagInterval)
+	defer ticker.Stop()
+
+	lastTime := time.Now()
+
+	var lastStats PacketsPollerStats
+	var lastBlkN, lastBlkE uint64
+	var lastDecN, lastDecC uint64
+	var lastWrN, lastWrC uint64
+
+	avgUs := func(nanos, calls uint64) float64 {
+		if calls == 0 {
+			return 0
+		}
+		return float64(nanos) / float64(calls) / 1000.0
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			elapsed := now.Sub(lastTime).Seconds()
+			if elapsed <= 0 {
+				lastTime = now
+				continue
+			}
+
+			curr := PacketsPollerStats{
+				ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
+				ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
+				ChunksLost:     atomic.LoadUint64(&p.stats.ChunksLost),
+				PacketsGot:     atomic.LoadUint64(&p.stats.PacketsGot),
+				PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
+				BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
+			}
+
+			dChunksGot := curr.ChunksGot - lastStats.ChunksGot
+			dChunksHandled := curr.ChunksHandled - lastStats.ChunksHandled
+			dChunksLost := curr.ChunksLost - lastStats.ChunksLost
+			dPkts := curr.PacketsGot - lastStats.PacketsGot
+			dPktsErr := curr.PacketsError - lastStats.PacketsError
+			dBytes := curr.BytesProcessed - lastStats.BytesProcessed
+
+			blkN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
+			blkE := atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
+
+			decN := atomic.LoadUint64(&p.diagDecodeNanos)
+			decC := atomic.LoadUint64(&p.diagDecodeCalls)
+
+			wrN := atomic.LoadUint64(&p.diagWriterNanos)
+			wrC := atomic.LoadUint64(&p.diagWriterCalls)
+
+			dBlkN := blkN - lastBlkN
+			dBlkE := blkE - lastBlkE
+			dDecN := decN - lastDecN
+			dDecC := decC - lastDecC
+			dWrN := wrN - lastWrN
+			dWrC := wrC - lastWrC
+
+			lastBlkN, lastBlkE = blkN, blkE
+			lastDecN, lastDecC = decN, decC
+			lastWrN, lastWrC = wrN, wrC
+
+			// Snapshot queue occupancy (safe to call len/cap concurrently)
+			maxQLen := 0
+			maxQCap := 0
+			totalQLen := 0
+			for _, ch := range p.workers {
+				l := len(ch)
+				c := cap(ch)
+				totalQLen += l
+				if l > maxQLen {
+					maxQLen = l
+					maxQCap = c
+				}
+			}
+
+			// Max queue len observed during enqueue attempts in the last interval
+			queueMaxSeen := atomic.SwapUint64(&p.diagMaxQueueLen, 0)
+
+			// Global max latencies since start
+			decodeMaxMs := float64(atomic.LoadUint64(&p.diagMaxDecodeNs)) / 1e6
+			writerMaxMs := float64(atomic.LoadUint64(&p.diagMaxWriterNs)) / 1e6
+			blockMaxMs := float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs)) / 1e6
+
+			bytesPerSec := uint64(float64(dBytes) / elapsed)
+
+			saturated := false
+			if maxQCap > 0 && maxQLen*100/maxQCap >= 80 {
+				saturated = true
+			}
+			if dBlkE > 0 {
+				saturated = true
+			}
+			if dChunksLost > 0 {
+				saturated = true
+			}
+
+			log.Info().
+				Bool("use_ringbuf", p.useRingbuf).
+				Int("workers", p.workerCount).
+				Bool("saturated", saturated).
+				Float64("chunks_per_sec", float64(dChunksGot)/elapsed).
+				Float64("chunks_handled_per_sec", float64(dChunksHandled)/elapsed).
+				Uint64("chunks_lost_5s", dChunksLost).
+				Float64("packets_per_sec", float64(dPkts)/elapsed).
+				Uint64("packets_error_5s", dPktsErr).
+				Str("bytes_per_sec", formatBytes(bytesPerSec)).
+				Int("worker_queue_max_len", maxQLen).
+				Int("worker_queue_max_cap", maxQCap).
+				Int("worker_queue_total_len", totalQLen).
+				Uint64("worker_queue_max_seen_5s", queueMaxSeen).
+				Uint64("enqueue_blocked_events_5s", dBlkE).
+				Float64("enqueue_blocked_avg_us_5s", avgUs(dBlkN, dBlkE)).
+				Float64("decode_avg_us_5s", avgUs(dDecN, dDecC)).
+				Float64("writer_avg_us_5s", avgUs(dWrN, dWrC)).
+				Float64("enqueue_blocked_max_ms", blockMaxMs).
+				Float64("decode_max_ms", decodeMaxMs).
+				Float64("writer_max_ms", writerMaxMs).
+				Msg("PacketsPoller diagnostics")
+
+			lastStats = curr
+			lastTime = now
+
+		case <-p.stopPoll:
 			return
 		}
 	}
@@ -602,7 +753,6 @@ func (p *PacketsPoller) pollPerf() {
 		}
 
 		if cap(pb.buf) < len(pb.buf)+need {
-			// grow (double-ish, but bounded by PKT_MAX_LEN from BPF anyway)
 			newCap := len(pb.buf) + need
 			nb := make([]byte, len(pb.buf), newCap)
 			copy(nb, pb.buf)
@@ -613,7 +763,6 @@ func (p *PacketsPoller) pollPerf() {
 
 		if ptr.Last != 0 {
 			atomic.AddUint64(&p.receivedPackets, 1)
-
 			delete(cpuMap, ptr.ID)
 
 			shard := flowShard(pb.buf, pb.cgroupID, p.workerCount)
@@ -627,13 +776,15 @@ func (p *PacketsPoller) pollPerf() {
 func (p *PacketsPoller) Start() {
 	go p.poll()
 	go p.cleanupStalePackets()
+
+	go p.logPeriodicDiagnosticsLoop()
 }
 
 func (p *PacketsPoller) Stop() error {
 	// Stop cleanup first (it touches pktsMaps)
 	close(p.stopCleanup)
 
-	// Stop poll loop
+	// Stop poll loop + diagnostics loop (they select on this)
 	close(p.stopPoll)
 
 	// Close reader to unblock Read() / ReadInto()
