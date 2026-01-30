@@ -658,100 +658,66 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
         }
     }
 
-#define RB_EMIT_PKT(CAP)                                                            \
-    do {                                                                            \
-        struct pkt_event_hdr *ev =                                                  \
-            bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ((CAP)), 0);                 \
-        if (!ev) {                                                                  \
-            log_error(skb, LOG_ERROR_PKT_SNIFFER, 15, pkt_len, 0l);                 \
-            return -EAGAIN;                                                         \
-        }                                                                           \
-                                                                                    \
-        ev->timestamp = compat_get_uprobe_timestamp();                              \
-        ev->cgroup_id = cgroup_id;                                                  \
-        ev->direction = direction;                                                  \
-        ev->id = packet_id;                                                         \
-        ev->len = pkt_len;                                                          \
-        ev->ip_hdr_type = bpf_ntohs(ctx->skb->protocol);                            \
-        ev->__pad = 0;                                                              \
-                                                                                    \
-        unsigned char *payload = (unsigned char *)(ev + 1);                         \
-                                                                                    \
-        if (bpf_skb_load_bytes(skb, 0, payload, pkt_len) != 0) {                     \
-            log_error(skb, LOG_ERROR_PKT_SNIFFER, 16, 0l, 0l);                       \
-            bpf_ringbuf_discard(ev, 0);                                             \
-            return -EINVAL;                                                         \
-        }                                                                           \
-                                                                                    \
-        /* Rewrite IPs/ports in the copied payload (best-effort; bounds-checked) */ \
-        if (ip_version == 6) {                                                      \
-            if (pkt_len >= sizeof(struct ipv6hdr)) {                                \
-                struct ipv6hdr *ip6 = (struct ipv6hdr *)payload;                    \
-                if (rewrite_ip6_src)                                                \
-                    __builtin_memcpy(&ip6->saddr, rewrite_ip6_src,                  \
-                                     sizeof(struct in6_addr));                      \
-                if (rewrite_ip6_dst)                                                \
-                    __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst,                  \
-                                     sizeof(struct in6_addr));                      \
-                                                                                    \
-                if (ctx->transportHdrType == IPPROTO_TCP ||                         \
-                    ctx->transportHdrType == IPPROTO_UDP) {                         \
-                    RB_WRITE_PORTS(payload, ctx->transportOffset, pkt_len,          \
-                                   rewrite_port_src, rewrite_port_dst, (CAP));      \
-                }                                                                   \
-            }                                                                       \
-        } else {                                                                    \
-            if (pkt_len >= sizeof(struct iphdr)) {                                  \
-                struct iphdr *ip = (struct iphdr *)payload;                         \
-                if (rewrite_ip_src)                                                 \
-                    ip->saddr = rewrite_ip_src;                                     \
-                if (rewrite_ip_dst)                                                 \
-                    ip->daddr = rewrite_ip_dst;                                     \
-                                                                                    \
-                /* protocol is byte 9, IHL is low nibble of byte 0 */               \
-                __u8 proto = payload[9];                                            \
-                if (proto == IPPROTO_TCP || proto == IPPROTO_UDP) {                 \
-                    __u8 ihl = payload[0] & 0x0F;                                   \
-                    if (ihl >= 5) {                                                 \
-                        __u32 off = (__u32)ihl * 4;                                 \
-                        RB_WRITE_PORTS(payload, off, pkt_len,                       \
-                                       rewrite_port_src, rewrite_port_dst, (CAP));  \
-                    }                                                               \
-                }                                                                   \
-            }                                                                       \
-        }                                                                           \
-                                                                                    \
-        bpf_ringbuf_submit(ev, 0);                                                  \
-        return 0;                                                                   \
-    } while (0)
+    struct pkt_event_hdr* ev =
+        bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(PKT_RINGBUF_MAX_LEN), 0);
 
-    if (pkt_len <= 256) {
-        RB_EMIT_PKT(256);
-    } else if (pkt_len <= 512) {
-        RB_EMIT_PKT(512);
-    } else if (pkt_len <= 1024) {
-        RB_EMIT_PKT(1024);
-    } else if (pkt_len <= 2048) {
-        RB_EMIT_PKT(2048);
-    } else if (pkt_len <= 4096) {
-        RB_EMIT_PKT(4096);
-    } else if (pkt_len <= 8192) {
-        RB_EMIT_PKT(8192);
-    } else if (pkt_len <= 16384) {
-        RB_EMIT_PKT(16384);
-    } else if (pkt_len <= 32768) {
-        RB_EMIT_PKT(32768);
-    } else if (pkt_len <= 65536) {
-        RB_EMIT_PKT(65536);
-    } else if (pkt_len <= 131072) {
-        RB_EMIT_PKT(131072);
-    } else {
-        RB_EMIT_PKT(PKT_RINGBUF_MAX_LEN);
+    if (!ev) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 15, pkt_len, 0l);
+        return -EAGAIN;
     }
 
-#undef RB_EMIT_PKT
+    ev->timestamp = compat_get_uprobe_timestamp();
+    ev->cgroup_id = cgroup_id;
+    ev->direction = direction;
+    ev->id = packet_id;
+    ev->len = pkt_len;
+    ev->ip_hdr_type = bpf_ntohs(ctx->skb->protocol);
+    ev->__pad = 0;
 
-    /* Unreachable: RB_EMIT_PKT returns */
+    unsigned char* payload = (unsigned char*)(ev + 1);
+
+    if (bpf_skb_load_bytes(skb, 0, payload, pkt_len) != 0) {
+        log_error(skb, LOG_ERROR_PKT_SNIFFER, 16, 0l, 0l);
+        bpf_ringbuf_discard(ev, 0);
+        return -EINVAL;
+    }
+
+    // Rewrite IPs/ports in the copied payload
+    if (ip_version == 6) {
+        if (pkt_len >= sizeof(struct ipv6hdr)) {
+            struct ipv6hdr* ip6 = (struct ipv6hdr*)payload;
+            if (rewrite_ip6_src)
+                __builtin_memcpy(&ip6->saddr, rewrite_ip6_src, sizeof(struct in6_addr));
+            if (rewrite_ip6_dst)
+                __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst, sizeof(struct in6_addr));
+
+            if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
+                RB_WRITE_PORTS(payload, ctx->transportOffset, pkt_len,
+                               rewrite_port_src, rewrite_port_dst, PKT_RINGBUF_MAX_LEN);
+            }
+        }
+    } else {
+        if (pkt_len >= sizeof(struct iphdr)) {
+            struct iphdr* ip = (struct iphdr*)payload;
+            if (rewrite_ip_src)
+                ip->saddr = rewrite_ip_src;
+            if (rewrite_ip_dst)
+                ip->daddr = rewrite_ip_dst;
+
+            /* protocol is byte 9, IHL is low nibble of byte 0 */
+            __u8 proto = payload[9];
+            if (proto == IPPROTO_TCP || proto == IPPROTO_UDP) {
+                __u8 ihl = payload[0] & 0x0F;
+                if (ihl >= 5) {
+                    __u32 off = (__u32)ihl * 4;
+                    RB_WRITE_PORTS(payload, off, pkt_len,
+                                   rewrite_port_src, rewrite_port_dst, PKT_RINGBUF_MAX_LEN);
+                }
+            }
+        }
+    }
+
+    bpf_ringbuf_submit(ev, 0);
     return 0;
 
 #else

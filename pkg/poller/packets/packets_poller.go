@@ -26,7 +26,7 @@ import (
 
 const (
 	defaultPktBufCap = 64 * 1024 * 1024 // 64MB
-	maxRingbufPktLen = 256 * 1024
+	maxRingbufPktLen = 64 * 1024
 	workerQueueDepth = 4096
 
 	stalePktCleanupInterval = 30 * time.Second
