@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"runtime"
@@ -147,6 +148,42 @@ type PacketsPoller struct {
 	dissectionDisabled uint32
 
 	tai tai.TaiInfo
+
+	// --- Diagnostics output file (instead of logs) ---
+	diagFilePath string
+	diagFile     *os.File
+	diagBuf      *bufio.Writer
+
+	// --- Diagnostics counters (atomic; updated from poll goroutine + workers) ---
+	diagDecodeNanos uint64
+	diagDecodeCalls uint64
+	diagMaxDecodeNs uint64
+
+	diagWriterNanos uint64
+	diagWriterCalls uint64
+	diagMaxWriterNs uint64
+
+	diagBlockedEnqueueNanos uint64
+	diagBlockedEnqueueCalls uint64
+	diagMaxBlockedEnqueueNs uint64
+	diagMaxQueueLen         uint64
+
+	diagHandleNanos uint64
+	diagHandleCalls uint64
+	diagMaxHandleNs uint64
+
+	// --- Snapshots for periodic delta reporting (only used by stats loop) ---
+	lastStatsTime time.Time
+	lastStats     PacketsPollerStats
+
+	lastDiagDecodeNanos     uint64
+	lastDiagDecodeCalls     uint64
+	lastDiagWriterNanos     uint64
+	lastDiagWriterCalls     uint64
+	lastDiagBlockedEnqNanos uint64
+	lastDiagBlockedEnqCalls uint64
+	lastDiagHandleNanos     uint64
+	lastDiagHandleCalls     uint64
 }
 
 type PacketsPollerStats struct {
@@ -183,6 +220,173 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
+// --- Diagnostics helpers (performance markers) ---
+
+func (p *PacketsPoller) initDiagFile() {
+	// Override path:
+	//   export KUBESHARK_PACKETS_DIAG_FILE=/path/to/file.log
+	// Disable:
+	//   export KUBESHARK_PACKETS_DIAG_FILE=disabled|disable|off|0
+	path := os.Getenv("KUBESHARK_PACKETS_DIAG_FILE")
+	switch path {
+	case "disabled", "disable", "off", "0":
+		return
+	}
+	if path == "" {
+		path = fmt.Sprintf("/tmp/kubeshark_packets_poller_diag.%d.log", os.Getpid())
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		// Keep running without diagnostics if the file can't be created.
+		log.Error().Err(err).Str("path", path).Msg("PacketsPoller: failed to open diagnostics file")
+		return
+	}
+
+	p.diagFilePath = path
+	p.diagFile = f
+	p.diagBuf = bufio.NewWriterSize(f, 64*1024)
+
+	// Header (one-time)
+	_, _ = fmt.Fprintf(p.diagBuf, "# PacketsPoller diagnostics\n")
+	_, _ = fmt.Fprintf(p.diagBuf, "# started=%s pid=%d\n", time.Now().UTC().Format(time.RFC3339Nano), os.Getpid())
+	_, _ = fmt.Fprintf(p.diagBuf, "# fields: ts dissection_disabled chunks_per_sec chunks_handled_per_sec chunks_lost_5s packets_per_sec bytes_per_sec packet_errors_5s decode_avg_us_5s writer_avg_us_5s enqueue_blocked_avg_us_5s enqueue_blocked_events_5s handle_avg_us_5s decode_max_ms writer_max_ms enqueue_blocked_max_ms handle_max_ms max_queue_len\n")
+	_ = p.diagBuf.Flush()
+}
+
+func (p *PacketsPoller) diagWriteLine(line string) {
+	if p.diagBuf == nil {
+		return
+	}
+	_, _ = p.diagBuf.WriteString(line)
+	_ = p.diagBuf.WriteByte('\n')
+	_ = p.diagBuf.Flush()
+}
+
+func (p *PacketsPoller) logPeriodicStats() {
+	if p.diagBuf == nil {
+		return
+	}
+
+	now := time.Now()
+	elapsed := now.Sub(p.lastStatsTime).Seconds()
+	if elapsed <= 0 {
+		return
+	}
+
+	// Current stats (atomic loads; stats are updated via atomic.Add in hot paths)
+	curChunksGot := atomic.LoadUint64(&p.stats.ChunksGot)
+	curHandled := atomic.LoadUint64(&p.stats.ChunksHandled)
+	curLost := atomic.LoadUint64(&p.stats.ChunksLost)
+	curPackets := atomic.LoadUint64(&p.stats.PacketsGot)
+	curBytes := atomic.LoadUint64(&p.stats.BytesProcessed)
+	curErrors := atomic.LoadUint64(&p.stats.PacketsError)
+
+	// Throughput deltas
+	chunksDelta := curChunksGot - p.lastStats.ChunksGot
+	handledDelta := curHandled - p.lastStats.ChunksHandled
+	lostDelta := curLost - p.lastStats.ChunksLost
+	packetsDelta := curPackets - p.lastStats.PacketsGot
+	bytesDelta := curBytes - p.lastStats.BytesProcessed
+	errorsDelta := curErrors - p.lastStats.PacketsError
+
+	chunksPerSec := float64(chunksDelta) / elapsed
+	handledPerSec := float64(handledDelta) / elapsed
+	packetsPerSec := float64(packetsDelta) / elapsed
+	bytesPerSec := float64(bytesDelta) / elapsed
+
+	// Diag counters (atomic)
+	decodeN := atomic.LoadUint64(&p.diagDecodeNanos)
+	decodeC := atomic.LoadUint64(&p.diagDecodeCalls)
+
+	writerN := atomic.LoadUint64(&p.diagWriterNanos)
+	writerC := atomic.LoadUint64(&p.diagWriterCalls)
+
+	enqN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
+	enqC := atomic.LoadUint64(&p.diagBlockedEnqueueCalls)
+
+	handleN := atomic.LoadUint64(&p.diagHandleNanos)
+	handleC := atomic.LoadUint64(&p.diagHandleCalls)
+
+	// Deltas for interval
+	dDecodeN := decodeN - p.lastDiagDecodeNanos
+	dDecodeC := decodeC - p.lastDiagDecodeCalls
+	dWriterN := writerN - p.lastDiagWriterNanos
+	dWriterC := writerC - p.lastDiagWriterCalls
+	dEnqN := enqN - p.lastDiagBlockedEnqNanos
+	dEnqC := enqC - p.lastDiagBlockedEnqCalls
+	dHandleN := handleN - p.lastDiagHandleNanos
+	dHandleC := handleC - p.lastDiagHandleCalls
+
+	avgUs := func(nanos, calls uint64) float64 {
+		if calls == 0 {
+			return 0
+		}
+		return float64(nanos) / float64(calls) / 1000.0
+	}
+
+	p.diagWriteLine(fmt.Sprintf(
+		"ts=%s dissection_disabled=%t chunks_per_sec=%.2f chunks_handled_per_sec=%.2f chunks_lost_5s=%d packets_per_sec=%.2f bytes_per_sec=%s packet_errors_5s=%d decode_avg_us_5s=%.2f writer_avg_us_5s=%.2f enqueue_blocked_avg_us_5s=%.2f enqueue_blocked_events_5s=%d handle_avg_us_5s=%.2f decode_max_ms=%.3f writer_max_ms=%.3f enqueue_blocked_max_ms=%.3f handle_max_ms=%.3f max_queue_len=%d",
+		now.UTC().Format(time.RFC3339Nano),
+		p.dissectionOff(),
+		chunksPerSec,
+		handledPerSec,
+		lostDelta,
+		packetsPerSec,
+		formatBytes(uint64(bytesPerSec)),
+		errorsDelta,
+		avgUs(dDecodeN, dDecodeC),
+		avgUs(dWriterN, dWriterC),
+		avgUs(dEnqN, dEnqC),
+		dEnqC,
+		avgUs(dHandleN, dHandleC),
+		float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6,
+		float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6,
+		float64(atomic.LoadUint64(&p.diagMaxBlockedEnqueueNs))/1e6,
+		float64(atomic.LoadUint64(&p.diagMaxHandleNs))/1e6,
+		atomic.LoadUint64(&p.diagMaxQueueLen),
+	))
+
+	// Update last snapshots
+	p.lastStats.ChunksGot = curChunksGot
+	p.lastStats.ChunksHandled = curHandled
+	p.lastStats.ChunksLost = curLost
+	p.lastStats.PacketsGot = curPackets
+	p.lastStats.BytesProcessed = curBytes
+	p.lastStats.PacketsError = curErrors
+	p.lastStatsTime = now
+
+	p.lastDiagDecodeNanos = decodeN
+	p.lastDiagDecodeCalls = decodeC
+	p.lastDiagWriterNanos = writerN
+	p.lastDiagWriterCalls = writerC
+	p.lastDiagBlockedEnqNanos = enqN
+	p.lastDiagBlockedEnqCalls = enqC
+	p.lastDiagHandleNanos = handleN
+	p.lastDiagHandleCalls = handleC
+}
+
+func (p *PacketsPoller) statsLoop() {
+	ticker := time.NewTicker(statsInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			p.logPeriodicStats()
+		case <-p.stopPoll:
+			return
+		}
+	}
+}
+
+func (p *PacketsPoller) recordHandleDuration(start time.Time) {
+	dt := time.Since(start)
+	atomic.AddUint64(&p.diagHandleCalls, 1)
+	atomic.AddUint64(&p.diagHandleNanos, uint64(dt))
+	atomicMaxUint64(&p.diagMaxHandleNs, uint64(dt))
+}
+
 func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
 	gopacketWriter bpf.GopacketWriter,
@@ -208,6 +412,7 @@ func NewPacketsPoller(
 
 		tai:           tai.NewTaiInfo(),
 		lastLostCheck: time.Now(),
+		lastStatsTime: time.Now(),
 	}
 
 	for i := 0; i < p.maxCPUs; i++ {
@@ -229,6 +434,10 @@ func NewPacketsPoller(
 	}
 
 	p.startWorkerPool()
+
+	// Diagnostics (performance markers)
+	p.initDiagFile()
+
 	return p, nil
 }
 
@@ -314,6 +523,8 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 		pkt.layerParser = decodedpacket.NewLayerParser()
 	}
 
+	// --- perf marker: decode time ---
+	dStart := time.Now()
 	packet, err := pkt.layerParser.CreatePacket(
 		pkt.buf,
 		pkt.cgroupID,
@@ -321,6 +532,12 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 		ci,
 		decodeOptions,
 	)
+	dDt := time.Since(dStart)
+
+	atomic.AddUint64(&p.diagDecodeCalls, 1)
+	atomic.AddUint64(&p.diagDecodeNanos, uint64(dDt))
+	atomicMaxUint64(&p.diagMaxDecodeNs, uint64(dDt))
+
 	if err != nil {
 		atomic.AddUint64(&p.stats.PacketsError, 1)
 		pktBufferPool.Put(pkt)
@@ -330,7 +547,14 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 	atomic.AddUint64(&p.stats.PacketsGot, 1)
 	atomic.AddUint64(&p.stats.BytesProcessed, uint64(len(pkt.buf)))
 
+	// --- perf marker: writer time ---
+	wStart := time.Now()
 	p.gopacketWriter(packet, p.dissectionOff())
+	wDt := time.Since(wStart)
+
+	atomic.AddUint64(&p.diagWriterCalls, 1)
+	atomic.AddUint64(&p.diagWriterNanos, uint64(wDt))
+	atomicMaxUint64(&p.diagMaxWriterNs, uint64(wDt))
 
 	pktBufferPool.Put(pkt)
 }
@@ -398,11 +622,24 @@ func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 
 func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 	ch := p.workers[shard]
+
+	// perf marker: queue depth
+	atomicMaxUint64(&p.diagMaxQueueLen, uint64(len(ch)))
+
 	select {
 	case ch <- pkt:
 	default:
-		// backpressure: measure how long we block
+		// perf marker: backpressure blocking time
+		t0 := time.Now()
 		ch <- pkt
+		dt := time.Since(t0)
+
+		atomic.AddUint64(&p.diagBlockedEnqueueCalls, 1)
+		atomic.AddUint64(&p.diagBlockedEnqueueNanos, uint64(dt))
+		atomicMaxUint64(&p.diagMaxBlockedEnqueueNs, uint64(dt))
+
+		// update max queue len after enqueue
+		atomicMaxUint64(&p.diagMaxQueueLen, uint64(len(ch)))
 	}
 }
 
@@ -488,13 +725,18 @@ func (p *PacketsPoller) pollRingbuf() {
 
 		atomic.AddUint64(&p.stats.ChunksGot, 1)
 
+		// perf marker: handle duration starts after read + chunk got increment
+		handleStart := time.Now()
+
 		// Optional reset marker (kept for compatibility)
 		if len(raw) == 4 {
 			p.resetPerfState()
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
 		if len(raw) < ringbufPktEventHdrSize {
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -502,9 +744,11 @@ func (p *PacketsPoller) pollRingbuf() {
 		pktLen := int(hdr.Len)
 
 		if pktLen < 0 || pktLen > maxRingbufPktLen {
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 		if ringbufPktEventHdrSize+pktLen > len(raw) {
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -532,12 +776,15 @@ func (p *PacketsPoller) pollRingbuf() {
 		if p.dissectionOff() || p.gopacketWriter == nil {
 			pktBufferPool.Put(pkt)
 			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
 		shard := flowShard(pkt.buf, pkt.cgroupID, p.workerCount)
 		p.enqueuePacket(shard, pkt)
 		atomic.AddUint64(&p.stats.ChunksHandled, 1)
+
+		p.recordHandleDuration(handleStart)
 	}
 }
 
@@ -603,13 +850,18 @@ func (p *PacketsPoller) pollPerf() {
 		raw := rec.RawSample
 		atomic.AddUint64(&p.stats.ChunksGot, 1)
 
+		// perf marker: handle duration starts after read + chunk got increment
+		handleStart := time.Now()
+
 		// Reset marker
 		if len(raw) == 4 {
 			p.resetPerfState()
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
 		if len(raw) < expected {
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -617,6 +869,7 @@ func (p *PacketsPoller) pollPerf() {
 
 		cpu := rec.CPU
 		if cpu < 0 || cpu >= p.maxCPUs {
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -647,6 +900,7 @@ func (p *PacketsPoller) pollPerf() {
 			p.pktsMapsMu[cpu].Unlock()
 			pktBufferPool.Put(pb)
 			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -656,6 +910,7 @@ func (p *PacketsPoller) pollPerf() {
 			p.pktsMapsMu[cpu].Unlock()
 			pktBufferPool.Put(pb)
 			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -685,6 +940,7 @@ func (p *PacketsPoller) pollPerf() {
 		atomic.AddUint64(&p.stats.ChunksHandled, 1)
 
 		if completed == nil {
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
@@ -694,11 +950,14 @@ func (p *PacketsPoller) pollPerf() {
 		// Restore master behavior: if dissection disabled, do not decode/write.
 		if p.dissectionOff() || p.gopacketWriter == nil {
 			pktBufferPool.Put(completed)
+			p.recordHandleDuration(handleStart)
 			continue
 		}
 
 		shard := flowShard(completed.buf, completed.cgroupID, p.workerCount)
 		p.enqueuePacket(shard, completed)
+
+		p.recordHandleDuration(handleStart)
 	}
 }
 
@@ -713,6 +972,12 @@ func (p *PacketsPoller) Start() {
 	go func() {
 		defer p.runWg.Done()
 		p.cleanupStalePackets()
+	}()
+
+	// perf markers: periodic stats writer
+	go func() {
+		defer p.runWg.Done()
+		p.statsLoop()
 	}()
 }
 
@@ -747,6 +1012,16 @@ func (p *PacketsPoller) Stop() error {
 
 	// Stop workers last (they release pktBuffers)
 	p.stopWorkerPool()
+
+	// Close diagnostics file
+	if p.diagBuf != nil {
+		_ = p.diagBuf.Flush()
+	}
+	if p.diagFile != nil {
+		_ = p.diagFile.Close()
+		p.diagFile = nil
+		p.diagBuf = nil
+	}
 
 	return nil
 }
