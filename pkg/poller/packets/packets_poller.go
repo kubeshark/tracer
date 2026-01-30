@@ -183,26 +183,6 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-func (p *PacketsPoller) initStatsFile() {
-	path := os.Getenv("KUBESHARK_PACKETS_POLLER_STATS_FILE")
-	if path == "" {
-		path = os.Getenv("KUBESHARK_PACKETS_DIAG_FILE")
-	}
-	switch path {
-	case "disabled", "disable", "off", "0":
-		return
-	}
-	if path == "" {
-		path = fmt.Sprintf("/tmp/kubeshark_packets_poller_stats.%d.log", os.Getpid())
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		log.Error().Err(err).Str("path", path).Msg("PacketsPoller: failed to open stats file")
-		return
-	}
-}
-
 func NewPacketsPoller(
 	perfBuffer *ebpf.Map,
 	gopacketWriter bpf.GopacketWriter,
@@ -247,8 +227,6 @@ func NewPacketsPoller(
 		p.chunksReader = pr
 		log.Info().Msg("PacketsPoller: using perf backend")
 	}
-
-	p.initStatsFile()
 
 	p.startWorkerPool()
 	return p, nil
@@ -336,7 +314,6 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 		pkt.layerParser = decodedpacket.NewLayerParser()
 	}
 
-	decodeStart := time.Now()
 	packet, err := pkt.layerParser.CreatePacket(
 		pkt.buf,
 		pkt.cgroupID,
@@ -344,12 +321,6 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 		ci,
 		decodeOptions,
 	)
-	dtDecode := time.Since(decodeStart)
-
-	atomic.AddUint64(&p.diagDecodeCalls, 1)
-	atomic.AddUint64(&p.diagDecodeNanos, uint64(dtDecode))
-	atomicMaxUint64(&p.diagMaxDecodeNs, uint64(dtDecode))
-
 	if err != nil {
 		atomic.AddUint64(&p.stats.PacketsError, 1)
 		pktBufferPool.Put(pkt)
@@ -359,13 +330,7 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 	atomic.AddUint64(&p.stats.PacketsGot, 1)
 	atomic.AddUint64(&p.stats.BytesProcessed, uint64(len(pkt.buf)))
 
-	writerStart := time.Now()
 	p.gopacketWriter(packet, p.dissectionOff())
-	dtWriter := time.Since(writerStart)
-
-	atomic.AddUint64(&p.diagWriterCalls, 1)
-	atomic.AddUint64(&p.diagWriterNanos, uint64(dtWriter))
-	atomicMaxUint64(&p.diagMaxWriterNs, uint64(dtWriter))
 
 	pktBufferPool.Put(pkt)
 }
@@ -433,19 +398,11 @@ func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 
 func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 	ch := p.workers[shard]
-	qlen := len(ch)
-	atomicMaxUint64(&p.diagMaxQueueLen, uint64(qlen))
-
 	select {
 	case ch <- pkt:
 	default:
 		// backpressure: measure how long we block
-		t0 := time.Now()
 		ch <- pkt
-		dt := time.Since(t0)
-
-		atomic.AddUint64(&p.diagBlockedEnqueueEvents, 1)
-		atomic.AddUint64(&p.diagBlockedEnqueueNanos, uint64(dt))
 	}
 }
 
@@ -488,128 +445,6 @@ func (p *PacketsPoller) cleanupStalePackets() {
 			}
 
 		case <-p.stopCleanup:
-			return
-		}
-	}
-}
-
-// Writes periodic stats into the stats file (instead of logs).
-func (p *PacketsPoller) logPeriodicStatsLoop() {
-	ticker := time.NewTicker(statsInterval)
-	defer ticker.Stop()
-
-	var last PacketsPollerStats
-	var lastRecv uint64
-
-	// Diagnostics snapshots (cumulative counters)
-	var lastDecodeN, lastDecodeC uint64
-	var lastWriterN, lastWriterC uint64
-	var lastEnqN, lastEnqE uint64
-
-	lastTime := time.Now()
-
-	// Initialize snapshots
-	last = PacketsPollerStats{
-		ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
-		ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
-		ChunksLost:     atomic.LoadUint64(&p.stats.ChunksLost),
-		PacketsGot:     atomic.LoadUint64(&p.stats.PacketsGot),
-		PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
-		BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
-	}
-	lastRecv = atomic.LoadUint64(&p.receivedPackets)
-
-	lastDecodeN = atomic.LoadUint64(&p.diagDecodeNanos)
-	lastDecodeC = atomic.LoadUint64(&p.diagDecodeCalls)
-	lastWriterN = atomic.LoadUint64(&p.diagWriterNanos)
-	lastWriterC = atomic.LoadUint64(&p.diagWriterCalls)
-	lastEnqN = atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
-	lastEnqE = atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
-
-	avgUs := func(nanos, calls uint64) float64 {
-		if calls == 0 {
-			return 0
-		}
-		return float64(nanos) / float64(calls) / 1000.0
-	}
-
-	for {
-		select {
-		case <-ticker.C:
-			now := time.Now()
-			elapsed := now.Sub(lastTime).Seconds()
-			if elapsed <= 0 {
-				lastTime = now
-				continue
-			}
-
-			curr := PacketsPollerStats{
-				ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
-				ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
-				ChunksLost:     atomic.LoadUint64(&p.stats.ChunksLost),
-				PacketsGot:     atomic.LoadUint64(&p.stats.PacketsGot),
-				PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
-				BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
-			}
-			currRecv := atomic.LoadUint64(&p.receivedPackets)
-
-			dChunks := curr.ChunksGot - last.ChunksGot
-			dHandled := curr.ChunksHandled - last.ChunksHandled
-			dLost := curr.ChunksLost - last.ChunksLost
-			dPkts := curr.PacketsGot - last.PacketsGot
-			dErrs := curr.PacketsError - last.PacketsError
-			dBytes := curr.BytesProcessed - last.BytesProcessed
-			dRecv := currRecv - lastRecv
-
-			// Diagnostics deltas
-			decodeN := atomic.LoadUint64(&p.diagDecodeNanos)
-			decodeC := atomic.LoadUint64(&p.diagDecodeCalls)
-			writerN := atomic.LoadUint64(&p.diagWriterNanos)
-			writerC := atomic.LoadUint64(&p.diagWriterCalls)
-			enqN := atomic.LoadUint64(&p.diagBlockedEnqueueNanos)
-			enqE := atomic.LoadUint64(&p.diagBlockedEnqueueEvents)
-
-			dDecodeN := decodeN - lastDecodeN
-			dDecodeC := decodeC - lastDecodeC
-			dWriterN := writerN - lastWriterN
-			dWriterC := writerC - lastWriterC
-			dEnqN := enqN - lastEnqN
-			dEnqE := enqE - lastEnqE
-
-			p.statsWriteLine(fmt.Sprintf(
-				"ts=%s use_ringbuf=%t dissection_disabled=%t recv_pkts_per_sec=%.2f chunks_per_sec=%.2f handled_per_sec=%.2f lost_chunks_5s=%d decoded_pkts_per_sec=%.2f decode_errors_5s=%d bytes_per_sec=%s max_queue_len=%d enqueue_blocked_events_5s=%d enqueue_blocked_avg_us_5s=%.2f decode_avg_us_5s=%.2f writer_avg_us_5s=%.2f decode_max_ms=%.3f writer_max_ms=%.3f",
-				now.UTC().Format(time.RFC3339Nano),
-				p.useRingbuf,
-				p.dissectionOff(),
-				float64(dRecv)/elapsed,
-				float64(dChunks)/elapsed,
-				float64(dHandled)/elapsed,
-				dLost,
-				float64(dPkts)/elapsed,
-				dErrs,
-				formatBytes(uint64(float64(dBytes)/elapsed)),
-				atomic.LoadUint64(&p.diagMaxQueueLen),
-				dEnqE,
-				avgUs(dEnqN, dEnqE),
-				avgUs(dDecodeN, dDecodeC),
-				avgUs(dWriterN, dWriterC),
-				float64(atomic.LoadUint64(&p.diagMaxDecodeNs))/1e6,
-				float64(atomic.LoadUint64(&p.diagMaxWriterNs))/1e6,
-			))
-
-			// Update snapshots
-			last = curr
-			lastRecv = currRecv
-			lastTime = now
-
-			lastDecodeN = decodeN
-			lastDecodeC = decodeC
-			lastWriterN = writerN
-			lastWriterC = writerC
-			lastEnqN = enqN
-			lastEnqE = enqE
-
-		case <-p.stopPoll:
 			return
 		}
 	}
@@ -879,11 +714,6 @@ func (p *PacketsPoller) Start() {
 		defer p.runWg.Done()
 		p.cleanupStalePackets()
 	}()
-
-	go func() {
-		defer p.runWg.Done()
-		p.logPeriodicStatsLoop()
-	}()
 }
 
 func (p *PacketsPoller) Stop() error {
@@ -917,9 +747,6 @@ func (p *PacketsPoller) Stop() error {
 
 	// Stop workers last (they release pktBuffers)
 	p.stopWorkerPool()
-
-	// Close stats file last (no goroutine should be writing anymore)
-	p.closeStatsFile()
 
 	return nil
 }
