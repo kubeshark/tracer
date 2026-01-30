@@ -45,24 +45,33 @@ static __always_inline int add_address_to_chunk(struct pt_regs* ctx, struct tls_
 }
 
 static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer, __u64 id,
-    struct tls_chunk* chunk, int start, int end) {
-    size_t recorded = MIN(end - start, sizeof(chunk->data));
-
-    if (recorded <= 0) {
+                                          struct tls_chunk* chunk, int start, int end)
+{
+    int span = end - start;
+    if (span <= 0) {
         return 1;
     }
 
-    chunk->recorded = recorded;
-    chunk->start = start;
+    __u32 rec = (__u32)span;
+    if (rec > (__u32)sizeof(chunk->data)) {
+        rec = (__u32)sizeof(chunk->data);
+    }
 
-    // This ugly trick is for the ebpf verifier happiness
-    //
+    chunk->start = start;
+    chunk->recorded = rec;
+
     long err = 0;
-    if (chunk->recorded == sizeof(chunk->data)) {
+    if (rec == (__u32)sizeof(chunk->data)) {
         err = bpf_probe_read(chunk->data, sizeof(chunk->data), (void*)(buffer + start));
     } else {
-        recorded &= (sizeof(chunk->data) - 1); // Buffer must be N^2
-        err = bpf_probe_read(chunk->data, recorded, (void*)(buffer + start));
+        rec &= ((__u32)sizeof(chunk->data) - 1);
+
+        if (rec == 0) {
+            return 1;
+        }
+
+        chunk->recorded = rec;
+        err = bpf_probe_read(chunk->data, rec, (void*)(buffer + start));
     }
 
     if (err != 0) {
@@ -71,7 +80,12 @@ static __always_inline int send_chunk_part(struct pt_regs* ctx, uintptr_t buffer
     }
 
 #ifdef USE_RINGBUF
-    __u32 out_sz = (__u32)(TLS_CHUNK_HDR_SIZE + chunk->recorded);
+    __u32 out_sz = (__u32)TLS_CHUNK_HDR_SIZE + rec;
+
+    if (out_sz > (__u32)sizeof(*chunk)) {
+        out_sz = (__u32)sizeof(*chunk);
+    }
+
     return bpf_ringbuf_output(&chunks_buffer, chunk, out_sz, 0);
 #else
     return bpf_perf_event_output(ctx, &chunks_buffer, BPF_F_CURRENT_CPU,
