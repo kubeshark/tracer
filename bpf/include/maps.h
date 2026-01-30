@@ -159,10 +159,10 @@ struct
     __type(value, struct tls_chunk);
 } heap SEC(".maps");
 
-#define PKT_RINGBUF_MAX_LEN (64 * 1024 * 1024) // 64MB
+#define PKT_RINGBUF_MAX_LEN (64 * 1024)          // 64KB
 #define PKT_PART_LEN (4 * 1024)
 #define PKT_MAX_LEN (64 * 1024)
-#define CAPTURE_RINGBUF_SIZE (64 * 1024 * 1024) // 64MB
+#define CAPTURE_RINGBUF_SIZE (64 * 1024 * 1024)  // 64MB
 #define PACKET_DIRECTION_RECEIVED 0
 #define PACKET_DIRECTION_SENT 1
 
