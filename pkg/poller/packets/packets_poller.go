@@ -1,7 +1,6 @@
 package packets
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"runtime"
@@ -145,28 +144,9 @@ type PacketsPoller struct {
 	lastLostChunks uint64
 	lastLostCheck  time.Time
 
-	// Diagnostics (queue backpressure)
-	diagBlockedEnqueueNanos  uint64
-	diagBlockedEnqueueEvents uint64
-	diagMaxQueueLen          uint64
-
-	// Decode/Writer diagnostics
-	diagDecodeNanos uint64
-	diagDecodeCalls uint64
-	diagMaxDecodeNs uint64
-
-	diagWriterNanos uint64
-	diagWriterCalls uint64
-	diagMaxWriterNs uint64
-
 	dissectionDisabled uint32
 
 	tai tai.TaiInfo
-
-	statsFilePath string
-	statsFile     *os.File
-	statsWriter   *bufio.Writer
-	statsMu       sync.Mutex
 }
 
 type PacketsPollerStats struct {
@@ -220,40 +200,6 @@ func (p *PacketsPoller) initStatsFile() {
 	if err != nil {
 		log.Error().Err(err).Str("path", path).Msg("PacketsPoller: failed to open stats file")
 		return
-	}
-
-	p.statsFilePath = path
-	p.statsFile = f
-	p.statsWriter = bufio.NewWriterSize(f, 64*1024)
-
-	p.statsWriteLine(fmt.Sprintf("# PacketsPoller stats file"))
-	p.statsWriteLine(fmt.Sprintf("# started=%s pid=%d use_ringbuf=%t", time.Now().UTC().Format(time.RFC3339Nano), os.Getpid(), p.useRingbuf))
-	p.statsWriteLine("# fields: ts use_ringbuf dissection_disabled recv_pkts_per_sec chunks_per_sec handled_per_sec lost_chunks_5s decoded_pkts_per_sec decode_errors_5s bytes_per_sec max_queue_len enqueue_blocked_events_5s enqueue_blocked_avg_us_5s decode_avg_us_5s writer_avg_us_5s decode_max_ms writer_max_ms")
-}
-
-func (p *PacketsPoller) statsWriteLine(line string) {
-	if p.statsWriter == nil {
-		return
-	}
-	p.statsMu.Lock()
-	defer p.statsMu.Unlock()
-
-	_, _ = p.statsWriter.WriteString(line)
-	_ = p.statsWriter.WriteByte('\n')
-	_ = p.statsWriter.Flush()
-}
-
-func (p *PacketsPoller) closeStatsFile() {
-	p.statsMu.Lock()
-	defer p.statsMu.Unlock()
-
-	if p.statsWriter != nil {
-		_ = p.statsWriter.Flush()
-		p.statsWriter = nil
-	}
-	if p.statsFile != nil {
-		_ = p.statsFile.Close()
-		p.statsFile = nil
 	}
 }
 
