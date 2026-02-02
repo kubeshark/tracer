@@ -1,7 +1,6 @@
 package packets
 
 import (
-	"fmt"
 	"os"
 	"runtime"
 	"sync"
@@ -30,8 +29,6 @@ const (
 
 	stalePktCleanupInterval = 30 * time.Second
 	stalePktThreshold       = 30 * time.Second
-
-	statsInterval = 5 * time.Second
 )
 
 // Ringbuf variable-size packet record header (must match C struct pkt_event_hdr)
@@ -156,31 +153,6 @@ type PacketsPollerStats struct {
 	PacketsGot     uint64
 	PacketsError   uint64
 	BytesProcessed uint64
-}
-
-func atomicMaxUint64(addr *uint64, v uint64) {
-	for {
-		old := atomic.LoadUint64(addr)
-		if v <= old {
-			return
-		}
-		if atomic.CompareAndSwapUint64(addr, old, v) {
-			return
-		}
-	}
-}
-
-func formatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func NewPacketsPoller(
