@@ -1,9 +1,10 @@
 package packets
 
 import (
-	"fmt"
+	"bytes"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -12,7 +13,6 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/kubeshark/gopacket"
 	"github.com/kubeshark/tracer/internal/tai"
-	"github.com/kubeshark/tracer/pkg/decodedpacket"
 )
 
 type fakePerfReader struct {
@@ -38,6 +38,7 @@ func (f *fakePerfReader) ReadInto(r *perf.Record) error {
 		f.closed = true
 		return perf.ErrClosed
 	}
+
 	*r = f.records[f.idx]
 	f.idx++
 	return nil
@@ -98,41 +99,48 @@ func makeChunk(tpd tracerPacketsData) []byte {
 	return b
 }
 
-// makeChunkWithPadding simulates perfbuf returning a larger sample than the struct size.
 func makeChunkWithPadding(tpd tracerPacketsData, pad int) []byte {
 	b := make([]byte, chunkWireSize()+pad)
 	h := (*tracerPacketsData)(unsafe.Pointer(&b[0]))
 	*h = tpd
-	// Make the trailing bytes non-zero to ensure we truly ignore them.
 	for i := chunkWireSize(); i < len(b); i++ {
 		b[i] = 0xAA
 	}
 	return b
 }
 
+func makeRingbufSample(payload []byte, ts uint64, cgroup uint64, direction uint8) []byte {
+	b := make([]byte, ringbufPktEventHdrSize+len(payload))
+	h := (*ringbufPktEventHdr)(unsafe.Pointer(&b[0]))
+	h.Timestamp = ts
+	h.CgroupID = cgroup
+	h.ID = 0
+	h.Len = uint32(len(payload))
+	h.IPHdrType = 0
+	h.Direction = direction
+	copy(b[ringbufPktEventHdrSize:], payload)
+	return b
+}
+
 func newTestPoller(t *testing.T) *PacketsPoller {
 	t.Helper()
 
-	ether := gopacket.DecodersByLayerName["Ethernet"]
-	if ether == nil {
-		t.Fatalf("could not get Ethernet decoder")
+	maxCPUs := 2
+	p := &PacketsPoller{
+		maxCPUs:       maxCPUs,
+		pktsMaps:      make([]map[uint64]*pktBuffer, maxCPUs),
+		pktsMapsMu:    make([]sync.Mutex, maxCPUs),
+		stopPoll:      make(chan struct{}),
+		stopCleanup:   make(chan struct{}),
+		tai:           tai.NewTaiInfo(),
+		lastLostCheck: time.Now(),
 	}
 
-	p := &PacketsPoller{
-		ethernetDecoder: ether,
-		ethhdrContent:   make([]byte, 14),
-		maxCPUs:         2,
-		pktsMaps:        make([]map[uint64]*pktBuffer, 2),
-		stopCleanup:     make(chan struct{}), // Initialize the cleanup channel
-		tai:             tai.NewTaiInfo(),
-		lastStatsTime:   time.Now(),
-	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < maxCPUs; i++ {
 		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
 	}
 
 	p.chunksReader = &fakePerfReader{}
-
 	p.startWorkerPool()
 	return p
 }
@@ -142,16 +150,14 @@ func stopPoller(t *testing.T, p *PacketsPoller) {
 	_ = p.Stop()
 }
 
-// ipv4Header returns a 20-byte IPv4 header with given proto and totalLen.
 func ipv4Header(proto uint8, totalLen uint16) []byte {
 	h := make([]byte, 20)
-	h[0] = 0x45                // v4, IHL=5
-	h[1] = 0x00                // DSCP/ECN
-	h[2] = byte(totalLen >> 8) // total length
+	h[0] = 0x45 // v4, IHL=5
+	h[2] = byte(totalLen >> 8)
 	h[3] = byte(totalLen & 0xff)
-	h[6] = 0x40  // flags/frag offset (don't care)
-	h[8] = 64    // TTL
-	h[9] = proto // protocol
+	h[6] = 0x40
+	h[8] = 64
+	h[9] = proto
 	return h
 }
 
@@ -162,7 +168,6 @@ func tcpHeader(dataOffset uint8, options []byte) []byte {
 		hLen = 20
 	}
 	h := make([]byte, hLen)
-	// data offset in upper nibble of byte 12
 	h[12] = (dataOffset << 4) & 0xF0
 	if hLen > 20 && len(options) > 0 {
 		copy(h[20:], options)
@@ -172,13 +177,12 @@ func tcpHeader(dataOffset uint8, options []byte) []byte {
 
 func tcpHeaderWithBadDataOffset(offset uint8) []byte {
 	h := make([]byte, 20)
-	h[12] = (offset << 4) & 0xF0 // invalid (<5)
+	h[12] = (offset << 4) & 0xF0
 	return h
 }
 
 func udpHeader() []byte {
 	h := make([]byte, 8)
-	// length=8
 	h[4], h[5] = 0, 8
 	return h
 }
@@ -194,104 +198,140 @@ func makeIPv4Packet(l4proto uint8, l4 []byte, payload []byte) []byte {
 	return pkt
 }
 
-func TestPerfResetPathClearsBuffers(t *testing.T) {
+func waitUntil(t *testing.T, d time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	t.Fatalf("timeout: %s", msg)
+}
+
+func TestPerfResetMarkerClearsBuffers(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	// Seed CPU 0 map with a buffer so we can verify it gets cleared
-	p.pktsMaps[0][123] = &pktBuffer{layerParser: decodedpacket.NewLayerParser()}
+	pb := pktBufferPool.Get().(*pktBuffer)
+	pb.reset()
+	p.pktsMaps[0][123] = pb
 
-	fr := &fakePerfReader{
+	p.chunksReader = &fakePerfReader{
 		records: []perf.Record{
-			// len==4 triggers the reset branch.
-			{RawSample: []byte{0, 0, 0, 0}, CPU: 0},
+			{RawSample: []byte{0, 0, 0, 0}, CPU: 0}, // reset marker
 		},
 	}
-	p.chunksReader = fr
 
-	p.pollChunksPerfBuffer()
+	p.pollPerf()
 
 	if len(p.pktsMaps[0]) != 0 {
-		t.Fatalf("expected CPU0 map to be cleared; got %d entries", len(p.pktsMaps[0]))
+		t.Fatalf("expected CPU0 map cleared; got %d entries", len(p.pktsMaps[0]))
+	}
+	if len(p.pktsMaps[1]) != 0 {
+		t.Fatalf("expected CPU1 map cleared; got %d entries", len(p.pktsMaps[1]))
 	}
 }
 
-func TestLostSamplesAccountingAndCleanup(t *testing.T) {
+func TestPerfLostSamplesAccountingAndCleanup(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	// Seed CPU1 with an entry that should be cleared on loss
-	p.pktsMaps[1][77] = &pktBuffer{layerParser: decodedpacket.NewLayerParser()}
+	pb := pktBufferPool.Get().(*pktBuffer)
+	pb.reset()
+	p.pktsMaps[1][77] = pb
 
-	fr := &fakePerfReader{
+	p.chunksReader = &fakePerfReader{
 		records: []perf.Record{
 			{LostSamples: 5, CPU: 1},
 		},
 	}
-	p.chunksReader = fr
 
-	p.pollChunksPerfBuffer()
+	p.pollPerf()
 
-	if p.lostChunks != 5 || p.stats.ChunksLost != 5 {
-		t.Fatalf("lost accounting wrong: lostChunks=%d ChunksLost=%d", p.lostChunks, p.stats.ChunksLost)
+	if got := atomic.LoadUint64(&p.lostChunks); got != 5 {
+		t.Fatalf("lostChunks wrong: got=%d want=5", got)
+	}
+	if got := atomic.LoadUint64(&p.stats.ChunksLost); got != 5 {
+		t.Fatalf("stats.ChunksLost wrong: got=%d want=5", got)
 	}
 	if len(p.pktsMaps[1]) != 0 {
-		t.Fatalf("expected CPU1 map to be cleared after loss")
+		t.Fatalf("expected CPU1 map cleared after loss")
 	}
 }
 
-func TestFastPathSingleChunk_NoGopacket(t *testing.T) {
+func TestPerfSingleChunk_RawWritten_NoDecodeWhenNoWriter(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	// capture raw writes
-	done := make(chan struct{}, 1)
+	p.gopacketWriter = nil // disable decode/write
+
+	pktBytes := makeIPv4Packet(17, udpHeader(), []byte{1, 2, 3})
+
+	rawCh := make(chan []byte, 1)
 	p.rawPacketWriter = func(ts uint64, b []byte) {
+		cp := append([]byte(nil), b...)
 		select {
-		case done <- struct{}{}:
+		case rawCh <- cp:
 		default:
 		}
 	}
 
 	td := tracerPacketsData{
 		Timestamp: uint64(time.Now().UnixNano()),
+		CgroupID:  7,
 		ID:        1,
-		Len:       64,
-		TotLen:    64,
+		Len:       uint32(len(pktBytes)),
+		TotLen:    uint32(len(pktBytes)),
 		Num:       0,
-		Last:      1,      // single-chunk fast path
-		IPHdrType: 0x0800, // IPv4
+		Last:      1,
 		Direction: 0,
 	}
-	data := makeChunk(td)
+	copy(td.Data[:], pktBytes)
 
-	fr := &fakePerfReader{
+	p.chunksReader = &fakePerfReader{
 		records: []perf.Record{
-			{RawSample: data, CPU: 0},
+			{RawSample: makeChunk(td), CPU: 0},
 		},
 	}
-	p.chunksReader = fr
 
-	p.pollChunksPerfBuffer()
+	p.pollPerf()
 
-	if p.stats.ChunksHandled != 1 {
-		t.Fatalf("expected 1 handled chunk, got %d", p.stats.ChunksHandled)
+	if got := atomic.LoadUint64(&p.stats.ChunksHandled); got != 1 {
+		t.Fatalf("expected 1 handled chunk, got %d", got)
 	}
+
 	select {
-	case <-done:
-	case <-time.After(50 * time.Millisecond):
+	case got := <-rawCh:
+		if !bytes.Equal(got, pktBytes) {
+			t.Fatalf("raw packet mismatch")
+		}
+	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("raw writer not called")
+	}
+
+	if got := atomic.LoadUint64(&p.stats.PacketsGot); got != 0 {
+		t.Fatalf("PacketsGot should stay 0 when no writer, got %d", got)
+	}
+	if got := atomic.LoadUint64(&p.stats.BytesProcessed); got != 0 {
+		t.Fatalf("BytesProcessed should stay 0 when no writer, got %d", got)
 	}
 }
 
-func TestHandlePktChunk_AcceptsPaddedRawSampleSize(t *testing.T) {
+func TestPerfPaddedRawSampleAccepted(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	done := make(chan int, 1)
+	p.gopacketWriter = nil
+
+	pktBytes := makeIPv4Packet(6, tcpHeader(5, nil), nil)
+
+	rawCh := make(chan []byte, 1)
 	p.rawPacketWriter = func(ts uint64, b []byte) {
+		cp := append([]byte(nil), b...)
 		select {
-		case done <- len(b):
+		case rawCh <- cp:
 		default:
 		}
 	}
@@ -299,509 +339,326 @@ func TestHandlePktChunk_AcceptsPaddedRawSampleSize(t *testing.T) {
 	td := tracerPacketsData{
 		Timestamp: uint64(time.Now().UnixNano()),
 		ID:        555,
-		Len:       64,
-		TotLen:    64,
+		Len:       uint32(len(pktBytes)),
+		TotLen:    uint32(len(pktBytes)),
 		Num:       0,
 		Last:      1,
-		IPHdrType: 0x0800,
 		Direction: 0,
 	}
+	copy(td.Data[:], pktBytes)
 
-	// Simulate perfbuf returning struct + 4 bytes padding/trailer.
 	raw := makeChunkWithPadding(td, 4)
 
-	fr := &fakePerfReader{
+	p.chunksReader = &fakePerfReader{
 		records: []perf.Record{
 			{RawSample: raw, CPU: 0},
 		},
 	}
-	p.chunksReader = fr
 
-	p.pollChunksPerfBuffer()
+	p.pollPerf()
 
-	if p.stats.ChunksHandled != 1 {
-		t.Fatalf("expected 1 handled chunk, got %d", p.stats.ChunksHandled)
-	}
 	select {
-	case n := <-done:
-		if n != int(td.Len) {
-			t.Fatalf("expected raw packet len %d, got %d", td.Len, n)
+	case got := <-rawCh:
+		if !bytes.Equal(got, pktBytes) {
+			t.Fatalf("raw packet mismatch (padded trailer must be ignored)")
 		}
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("raw writer not called")
 	}
 }
 
-func TestHandlePktChunk_RejectsTooSmallRawSampleSize(t *testing.T) {
+func TestPerfUndersizedRawSampleIgnored(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	raw := make([]byte, chunkWireSize()-1) // intentionally too small
+	rawCh := make(chan struct{}, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) { rawCh <- struct{}{} }
 
-	chunk := pktBufferPool.Get().(*pktBuffer)
-	chunk.reset()
-	chunk.reusableRecord = perf.Record{RawSample: raw, CPU: 0}
+	raw := make([]byte, chunkWireSize()-1) // too small
 
-	ok, err := p.handlePktChunk(chunk)
-	if ok {
-		t.Fatalf("expected ok=false for undersized sample")
+	p.chunksReader = &fakePerfReader{
+		records: []perf.Record{
+			{RawSample: raw, CPU: 0},
+		},
 	}
-	if err == nil {
-		t.Fatalf("expected error for undersized sample")
+
+	p.pollPerf()
+
+	if got := atomic.LoadUint64(&p.stats.ChunksGot); got != 1 {
+		t.Fatalf("ChunksGot wrong: got=%d want=1", got)
+	}
+	if got := atomic.LoadUint64(&p.stats.ChunksHandled); got != 0 {
+		t.Fatalf("ChunksHandled should remain 0 for undersized sample, got=%d", got)
+	}
+	select {
+	case <-rawCh:
+		t.Fatalf("raw writer must NOT be called for undersized sample")
+	default:
 	}
 }
 
-func TestReassemblyTwoChunks_NoGopacket(t *testing.T) {
+func TestPerfReassemblyTwoChunks_RawWrittenAndStateCleared(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	gotLen := make(chan int, 1)
+	p.gopacketWriter = nil
+
+	full := makeIPv4Packet(17, udpHeader(), []byte("hello world"))
+	id := uint64(42)
+	firstLen := len(full) / 2
+
+	rawCh := make(chan []byte, 1)
 	p.rawPacketWriter = func(ts uint64, b []byte) {
+		cp := append([]byte(nil), b...)
 		select {
-		case gotLen <- len(b):
+		case rawCh <- cp:
 		default:
 		}
 	}
 
-	id := uint64(42)
-
 	first := tracerPacketsData{
+		Timestamp: uint64(time.Now().UnixNano()),
 		ID:        id,
-		Len:       32,
-		TotLen:    48,
+		Len:       uint32(firstLen),
+		TotLen:    uint32(len(full)),
 		Num:       0,
 		Last:      0,
-		IPHdrType: 0x86dd, // IPv6
+		Direction: 0,
 	}
 	second := tracerPacketsData{
+		Timestamp: uint64(time.Now().UnixNano()),
 		ID:        id,
-		Len:       16,
-		TotLen:    48,
+		Len:       uint32(len(full) - firstLen),
+		TotLen:    uint32(len(full)),
 		Num:       1,
 		Last:      1,
-		IPHdrType: 0x86dd,
+		Direction: 0,
 	}
 
-	fr := &fakePerfReader{
+	copy(first.Data[:first.Len], full[:firstLen])
+	copy(second.Data[:second.Len], full[firstLen:])
+
+	p.chunksReader = &fakePerfReader{
 		records: []perf.Record{
 			{RawSample: makeChunk(first), CPU: 0},
 			{RawSample: makeChunk(second), CPU: 0},
 		},
 	}
-	p.chunksReader = fr
 
-	p.pollChunksPerfBuffer()
+	p.pollPerf()
 
-	if p.receivedPackets != 1 {
-		t.Fatalf("expected one reassembled packet, got %d", p.receivedPackets)
+	if got := atomic.LoadUint64(&p.receivedPackets); got != 1 {
+		t.Fatalf("expected 1 received packet, got %d", got)
+	}
+
+	select {
+	case got := <-rawCh:
+		if !bytes.Equal(got, full) {
+			t.Fatalf("reassembled raw mismatch")
+		}
+	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("raw writer not called")
+	}
+
+	if _, ok := p.pktsMaps[0][id]; ok {
+		t.Fatalf("expected id=%d to be removed from assembly map after completion", id)
+	}
+}
+
+func TestPerfOrderingMismatchDropsAssemblyState_NoRawWrite(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	p.gopacketWriter = nil
+
+	full := makeIPv4Packet(17, udpHeader(), []byte("abcdef"))
+	id := uint64(999)
+	firstLen := len(full) / 2
+
+	rawCh := make(chan struct{}, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) { rawCh <- struct{}{} }
+
+	first := tracerPacketsData{
+		ID:     id,
+		Len:    uint32(firstLen),
+		TotLen: uint32(len(full)),
+		Num:    0,
+		Last:   0,
+	}
+	second := tracerPacketsData{
+		ID:     id,
+		Len:    uint32(len(full) - firstLen),
+		TotLen: uint32(len(full)),
+		Num:    2, // mismatch: expected 1
+		Last:   1,
+	}
+
+	copy(first.Data[:first.Len], full[:firstLen])
+	copy(second.Data[:second.Len], full[firstLen:])
+
+	p.chunksReader = &fakePerfReader{
+		records: []perf.Record{
+			{RawSample: makeChunk(first), CPU: 0},
+			{RawSample: makeChunk(second), CPU: 0},
+		},
+	}
+
+	p.pollPerf()
+
+	if got := atomic.LoadUint64(&p.receivedPackets); got != 0 {
+		t.Fatalf("receivedPackets must stay 0 on ordering mismatch, got %d", got)
 	}
 	select {
-	case n := <-gotLen:
-		if want := int(first.Len + second.Len); n != want {
-			t.Fatalf("expected reassembled length %d, got %d", want, n)
-		}
-	case <-time.After(50 * time.Millisecond):
-		t.Fatalf("raw writer not called")
+	case <-rawCh:
+		t.Fatalf("raw writer must NOT be called when reassembly is dropped")
+	default:
 	}
 	if _, ok := p.pktsMaps[0][id]; ok {
-		t.Fatalf("expected flow %d to be deleted after Last chunk", id)
+		t.Fatalf("expected id=%d state dropped from map", id)
 	}
 }
 
-func TestRingbufFastPathSingleChunk_NoGopacket(t *testing.T) {
+func TestRingbufSingleRecord_RawWritten_NoDecodeWhenNoWriter(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
 	p.useRingbuf = true
-	p.forceCopySingleChunk = true
+	p.gopacketWriter = nil
 
-	done := make(chan struct{}, 1)
-	p.rawPacketWriter = func(ts uint64, b []byte) { done <- struct{}{} }
+	payload := makeIPv4Packet(17, udpHeader(), []byte{9, 9, 9})
 
-	td := tracerPacketsData{
-		Timestamp: uint64(time.Now().UnixNano()),
-		ID:        1,
-		Len:       64,
-		TotLen:    64,
-		Num:       0,
-		Last:      1,
-		IPHdrType: 0x0800,
-		Direction: 0,
-	}
-
-	p.ringReader = &fakeRingbufReader{samples: [][]byte{makeChunk(td)}}
-
-	p.pollChunksRingBuffer()
-
-	if p.stats.ChunksHandled != 1 {
-		t.Fatalf("expected 1 handled chunk, got %d", p.stats.ChunksHandled)
-	}
-	select {
-	case <-done:
-	case <-time.After(50 * time.Millisecond):
-		t.Fatalf("raw writer not called")
-	}
-}
-
-func TestRingbufReassemblyTwoChunks_NoGopacket(t *testing.T) {
-	p := newTestPoller(t)
-	defer stopPoller(t, p)
-
-	p.useRingbuf = true
-	p.forceCopySingleChunk = true
-
-	gotLen := make(chan int, 1)
-	p.rawPacketWriter = func(ts uint64, b []byte) { gotLen <- len(b) }
-
-	id := uint64(4242)
-
-	first := tracerPacketsData{
-		ID:        id,
-		Len:       32,
-		TotLen:    48,
-		Num:       0,
-		Last:      0,
-		IPHdrType: 0x0800,
-	}
-	second := tracerPacketsData{
-		ID:        id,
-		Len:       16,
-		TotLen:    48,
-		Num:       1,
-		Last:      1,
-		IPHdrType: 0x0800,
-	}
-
-	p.ringReader = &fakeRingbufReader{samples: [][]byte{makeChunk(first), makeChunk(second)}}
-
-	p.pollChunksRingBuffer()
-
-	if p.receivedPackets != 1 {
-		t.Fatalf("expected one reassembled packet, got %d", p.receivedPackets)
-	}
-	select {
-	case n := <-gotLen:
-		if want := int(first.Len + second.Len); n != want {
-			t.Fatalf("expected reassembled length %d, got %d", want, n)
-		}
-	case <-time.After(50 * time.Millisecond):
-		t.Fatalf("raw writer not called")
-	}
-}
-
-func TestWritePacket_DecodeMatrix(t *testing.T) {
-	p := newTestPoller(t)
-	defer stopPoller(t, p)
-
-	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {
+	rawCh := make(chan []byte, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) {
+		cp := append([]byte(nil), b...)
 		select {
-		case writerHit <- struct{}{}:
+		case rawCh <- cp:
 		default:
 		}
 	}
 
-	buildPktBuf := func(b []byte) *pktBuffer {
-		pb := &pktBuffer{layerParser: decodedpacket.NewLayerParser(), len: uint32(len(b))}
-		copy(pb.buf[:len(b)], b)
-		return pb
+	p.ringReader = &fakeRingbufReader{
+		samples: [][]byte{
+			makeRingbufSample(payload, uint64(time.Now().UnixNano()), 123, 0),
+		},
 	}
 
-	waitWriter := func(expect bool) error {
-		if expect {
-			select {
-			case <-writerHit:
-				return nil
-			case <-time.After(60 * time.Millisecond):
-				return fmt.Errorf("gopacketWriter not invoked")
-			}
-		} else {
-			select {
-			case <-writerHit:
-				return fmt.Errorf("gopacketWriter invoked unexpectedly")
-			case <-time.After(30 * time.Millisecond):
-				return nil
-			}
+	p.pollRingbuf()
+
+	if got := atomic.LoadUint64(&p.stats.ChunksHandled); got != 1 {
+		t.Fatalf("expected 1 handled ringbuf record, got %d", got)
+	}
+	if got := atomic.LoadUint64(&p.receivedPackets); got != 1 {
+		t.Fatalf("expected receivedPackets=1, got %d", got)
+	}
+
+	select {
+	case got := <-rawCh:
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("raw payload mismatch")
 		}
-	}
-
-	type tcases struct {
-		name        string
-		packet      []byte
-		wantOK      bool
-		wantErr     bool
-		errIncr     bool
-		wantPktGot  bool
-		writerFired bool
-	}
-
-	tests := []tcases{
-		{
-			name:        "IPv4/TCP valid minimal header (data offset = 5, no options)",
-			packet:      makeIPv4Packet(6, tcpHeader(5, nil), nil),
-			wantOK:      true,
-			wantErr:     false,
-			errIncr:     false,
-			wantPktGot:  true,
-			writerFired: true,
-		},
-		{
-			name:        "IPv4/TCP invalid data offset < 5 -> parse error swallowed",
-			packet:      makeIPv4Packet(6, tcpHeaderWithBadDataOffset(3), nil),
-			wantOK:      false,
-			wantErr:     false,
-			errIncr:     true,
-			writerFired: false,
-		},
-		{
-			name: "IPv4/TCP invalid option length exceeds remaining (matches runtime error) -> swallowed",
-			packet: func() []byte {
-				opts := []byte{2, 49, 0xaa, 0xbb}
-				tcp := tcpHeader(6, opts)
-				return makeIPv4Packet(6, tcp, nil)
-			}(),
-			wantOK:      false,
-			wantErr:     false,
-			errIncr:     true,
-			writerFired: false,
-		},
-		{
-			name:        "IPv4/UDP valid minimal header",
-			packet:      makeIPv4Packet(17, udpHeader(), nil),
-			wantOK:      true,
-			wantErr:     false,
-			errIncr:     false,
-			wantPktGot:  true,
-			writerFired: true,
-		},
-		{
-			name: "IPv4/TCP header length says 40 but buffer shorter (truncated) -> swallowed",
-			packet: func() []byte {
-				tcp := tcpHeader(10, make([]byte, 20))
-				p := makeIPv4Packet(6, tcp, nil)
-				return p[:20+30]
-			}(),
-			wantOK:      false,
-			wantErr:     false,
-			errIncr:     true,
-			writerFired: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			beforeErr := p.stats.PacketsError
-			beforeGot := p.stats.PacketsGot
-			beforeBytes := p.stats.BytesProcessed
-
-			buf := buildPktBuf(tc.packet)
-			td := &tracerPacketsData{
-				CgroupID:  0,
-				Direction: 0,
-				Len:       uint32(len(tc.packet)),
-			}
-
-			ok, err := p.writePacket(buf, td)
-
-			if tc.wantErr && err == nil {
-				t.Fatalf("expected error, got nil")
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if ok != tc.wantOK {
-				t.Fatalf("want ok=%v, got %v", tc.wantOK, ok)
-			}
-			if tc.errIncr && p.stats.PacketsError != beforeErr+1 {
-				t.Fatalf("PacketsError not incremented (before=%d, after=%d)", beforeErr, p.stats.PacketsError)
-			}
-			if !tc.errIncr && p.stats.PacketsError != beforeErr {
-				t.Fatalf("PacketsError changed unexpectedly: before=%d after=%d", beforeErr, p.stats.PacketsError)
-			}
-			if tc.wantPktGot && p.stats.PacketsGot != beforeGot+1 {
-				t.Fatalf("PacketsGot not incremented (before=%d, after=%d)", beforeGot, p.stats.PacketsGot)
-			}
-			if !tc.wantPktGot && p.stats.PacketsGot != beforeGot {
-				t.Fatalf("PacketsGot changed unexpectedly: before=%d after=%d", beforeGot, p.stats.PacketsGot)
-			}
-			if tc.wantPktGot && p.stats.BytesProcessed <= beforeBytes {
-				t.Fatalf("BytesProcessed not increased")
-			}
-			if err := waitWriter(tc.writerFired); err != nil {
-				t.Fatal(err)
-			}
-		})
+	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("raw writer not called")
 	}
 }
 
-func TestStartStopWorkerPool(t *testing.T) {
-	p := newTestPoller(t)
-	if err := p.Stop(); err != nil {
-		t.Fatalf("stop returned error: %v", err)
-	}
-}
-
-func TestLogPeriodicStats(t *testing.T) {
+func TestRingbufDissectionDisabled_SkipsDecodeButStillWritesRaw(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	p.stats.ChunksGot = 100
-	p.stats.PacketsGot = 200
-	p.stats.BytesProcessed = 1024 * 1024
-	p.lastStatsTime = time.Now().Add(-6 * time.Second)
+	p.useRingbuf = true
+	p.Pause() // dissection off
 
-	p.logPeriodicStats()
-	p.logPeriodicStats() // no-op when <5s elapsed
-}
-
-func TestHandlePktChunk_InvalidTCPOptionLength_FastPath(t *testing.T) {
-	p := newTestPoller(t)
-	defer stopPoller(t, p)
-
-	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) { writerHit <- struct{}{} }
-
-	opts := []byte{2, 49, 0xaa, 0xbb}
-	tcp := tcpHeader(6, opts)
-	ipv4 := makeIPv4Packet(6, tcp, nil)
-
-	beforeErr := p.stats.PacketsError
-
-	td := tracerPacketsData{
-		Timestamp: uint64(time.Now().UnixNano()),
-		ID:        123,
-		Len:       uint32(len(ipv4)),
-		TotLen:    uint32(len(ipv4)),
-		Num:       0,
-		Last:      1,
-		IPHdrType: 0x0800,
-		Direction: 0,
-	}
-	copy(td.Data[:], ipv4)
-
-	raw := makeChunk(td)
-
-	chunk := pktBufferPool.Get().(*pktBuffer)
-	chunk.reset()
-	chunk.reusableRecord = perf.Record{
-		RawSample:   raw,
-		CPU:         0,
-		LostSamples: 0,
+	var writerCalls uint64
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {
+		atomic.AddUint64(&writerCalls, 1)
 	}
 
-	ok, err := p.handlePktChunk(chunk)
+	payload := makeIPv4Packet(17, udpHeader(), []byte("hi"))
 
-	if !ok || err != nil {
-		t.Fatalf("want ok=true, err=nil; got ok=%v err=%v", ok, err)
+	rawCh := make(chan struct{}, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) { rawCh <- struct{}{} }
+
+	p.ringReader = &fakeRingbufReader{
+		samples: [][]byte{
+			makeRingbufSample(payload, uint64(time.Now().UnixNano()), 1, 0),
+		},
 	}
-	if p.stats.PacketsError != beforeErr+1 {
-		t.Fatalf("expected PacketsError incremented by 1 (before=%d, after=%d)", beforeErr, p.stats.PacketsError)
-	}
+
+	p.pollRingbuf()
+
 	select {
-	case <-writerHit:
-		t.Fatalf("writer must NOT be called on parse error")
+	case <-rawCh:
 	default:
+		t.Fatalf("raw writer must be called even when dissection is disabled")
+	}
+
+	if got := atomic.LoadUint64(&writerCalls); got != 0 {
+		t.Fatalf("gopacketWriter must NOT be called when dissection is disabled (got %d)", got)
+	}
+	if got := atomic.LoadUint64(&p.stats.PacketsGot); got != 0 {
+		t.Fatalf("PacketsGot must stay 0 when dissection is disabled (got %d)", got)
 	}
 }
 
-func TestFastPath_PayloadStart_MisalignedHTTP_Dropped(t *testing.T) {
+func TestRingbufInvalidPacket_IncrementsPacketsError_NoWriter(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
-	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) { writerHit <- struct{}{} }
+	p.useRingbuf = true
 
-	tcp := tcpHeader(5, nil)
-	full := makeIPv4Packet(6, tcp, []byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
-	misaligned := full[20+20:]
-	beforeErr := p.stats.PacketsError
-
-	td := tracerPacketsData{
-		Timestamp: uint64(time.Now().UnixNano()),
-		ID:        9003,
-		Len:       uint32(len(misaligned)),
-		TotLen:    uint32(len(misaligned)),
-		Num:       0, Last: 1, IPHdrType: 0x0800,
-	}
-	copy(td.Data[:], misaligned)
-
-	raw := makeChunk(td)
-	chunk := pktBufferPool.Get().(*pktBuffer)
-	chunk.reset()
-	chunk.reusableRecord = perf.Record{RawSample: raw, CPU: 0}
-
-	ok, err := p.handlePktChunk(chunk)
-
-	if !ok || err != nil {
-		t.Fatalf("expected ok=true, err=nil; got ok=%v err=%v", ok, err)
-	}
-	if p.stats.PacketsError != beforeErr+1 {
-		t.Fatalf("PacketsError not incremented on misaligned payload")
-	}
-	select {
-	case <-writerHit:
-		t.Fatalf("writer must NOT be called on misaligned payload")
-	default:
-	}
-}
-
-func TestReassembly_ParseError_ReturnsOkTrueAndNoWriter(t *testing.T) {
-	p := newTestPoller(t)
-	defer stopPoller(t, p)
-
-	writerHit := make(chan struct{}, 1)
-	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) { writerHit <- struct{}{} }
-
-	opts := []byte{2, 49, 0xaa, 0xbb}
-	tcp := tcpHeader(6, opts)
-	bad := makeIPv4Packet(6, tcp, nil)
-
-	id := uint64(42)
-	firstLen := len(bad) / 2
-
-	first := tracerPacketsData{
-		ID:        uint64(id),
-		Len:       uint32(firstLen),
-		TotLen:    uint32(len(bad)),
-		Num:       0,
-		Last:      0,
-		IPHdrType: 0x0800,
-	}
-	second := tracerPacketsData{
-		ID:        uint64(id),
-		Len:       uint32(len(bad) - firstLen),
-		TotLen:    uint32(len(bad)),
-		Num:       1,
-		Last:      1,
-		IPHdrType: 0x0800,
+	var writerCalls uint64
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {
+		atomic.AddUint64(&writerCalls, 1)
 	}
 
-	copy(first.Data[:first.Len], bad[:firstLen])
-	copy(second.Data[:second.Len], bad[firstLen:])
+	// Intentionally invalid (too short to be a real IPv4 header)
+	payload := []byte{0x45, 0x00}
 
-	fr := &fakePerfReader{
-		records: []perf.Record{
-			{RawSample: makeChunk(first), CPU: 0},
-			{RawSample: makeChunk(second), CPU: 0},
+	p.ringReader = &fakeRingbufReader{
+		samples: [][]byte{
+			makeRingbufSample(payload, uint64(time.Now().UnixNano()), 1, 0),
 		},
 	}
-	p.chunksReader = fr
 
-	beforeErr := p.stats.PacketsError
+	beforeErr := atomic.LoadUint64(&p.stats.PacketsError)
 
-	p.pollChunksPerfBuffer()
+	p.pollRingbuf()
 
-	if p.stats.PacketsError != beforeErr+1 {
-		t.Fatalf("PacketsError not incremented on parse error after reassembly")
-	}
-	select {
-	case <-writerHit:
-		t.Fatalf("writer must NOT be called on parse error")
-	default:
+	// Worker decode is async; wait for it to bump PacketsError.
+	waitUntil(t, 250*time.Millisecond, func() bool {
+		return atomic.LoadUint64(&p.stats.PacketsError) >= beforeErr+1
+	}, "PacketsError not incremented")
+
+	if got := atomic.LoadUint64(&writerCalls); got != 0 {
+		t.Fatalf("writer must NOT be called on decode error (got %d)", got)
 	}
 }
 
-func TestWorkerPool_PreservesPacketOrder(t *testing.T) {
+func TestFlowShard_NormalizesEndpointsBothDirections(t *testing.T) {
+	shards := 16
+
+	udp := udpHeader()
+	aToB := makeIPv4Packet(17, udp, nil)
+	bToA := makeIPv4Packet(17, udp, nil)
+
+	// set src/dst in the IPv4 header
+	// A=1.2.3.4, B=5.6.7.8
+	copy(aToB[12:16], []byte{1, 2, 3, 4})
+	copy(aToB[16:20], []byte{5, 6, 7, 8})
+
+	// reverse
+	copy(bToA[12:16], []byte{5, 6, 7, 8})
+	copy(bToA[16:20], []byte{1, 2, 3, 4})
+
+	s1 := flowShard(aToB, 0, shards)
+	s2 := flowShard(bToA, 0, shards)
+
+	if s1 != s2 {
+		t.Fatalf("expected same shard for both directions, got %d vs %d", s1, s2)
+	}
+}
+
+func TestWorkerPool_PreservesOrderWithinSingleShard(t *testing.T) {
 	p := newTestPoller(t)
 	defer stopPoller(t, p)
 
@@ -812,31 +669,151 @@ func TestWorkerPool_PreservesPacketOrder(t *testing.T) {
 		got <- pkt.Metadata().CaptureInfo.CgroupID
 	}
 
+	// Make all packets hash to the same shard (src/dst are zeroed in ipv4Header()).
+	pktBytes := makeIPv4Packet(17, udpHeader(), []byte{0})
+	shard := flowShard(pktBytes, 0, p.workerCount)
+
 	for i := 0; i < n; i++ {
-		pktBytes := makeIPv4Packet(17, udpHeader(), []byte{byte(i)})
-		buf := &pktBuffer{layerParser: decodedpacket.NewLayerParser(), len: uint32(len(pktBytes))}
-		copy(buf.buf[:len(pktBytes)], pktBytes)
+		pb := pktBufferPool.Get().(*pktBuffer)
+		pb.reset()
+		pb.cgroupID = uint64(i)
+		pb.direction = 0
+		pb.timestamp = 0
+		pb.buf = append(pb.buf, pktBytes...)
 
-		td := &tracerPacketsData{
-			CgroupID:  uint64(i),
-			Direction: 0,
-			Len:       uint32(len(pktBytes)),
-		}
-
-		ok, err := p.writePacket(buf, td)
-		if err != nil || !ok {
-			t.Fatalf("writePacket failed: ok=%v err=%v", ok, err)
-		}
+		p.enqueuePacket(shard, pb)
 	}
 
 	for i := 0; i < n; i++ {
 		select {
 		case id := <-got:
 			if id != uint64(i) {
-				t.Fatalf("packet reordered: got %d want %d", id, i)
+				t.Fatalf("packet reordered within shard: got %d want %d", id, i)
 			}
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(500 * time.Millisecond):
 			t.Fatalf("timed out waiting for packets")
 		}
+	}
+}
+
+func TestStopStopsWorkerPool(t *testing.T) {
+	p := newTestPoller(t)
+	if err := p.Stop(); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+}
+
+func TestProcessPacket_DecodeMatrix(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	var writerCalls uint64
+	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {
+		atomic.AddUint64(&writerCalls, 1)
+	}
+
+	type tc struct {
+		name        string
+		packet      []byte
+		wantWriter  bool
+		wantPktGot  bool
+		wantErrIncr bool
+	}
+
+	tests := []tc{
+		{
+			name:        "IPv4/TCP valid minimal header (data offset=5)",
+			packet:      makeIPv4Packet(6, tcpHeader(5, nil), nil),
+			wantWriter:  true,
+			wantPktGot:  true,
+			wantErrIncr: false,
+		},
+		{
+			name:        "IPv4/TCP invalid data offset < 5",
+			packet:      makeIPv4Packet(6, tcpHeaderWithBadDataOffset(3), nil),
+			wantWriter:  false,
+			wantPktGot:  false,
+			wantErrIncr: true,
+		},
+		{
+			name: "IPv4/TCP invalid option length exceeds remaining",
+			packet: func() []byte {
+				opts := []byte{2, 49, 0xaa, 0xbb}
+				tcp := tcpHeader(6, opts)
+				return makeIPv4Packet(6, tcp, nil)
+			}(),
+			wantWriter:  false,
+			wantPktGot:  false,
+			wantErrIncr: true,
+		},
+		{
+			name:        "IPv4/UDP valid minimal header",
+			packet:      makeIPv4Packet(17, udpHeader(), nil),
+			wantWriter:  true,
+			wantPktGot:  true,
+			wantErrIncr: false,
+		},
+		{
+			name: "IPv4/TCP header length says 40 but buffer shorter (truncated)",
+			packet: func() []byte {
+				tcp := tcpHeader(10, make([]byte, 20)) // 40-byte tcp hdr
+				p := makeIPv4Packet(6, tcp, nil)
+				return p[:20+30] // truncate tcp hdr
+			}(),
+			wantWriter:  false,
+			wantPktGot:  false,
+			wantErrIncr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			beforeErr := atomic.LoadUint64(&p.stats.PacketsError)
+			beforeGot := atomic.LoadUint64(&p.stats.PacketsGot)
+			beforeBytes := atomic.LoadUint64(&p.stats.BytesProcessed)
+			beforeWriter := atomic.LoadUint64(&writerCalls)
+
+			pb := pktBufferPool.Get().(*pktBuffer)
+			pb.reset()
+			pb.cgroupID = 0
+			pb.direction = 0
+			pb.timestamp = 0
+			pb.buf = append(pb.buf, tt.packet...)
+
+			p.processPacket(pb)
+
+			afterErr := atomic.LoadUint64(&p.stats.PacketsError)
+			afterGot := atomic.LoadUint64(&p.stats.PacketsGot)
+			afterBytes := atomic.LoadUint64(&p.stats.BytesProcessed)
+			afterWriter := atomic.LoadUint64(&writerCalls)
+
+			if tt.wantErrIncr && afterErr != beforeErr+1 {
+				t.Fatalf("PacketsError not incremented: before=%d after=%d", beforeErr, afterErr)
+			}
+			if !tt.wantErrIncr && afterErr != beforeErr {
+				t.Fatalf("PacketsError changed unexpectedly: before=%d after=%d", beforeErr, afterErr)
+			}
+
+			if tt.wantPktGot && afterGot != beforeGot+1 {
+				t.Fatalf("PacketsGot not incremented: before=%d after=%d", beforeGot, afterGot)
+			}
+			if !tt.wantPktGot && afterGot != beforeGot {
+				t.Fatalf("PacketsGot changed unexpectedly: before=%d after=%d", beforeGot, afterGot)
+			}
+
+			if tt.wantPktGot && afterBytes <= beforeBytes {
+				t.Fatalf("BytesProcessed not increased on success")
+			}
+			if !tt.wantPktGot && afterBytes != beforeBytes {
+				t.Fatalf("BytesProcessed changed unexpectedly on failure")
+			}
+
+			if tt.wantWriter && afterWriter != beforeWriter+1 {
+				t.Fatalf("writer not called: before=%d after=%d", beforeWriter, afterWriter)
+			}
+			if !tt.wantWriter && afterWriter != beforeWriter {
+				t.Fatalf("writer called unexpectedly: before=%d after=%d", beforeWriter, afterWriter)
+			}
+		})
 	}
 }
