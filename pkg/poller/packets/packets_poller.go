@@ -189,7 +189,6 @@ func NewPacketsPoller(
 	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
-
 	maxCPUs := runtime.NumCPU()
 	if maxCPUs < 1 {
 		maxCPUs = 1
