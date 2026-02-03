@@ -1,6 +1,7 @@
 package packets
 
 import (
+	"bytes"
 	"os"
 	"runtime"
 	"sync"
@@ -100,7 +101,7 @@ func (p *pktBuffer) reset() {
 }
 
 var pktBufferPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return &pktBuffer{
 			buf:         make([]byte, 0, defaultPktBufCap),
 			layerParser: decodedpacket.NewLayerParser(),
@@ -161,36 +162,33 @@ func NewPacketsPoller(
 	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
-	maxCPUs := runtime.NumCPU()
-	if maxCPUs < 1 {
-		maxCPUs = 1
-	}
-
 	p := &PacketsPoller{
 		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
 
-		maxCPUs:    maxCPUs,
-		pktsMaps:   make([]map[uint64]*pktBuffer, maxCPUs),
-		pktsMapsMu: make([]sync.Mutex, maxCPUs),
-
-		stopPoll:    make(chan struct{}),
-		stopCleanup: make(chan struct{}),
+		stopPoll: make(chan struct{}),
 
 		tai:           tai.NewTaiInfo(),
 		lastLostCheck: time.Now(),
 	}
 
-	for i := 0; i < p.maxCPUs; i++ {
-		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
-	}
-
-	// Decide backend
+	// Decide backend - try ringbuf first (newer kernels), fall back to perf
 	if rr, err := ringbuf.NewReader(perfBuffer); err == nil {
 		p.useRingbuf = true
 		p.ringReader = &ringbufReaderWrapper{r: rr}
 		log.Info().Msg("PacketsPoller: using ringbuf backend")
 	} else {
+		// Perf backend requires chunk assembly state
+		maxCPUs := max(runtime.NumCPU(), 1)
+		p.maxCPUs = maxCPUs
+		p.pktsMaps = make([]map[uint64]*pktBuffer, maxCPUs)
+		p.pktsMapsMu = make([]sync.Mutex, maxCPUs)
+		p.stopCleanup = make(chan struct{})
+
+		for i := range maxCPUs {
+			p.pktsMaps[i] = make(map[uint64]*pktBuffer)
+		}
+
 		pr, err := perf.NewReader(perfBuffer, perfBufferSize)
 		if err != nil {
 			return nil, err
@@ -204,10 +202,7 @@ func NewPacketsPoller(
 }
 
 func (p *PacketsPoller) startWorkerPool() {
-	p.workerCount = runtime.NumCPU()
-	if p.workerCount < 1 {
-		p.workerCount = 1
-	}
+	p.workerCount = max(runtime.NumCPU(), 1)
 	p.workers = make([]chan *pktBuffer, p.workerCount)
 
 	for i := 0; i < p.workerCount; i++ {
@@ -311,7 +306,10 @@ func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
 //
 // We normalize endpoints so A<->B maps to same shard in both directions.
 func flowShard(pkt []byte, cgroupID uint64, shards int) int {
-	if shards <= 1 || len(pkt) < 1 {
+	if shards <= 1 {
+		return 0
+	}
+	if len(pkt) < 1 {
 		return int(cgroupID % uint64(shards))
 	}
 
@@ -336,7 +334,7 @@ func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 		s := pkt[12:16]
 		d := pkt[16:20]
 		// normalize order
-		if string(s) <= string(d) {
+		if bytes.Compare(s, d) <= 0 {
 			a, b = s, d
 		} else {
 			a, b = d, s
@@ -348,7 +346,7 @@ func flowShard(pkt []byte, cgroupID uint64, shards int) int {
 		// src(8:24), dst(24:40)
 		s := pkt[8:24]
 		d := pkt[24:40]
-		if string(s) <= string(d) {
+		if bytes.Compare(s, d) <= 0 {
 			a, b = s, d
 		} else {
 			a, b = d, s
@@ -372,7 +370,7 @@ func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 	select {
 	case ch <- pkt:
 	default:
-		// backpressure: measure how long we block
+		// Channel full, block until space available
 		ch <- pkt
 	}
 }
@@ -459,9 +457,8 @@ func (p *PacketsPoller) pollRingbuf() {
 
 		atomic.AddUint64(&p.stats.ChunksGot, 1)
 
-		// Optional reset marker (kept for compatibility)
+		// Reset marker (4 bytes) - no state to reset in ringbuf mode
 		if len(raw) == 4 {
-			p.resetPerfState()
 			continue
 		}
 
@@ -673,23 +670,32 @@ func (p *PacketsPoller) pollPerf() {
 }
 
 func (p *PacketsPoller) Start() {
-	p.runWg.Add(2)
+	if p.useRingbuf {
+		p.runWg.Add(1)
+	} else {
+		p.runWg.Add(2)
+	}
 
 	go func() {
 		defer p.runWg.Done()
 		p.poll()
 	}()
 
-	go func() {
-		defer p.runWg.Done()
-		p.cleanupStalePackets()
-	}()
+	// Cleanup goroutine only needed for perf backend (handles stale chunk assembly)
+	if !p.useRingbuf {
+		go func() {
+			defer p.runWg.Done()
+			p.cleanupStalePackets()
+		}()
+	}
 }
 
 func (p *PacketsPoller) Stop() error {
 	// Signal goroutines
-	close(p.stopCleanup)
 	close(p.stopPoll)
+	if p.stopCleanup != nil {
+		close(p.stopCleanup)
+	}
 
 	// Close readers to unblock Read/ReadInto
 	if p.useRingbuf {
@@ -705,14 +711,16 @@ func (p *PacketsPoller) Stop() error {
 	// Wait for poll/cleanup loops to exit (prevents enqueue-after-close panics)
 	p.runWg.Wait()
 
-	// Return any still-assembled perf packets to pool
-	for cpu := 0; cpu < p.maxCPUs; cpu++ {
-		p.pktsMapsMu[cpu].Lock()
-		for _, pb := range p.pktsMaps[cpu] {
-			pktBufferPool.Put(pb)
+	// Return any still-assembled perf packets to pool (perf mode only)
+	if !p.useRingbuf {
+		for cpu := 0; cpu < p.maxCPUs; cpu++ {
+			p.pktsMapsMu[cpu].Lock()
+			for _, pb := range p.pktsMaps[cpu] {
+				pktBufferPool.Put(pb)
+			}
+			p.pktsMaps[cpu] = nil
+			p.pktsMapsMu[cpu].Unlock()
 		}
-		p.pktsMaps[cpu] = nil
-		p.pktsMapsMu[cpu].Unlock()
 	}
 
 	// Stop workers last (they release pktBuffers)
@@ -729,7 +737,7 @@ func (p *PacketsPoller) GetLostChunks() uint64 {
 	return atomic.LoadUint64(&p.lostChunks)
 }
 
-func (p *PacketsPoller) GetExtendedStats() interface{} {
+func (p *PacketsPoller) GetExtendedStats() any {
 	return PacketsPollerStats{
 		ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
 		ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
