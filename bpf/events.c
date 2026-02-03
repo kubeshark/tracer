@@ -223,20 +223,6 @@ void BPF_KRETPROBE(do_accept)
     return;
 }
 
-SEC("cgroup/connect4")
-int trace_cgroup_connect4(struct bpf_sock_addr* ctx)
-{
-    if (program_disabled(PROGRAM_DOMAIN_CAPTURE_SYSTEM))
-        return 1;
-
-    struct task_struct* task = (struct task_struct*)bpf_get_current_task();
-    if (!is_task_from_netns(task)) {
-        return 1;
-    }
-
-    return 1;
-}
-
 SEC("kprobe/tcp_close")
 void BPF_KPROBE(tcp_close)
 {

@@ -40,9 +40,17 @@ func (s *tcpKprobeHooks) installTcpKprobeHooks(bpfObjects *bpf.TracerObjects) er
 		return errors.Wrap(err, 0)
 	}
 
-	s.accept4, err = link.Kretprobe("do_accept", bpfObjects.DoAccept, nil)
-	if err != nil {
-		log.Warn().Err(err).Msg("do_accept can not be attached. Probably system is running on incomatible kernel")
+	// Keep backwards compatibility with older kernels
+	acceptFuncs := []string{"do_accept", "__sys_accept4", "__sys_accept", "__x64_sys_accept4", "__x64_sys_accept"}
+	for _, funcName := range acceptFuncs {
+		s.accept4, err = link.Kretprobe(funcName, bpfObjects.DoAccept, nil)
+		if err == nil {
+			log.Debug().Str("function", funcName).Msg("Successfully attached accept kretprobe")
+			break
+		}
+	}
+	if s.accept4 == nil {
+		log.Warn().Err(err).Msg("Could not attach accept kretprobe with any known function name")
 	}
 
 	s.tcpClose, err = link.Kprobe("tcp_close", bpfObjects.TcpClose, nil)
