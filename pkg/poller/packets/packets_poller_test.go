@@ -938,3 +938,80 @@ func TestRingbufUndersizedSample_Ignored(t *testing.T) {
 	default:
 	}
 }
+
+func TestEnqueuePacket_DropsWhenQueueFull(t *testing.T) {
+	// Create a poller without starting workers so we control the queue
+	p := &PacketsPoller{
+		useRingbuf:    true,
+		stopPoll:      make(chan struct{}),
+		tai:           tai.NewTaiInfo(),
+		lastLostCheck: time.Now(),
+	}
+	// Manually create worker channels without starting goroutines
+	p.workerCount = 1
+	p.workers = make([]chan *pktBuffer, p.workerCount)
+	p.workers[0] = make(chan *pktBuffer, workerQueueDepth)
+
+	defer func() {
+		close(p.workers[0])
+		// Drain the channel
+		for pkt := range p.workers[0] {
+			pktBufferPool.Put(pkt)
+		}
+	}()
+
+	// Fill the queue to capacity
+	for i := range workerQueueDepth {
+		pkt := pktBufferPool.Get().(*pktBuffer)
+		pkt.reset()
+		select {
+		case p.workers[0] <- pkt:
+		default:
+			t.Fatalf("could not fill queue at iteration %d", i)
+		}
+	}
+
+	// Next enqueue should drop and increment PacketsDropped
+	beforeDropped := atomic.LoadUint64(&p.stats.PacketsDropped)
+
+	pkt := pktBufferPool.Get().(*pktBuffer)
+	pkt.reset()
+	p.enqueuePacket(0, pkt)
+
+	afterDropped := atomic.LoadUint64(&p.stats.PacketsDropped)
+	if afterDropped != beforeDropped+1 {
+		t.Fatalf("expected PacketsDropped to increment from %d to %d, got %d",
+			beforeDropped, beforeDropped+1, afterDropped)
+	}
+}
+
+func TestReturnPktBuffer_DiscardsOversizedBuffer(t *testing.T) {
+	// Get a buffer from the pool
+	pkt := pktBufferPool.Get().(*pktBuffer)
+	pkt.reset()
+
+	// Grow the buffer beyond maxPktBufCap
+	pkt.buf = make([]byte, maxPktBufCap+1)
+
+	// Return it - should be discarded (not returned to pool)
+	returnPktBuffer(pkt)
+
+	// Get another buffer from pool - it should be a new one with default capacity
+	pkt2 := pktBufferPool.Get().(*pktBuffer)
+	if cap(pkt2.buf) > maxPktBufCap {
+		t.Fatalf("expected new buffer with cap <= %d, got cap %d", maxPktBufCap, cap(pkt2.buf))
+	}
+	pktBufferPool.Put(pkt2)
+}
+
+func TestGetExtendedStats_IncludesPacketsDropped(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	atomic.StoreUint64(&p.stats.PacketsDropped, 42)
+
+	stats := p.GetExtendedStats().(PacketsPollerStats)
+	if stats.PacketsDropped != 42 {
+		t.Fatalf("PacketsDropped: expected 42, got %d", stats.PacketsDropped)
+	}
+}
