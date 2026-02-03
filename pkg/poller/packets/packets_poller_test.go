@@ -122,6 +122,7 @@ func makeRingbufSample(payload []byte, ts uint64, cgroup uint64, direction uint8
 	return b
 }
 
+// newTestPoller creates a poller configured for perf backend testing.
 func newTestPoller(t *testing.T) *PacketsPoller {
 	t.Helper()
 
@@ -136,11 +137,27 @@ func newTestPoller(t *testing.T) *PacketsPoller {
 		lastLostCheck: time.Now(),
 	}
 
-	for i := 0; i < maxCPUs; i++ {
+	for i := range maxCPUs {
 		p.pktsMaps[i] = make(map[uint64]*pktBuffer)
 	}
 
 	p.chunksReader = &fakePerfReader{}
+	p.startWorkerPool()
+	return p
+}
+
+// newTestPollerRingbuf creates a poller configured for ringbuf backend testing.
+// This matches actual runtime behavior where ringbuf mode doesn't allocate perf structures.
+func newTestPollerRingbuf(t *testing.T) *PacketsPoller {
+	t.Helper()
+
+	p := &PacketsPoller{
+		useRingbuf:    true,
+		stopPoll:      make(chan struct{}),
+		tai:           tai.NewTaiInfo(),
+		lastLostCheck: time.Now(),
+	}
+
 	p.startWorkerPool()
 	return p
 }
@@ -163,10 +180,7 @@ func ipv4Header(proto uint8, totalLen uint16) []byte {
 
 // tcpHeader builds a TCP header with dataOffset (in 32-bit words) and options payload.
 func tcpHeader(dataOffset uint8, options []byte) []byte {
-	hLen := int(dataOffset) * 4
-	if hLen < 20 {
-		hLen = 20
-	}
+	hLen := max(int(dataOffset)*4, 20)
 	h := make([]byte, hLen)
 	h[12] = (dataOffset << 4) & 0xF0
 	if hLen > 20 && len(options) > 0 {
@@ -519,10 +533,9 @@ func TestPerfOrderingMismatchDropsAssemblyState_NoRawWrite(t *testing.T) {
 }
 
 func TestRingbufSingleRecord_RawWritten_NoDecodeWhenNoWriter(t *testing.T) {
-	p := newTestPoller(t)
+	p := newTestPollerRingbuf(t)
 	defer stopPoller(t, p)
 
-	p.useRingbuf = true
 	p.gopacketWriter = nil
 
 	payload := makeIPv4Packet(17, udpHeader(), []byte{9, 9, 9})
@@ -562,10 +575,9 @@ func TestRingbufSingleRecord_RawWritten_NoDecodeWhenNoWriter(t *testing.T) {
 }
 
 func TestRingbufDissectionDisabled_SkipsDecodeButStillWritesRaw(t *testing.T) {
-	p := newTestPoller(t)
+	p := newTestPollerRingbuf(t)
 	defer stopPoller(t, p)
 
-	p.useRingbuf = true
 	p.Pause() // dissection off
 
 	var writerCalls uint64
@@ -601,10 +613,8 @@ func TestRingbufDissectionDisabled_SkipsDecodeButStillWritesRaw(t *testing.T) {
 }
 
 func TestRingbufInvalidPacket_IncrementsPacketsError_NoWriter(t *testing.T) {
-	p := newTestPoller(t)
+	p := newTestPollerRingbuf(t)
 	defer stopPoller(t, p)
-
-	p.useRingbuf = true
 
 	var writerCalls uint64
 	p.gopacketWriter = func(pkt gopacket.Packet, dissectionDisabled bool) {
@@ -673,7 +683,7 @@ func TestWorkerPool_PreservesOrderWithinSingleShard(t *testing.T) {
 	pktBytes := makeIPv4Packet(17, udpHeader(), []byte{0})
 	shard := flowShard(pktBytes, 0, p.workerCount)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pb := pktBufferPool.Get().(*pktBuffer)
 		pb.reset()
 		pb.cgroupID = uint64(i)
@@ -684,7 +694,7 @@ func TestWorkerPool_PreservesOrderWithinSingleShard(t *testing.T) {
 		p.enqueuePacket(shard, pb)
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		select {
 		case id := <-got:
 			if id != uint64(i) {
@@ -815,5 +825,116 @@ func TestProcessPacket_DecodeMatrix(t *testing.T) {
 				t.Fatalf("writer called unexpectedly: before=%d after=%d", beforeWriter, afterWriter)
 			}
 		})
+	}
+}
+
+func TestFlowShard_EdgeCases(t *testing.T) {
+	pkt := makeIPv4Packet(17, udpHeader(), nil)
+
+	// shards == 0 should return 0 (avoid division by zero)
+	if got := flowShard(pkt, 123, 0); got != 0 {
+		t.Fatalf("shards=0: expected 0, got %d", got)
+	}
+
+	// shards == 1 should return 0
+	if got := flowShard(pkt, 123, 1); got != 0 {
+		t.Fatalf("shards=1: expected 0, got %d", got)
+	}
+
+	// empty packet with shards > 1 should fall back to cgroupID % shards
+	if got := flowShard(nil, 10, 4); got != 2 {
+		t.Fatalf("empty pkt: expected 10%%4=2, got %d", got)
+	}
+
+	// packet too short for IPv4 should fall back to cgroupID % shards
+	shortPkt := []byte{0x45} // IPv4 version but only 1 byte
+	if got := flowShard(shortPkt, 7, 3); got != 1 {
+		t.Fatalf("short pkt: expected 7%%3=1, got %d", got)
+	}
+}
+
+func TestRingbufResetMarker_Ignored(t *testing.T) {
+	p := newTestPollerRingbuf(t)
+	defer stopPoller(t, p)
+
+	p.ringReader = &fakeRingbufReader{
+		samples: [][]byte{
+			{0, 0, 0, 0}, // 4-byte reset marker - should be ignored in ringbuf mode
+		},
+	}
+
+	p.pollRingbuf()
+
+	// Should have counted the marker as received but not handled (it's skipped)
+	if got := atomic.LoadUint64(&p.stats.ChunksGot); got != 1 {
+		t.Fatalf("expected ChunksGot=1, got %d", got)
+	}
+	// Reset marker doesn't count as handled
+	if got := atomic.LoadUint64(&p.stats.ChunksHandled); got != 0 {
+		t.Fatalf("expected ChunksHandled=0 for reset marker, got %d", got)
+	}
+}
+
+func TestGetExtendedStats_ReturnsAtomicSnapshot(t *testing.T) {
+	p := newTestPoller(t)
+	defer stopPoller(t, p)
+
+	// Set some stats using atomic operations (simulating concurrent updates)
+	atomic.StoreUint64(&p.stats.ChunksGot, 100)
+	atomic.StoreUint64(&p.stats.ChunksHandled, 90)
+	atomic.StoreUint64(&p.stats.ChunksLost, 5)
+	atomic.StoreUint64(&p.stats.PacketsGot, 80)
+	atomic.StoreUint64(&p.stats.PacketsError, 3)
+	atomic.StoreUint64(&p.stats.BytesProcessed, 12345)
+
+	stats := p.GetExtendedStats().(PacketsPollerStats)
+
+	if stats.ChunksGot != 100 {
+		t.Fatalf("ChunksGot: expected 100, got %d", stats.ChunksGot)
+	}
+	if stats.ChunksHandled != 90 {
+		t.Fatalf("ChunksHandled: expected 90, got %d", stats.ChunksHandled)
+	}
+	if stats.ChunksLost != 5 {
+		t.Fatalf("ChunksLost: expected 5, got %d", stats.ChunksLost)
+	}
+	if stats.PacketsGot != 80 {
+		t.Fatalf("PacketsGot: expected 80, got %d", stats.PacketsGot)
+	}
+	if stats.PacketsError != 3 {
+		t.Fatalf("PacketsError: expected 3, got %d", stats.PacketsError)
+	}
+	if stats.BytesProcessed != 12345 {
+		t.Fatalf("BytesProcessed: expected 12345, got %d", stats.BytesProcessed)
+	}
+}
+
+func TestRingbufUndersizedSample_Ignored(t *testing.T) {
+	p := newTestPollerRingbuf(t)
+	defer stopPoller(t, p)
+
+	rawCh := make(chan struct{}, 1)
+	p.rawPacketWriter = func(ts uint64, b []byte) { rawCh <- struct{}{} }
+
+	// Sample smaller than header size
+	tooSmall := make([]byte, ringbufPktEventHdrSize-1)
+
+	p.ringReader = &fakeRingbufReader{
+		samples: [][]byte{tooSmall},
+	}
+
+	p.pollRingbuf()
+
+	if got := atomic.LoadUint64(&p.stats.ChunksGot); got != 1 {
+		t.Fatalf("ChunksGot wrong: got=%d want=1", got)
+	}
+	// Undersized samples are skipped, not handled
+	if got := atomic.LoadUint64(&p.stats.ChunksHandled); got != 0 {
+		t.Fatalf("ChunksHandled should remain 0 for undersized sample, got=%d", got)
+	}
+	select {
+	case <-rawCh:
+		t.Fatalf("raw writer must NOT be called for undersized sample")
+	default:
 	}
 }
