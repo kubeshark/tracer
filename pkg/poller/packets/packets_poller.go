@@ -561,7 +561,6 @@ func (p *PacketsPoller) pollPerf() {
 				p.pktsMapsMu[cpu].Unlock()
 			}
 
-			// Keep the warning behavior (but periodic stats go to file)
 			lost := atomic.LoadUint64(&p.lostChunks)
 			if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != lost {
 				log.Warn().Msgf("Perf buffer dropped %d chunks", lost-p.lastLostChunks)
@@ -674,7 +673,7 @@ func (p *PacketsPoller) pollPerf() {
 }
 
 func (p *PacketsPoller) Start() {
-	p.runWg.Add(3)
+	p.runWg.Add(2)
 
 	go func() {
 		defer p.runWg.Done()
@@ -703,7 +702,7 @@ func (p *PacketsPoller) Stop() error {
 		}
 	}
 
-	// Wait for poll/cleanup/stats loops to exit (prevents enqueue-after-close panics)
+	// Wait for poll/cleanup loops to exit (prevents enqueue-after-close panics)
 	p.runWg.Wait()
 
 	// Return any still-assembled perf packets to pool
@@ -731,5 +730,12 @@ func (p *PacketsPoller) GetLostChunks() uint64 {
 }
 
 func (p *PacketsPoller) GetExtendedStats() interface{} {
-	return p.stats
+	return PacketsPollerStats{
+		ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
+		ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
+		ChunksLost:     atomic.LoadUint64(&p.stats.ChunksLost),
+		PacketsGot:     atomic.LoadUint64(&p.stats.PacketsGot),
+		PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
+		BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
+	}
 }
