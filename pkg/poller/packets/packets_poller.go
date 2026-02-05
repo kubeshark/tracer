@@ -30,7 +30,6 @@ const (
 
 	stalePktCleanupInterval = 30 * time.Second
 	stalePktThreshold       = 30 * time.Second
-
 )
 
 // Ringbuf variable-size packet record header (must match C struct pkt_event_hdr)
