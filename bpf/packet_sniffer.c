@@ -154,29 +154,27 @@ struct
 #define RB_ALIGN 8
 #endif
 #ifndef RB_ROUND_UP
+// Round up x to the nearest multiple of RB_ALIGN (8 bytes) for ringbuf record alignment
 #define RB_ROUND_UP(x) (((x) + (RB_ALIGN - 1)) & ~(RB_ALIGN - 1))
 #endif
-#ifndef RB_REC_SZ
-#define RB_REC_SZ(payload_sz) RB_ROUND_UP((__u32)sizeof(struct pkt_event_hdr) + (__u32)(payload_sz))
-#endif
 
-#undef RB_WRITE_PORTS
-#define RB_WRITE_PORTS(payload, off, pkt_len, src, dst, CAP)                        \
-    do {                                                                            \
-        __u32 __off = (off);                                                        \
-        if ((pkt_len) >= 4 && (CAP) >= 4 &&                                         \
-            __off <= (pkt_len) - 4 &&                                               \
-            __off <= (CAP) - 4) {                                                   \
-            if ((src)) {                                                            \
-                __u16 __s = (src);                                                  \
-                __builtin_memcpy((payload) + __off, &__s, sizeof(__s));              \
-            }                                                                       \
-            if ((dst)) {                                                            \
-                __u16 __d = (dst);                                                  \
-                __builtin_memcpy((payload) + __off + 2, &__d, sizeof(__d));          \
-            }                                                                       \
-        }                                                                           \
-    } while (0)
+// Write source and destination ports into the payload at the given offset.
+// Bounds-checks against both packet length and buffer capacity before writing.
+static __always_inline void rb_write_ports(unsigned char* payload, __u32 off,
+                                           __u32 pkt_len, __u16 src, __u16 dst,
+                                           __u32 cap)
+{
+    if (pkt_len >= 4 && cap >= 4 &&
+        off <= pkt_len - 4 &&
+        off <= cap - 4) {
+        if (src) {
+            __builtin_memcpy(payload + off, &src, sizeof(src));
+        }
+        if (dst) {
+            __builtin_memcpy(payload + off + 2, &dst, sizeof(dst));
+        }
+    }
+}
 
 #define NSEC_PER_SEC 1000000000
 
@@ -645,7 +643,7 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
         return 3;
     }
 
-    if (pkt_len > PKT_RINGBUF_MAX_LEN) {
+    if (pkt_len > PKT_MAX_LEN) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 6, pkt_len, 0l);
         return 4;
     }
@@ -659,7 +657,7 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
     }
 
     struct pkt_event_hdr* ev =
-        bpf_ringbuf_reserve(&pkts_buffer, RB_REC_SZ(PKT_RINGBUF_MAX_LEN), 0);
+        bpf_ringbuf_reserve(&pkts_buffer, RB_ROUND_UP(PKT_RINGBUF_MAX_LEN), 0);
 
     if (!ev) {
         log_error(skb, LOG_ERROR_PKT_SNIFFER, 15, pkt_len, 0l);
@@ -692,8 +690,8 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
                 __builtin_memcpy(&ip6->daddr, rewrite_ip6_dst, sizeof(struct in6_addr));
 
             if (ctx->transportHdrType == IPPROTO_TCP || ctx->transportHdrType == IPPROTO_UDP) {
-                RB_WRITE_PORTS(payload, ctx->transportOffset, pkt_len,
-                               rewrite_port_src, rewrite_port_dst, PKT_RINGBUF_MAX_LEN);
+                rb_write_ports(payload, ctx->transportOffset, pkt_len,
+                               rewrite_port_src, rewrite_port_dst, PKT_MAX_LEN);
             }
         }
     } else {
@@ -710,8 +708,8 @@ static __noinline int save_packet(struct pkt_sniffer_ctx* ctx)
                 __u8 ihl = payload[0] & 0x0F;
                 if (ihl >= 5) {
                     __u32 off = (__u32)ihl * 4;
-                    RB_WRITE_PORTS(payload, off, pkt_len,
-                                   rewrite_port_src, rewrite_port_dst, PKT_RINGBUF_MAX_LEN);
+                    rb_write_ports(payload, off, pkt_len,
+                                   rewrite_port_src, rewrite_port_dst, PKT_MAX_LEN);
                 }
             }
         }

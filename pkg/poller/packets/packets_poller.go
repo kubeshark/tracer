@@ -31,7 +31,6 @@ const (
 	stalePktCleanupInterval = 30 * time.Second
 	stalePktThreshold       = 30 * time.Second
 
-	maxPktBufCap = 128 * 1024
 )
 
 // Ringbuf variable-size packet record header (must match C struct pkt_event_hdr)
@@ -118,9 +117,8 @@ type PacketsPoller struct {
 	useRingbuf   bool
 
 	// Assembly state (perf only)
-	pktsMaps   []map[uint64]*pktBuffer
-	pktsMapsMu []sync.Mutex
-	maxCPUs    int
+	pktsMaps []map[uint64]*pktBuffer
+	maxCPUs  int
 
 	// Worker pool (sharded, preserves ordering within shard)
 	workers     []chan *pktBuffer
@@ -185,7 +183,6 @@ func NewPacketsPoller(
 		maxCPUs := max(runtime.NumCPU(), 1)
 		p.maxCPUs = maxCPUs
 		p.pktsMaps = make([]map[uint64]*pktBuffer, maxCPUs)
-		p.pktsMapsMu = make([]sync.Mutex, maxCPUs)
 		p.stopCleanup = make(chan struct{})
 
 		for i := range maxCPUs {
@@ -382,25 +379,8 @@ func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
 	}
 }
 
-// returnPktBuffer returns a pktBuffer to the pool, but discards buffers
-// that have grown too large to prevent memory bloat from jumbo packets.
 func returnPktBuffer(pkt *pktBuffer) {
-	if cap(pkt.buf) > maxPktBufCap {
-		// Discard oversized buffer; let GC reclaim it
-		return
-	}
 	pktBufferPool.Put(pkt)
-}
-
-func (p *PacketsPoller) resetPerfState() {
-	for cpu := 0; cpu < p.maxCPUs; cpu++ {
-		p.pktsMapsMu[cpu].Lock()
-		for _, pb := range p.pktsMaps[cpu] {
-			returnPktBuffer(pb)
-		}
-		p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
-		p.pktsMapsMu[cpu].Unlock()
-	}
 }
 
 func (p *PacketsPoller) cleanupStalePackets() {
@@ -414,7 +394,6 @@ func (p *PacketsPoller) cleanupStalePackets() {
 			cleaned := 0
 
 			for cpu := 0; cpu < p.maxCPUs; cpu++ {
-				p.pktsMapsMu[cpu].Lock()
 				m := p.pktsMaps[cpu]
 				for id, pb := range m {
 					if !pb.firstSeen.IsZero() && pb.firstSeen.Before(threshold) {
@@ -423,7 +402,6 @@ func (p *PacketsPoller) cleanupStalePackets() {
 						cleaned++
 					}
 				}
-				p.pktsMapsMu[cpu].Unlock()
 			}
 
 			if cleaned > 0 {
@@ -567,12 +545,10 @@ func (p *PacketsPoller) pollPerf() {
 
 			cpu := rec.CPU
 			if cpu >= 0 && cpu < p.maxCPUs {
-				p.pktsMapsMu[cpu].Lock()
 				for _, pb := range p.pktsMaps[cpu] {
 					returnPktBuffer(pb)
 				}
 				p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
-				p.pktsMapsMu[cpu].Unlock()
 			}
 
 			lost := atomic.LoadUint64(&p.lostChunks)
@@ -587,9 +563,14 @@ func (p *PacketsPoller) pollPerf() {
 		raw := rec.RawSample
 		atomic.AddUint64(&p.stats.ChunksGot, 1)
 
-		// Reset marker
+		// Reset marker - clear all CPU maps
 		if len(raw) == 4 {
-			p.resetPerfState()
+			for cpu := 0; cpu < p.maxCPUs; cpu++ {
+				for _, pb := range p.pktsMaps[cpu] {
+					returnPktBuffer(pb)
+				}
+				p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
+			}
 			continue
 		}
 
@@ -604,11 +585,6 @@ func (p *PacketsPoller) pollPerf() {
 			continue
 		}
 
-		// Handle perf chunk under CPU lock to avoid map races with cleanup.
-		var completed *pktBuffer
-		var completedTS uint64
-
-		p.pktsMapsMu[cpu].Lock()
 		cpuMap := p.pktsMaps[cpu]
 
 		pb, ok := cpuMap[ptr.ID]
@@ -628,7 +604,6 @@ func (p *PacketsPoller) pollPerf() {
 		if ptr.Num != pb.num {
 			// Drop assembly state for this packet ID
 			delete(cpuMap, ptr.ID)
-			p.pktsMapsMu[cpu].Unlock()
 			returnPktBuffer(pb)
 			atomic.AddUint64(&p.stats.ChunksHandled, 1)
 			continue
@@ -637,7 +612,6 @@ func (p *PacketsPoller) pollPerf() {
 		need := int(ptr.Len)
 		if need < 0 || need > len(ptr.Data) {
 			delete(cpuMap, ptr.ID)
-			p.pktsMapsMu[cpu].Unlock()
 			returnPktBuffer(pb)
 			atomic.AddUint64(&p.stats.ChunksHandled, 1)
 			continue
@@ -656,33 +630,23 @@ func (p *PacketsPoller) pollPerf() {
 
 		if ptr.Last != 0 {
 			atomic.AddUint64(&p.receivedPackets, 1)
-			// detach from map before unlocking
 			delete(cpuMap, ptr.ID)
-			completed = pb
-			completedTS = ptr.Timestamp
+
+			// Raw write (serialized here)
+			p.writeRawPacket(ptr.Timestamp, pb.buf)
+
+			// Restore master behavior: if dissection disabled, do not decode/write.
+			if p.dissectionOff() || p.gopacketWriter == nil {
+				returnPktBuffer(pb)
+			} else {
+				shard := flowShard(pb.buf, pb.cgroupID, p.workerCount)
+				p.enqueuePacket(shard, pb)
+			}
 		} else {
 			pb.num++
 		}
 
-		p.pktsMapsMu[cpu].Unlock()
-
 		atomic.AddUint64(&p.stats.ChunksHandled, 1)
-
-		if completed == nil {
-			continue
-		}
-
-		// Raw write (serialized here)
-		p.writeRawPacket(completedTS, completed.buf)
-
-		// Restore master behavior: if dissection disabled, do not decode/write.
-		if p.dissectionOff() || p.gopacketWriter == nil {
-			returnPktBuffer(completed)
-			continue
-		}
-
-		shard := flowShard(completed.buf, completed.cgroupID, p.workerCount)
-		p.enqueuePacket(shard, completed)
 	}
 }
 
@@ -731,12 +695,10 @@ func (p *PacketsPoller) Stop() error {
 	// Return any still-assembled perf packets to pool (perf mode only)
 	if !p.useRingbuf {
 		for cpu := 0; cpu < p.maxCPUs; cpu++ {
-			p.pktsMapsMu[cpu].Lock()
 			for _, pb := range p.pktsMaps[cpu] {
 				returnPktBuffer(pb)
 			}
 			p.pktsMaps[cpu] = nil
-			p.pktsMapsMu[cpu].Unlock()
 		}
 	}
 

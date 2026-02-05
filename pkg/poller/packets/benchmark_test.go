@@ -80,6 +80,74 @@ func benchmarkWithQueueDepth(b *testing.B, queueDepth int) {
 	b.ReportMetric(float64(processedCount), "processed")
 }
 
+func BenchmarkPacketSizes(b *testing.B) {
+	sizes := []int{64, 256, 1024, 4096, 16384, 32768, 65536}
+
+	for _, sz := range sizes {
+		b.Run(fmt.Sprintf("size_%d", sz), func(b *testing.B) {
+			benchmarkWithPacketSize(b, sz)
+		})
+	}
+}
+
+func benchmarkWithPacketSize(b *testing.B, payloadSize int) {
+	const queueDepth = 1024
+
+	numWorkers := runtime.NumCPU()
+	workers := make([]chan *pktBuffer, numWorkers)
+	var wg sync.WaitGroup
+
+	var processed uint64
+	var dropped uint64
+
+	for i := range numWorkers {
+		ch := make(chan *pktBuffer, queueDepth)
+		workers[i] = ch
+		wg.Add(1)
+		go func(c <-chan *pktBuffer) {
+			defer wg.Done()
+			for pkt := range c {
+				atomic.AddUint64(&processed, 1)
+				pktBufferPool.Put(pkt)
+			}
+		}(ch)
+	}
+
+	testPacket := makeIPv4Packet(6, tcpHeader(5, nil), make([]byte, payloadSize))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		shard := i % numWorkers
+		pkt := pktBufferPool.Get().(*pktBuffer)
+		pkt.reset()
+		pkt.buf = append(pkt.buf, testPacket...)
+
+		select {
+		case workers[shard] <- pkt:
+		default:
+			atomic.AddUint64(&dropped, 1)
+			pktBufferPool.Put(pkt)
+		}
+	}
+
+	b.StopTimer()
+
+	for _, ch := range workers {
+		close(ch)
+	}
+	wg.Wait()
+
+	droppedCount := atomic.LoadUint64(&dropped)
+	processedCount := atomic.LoadUint64(&processed)
+	dropRate := float64(droppedCount) / float64(b.N) * 100
+
+	b.ReportMetric(dropRate, "%dropped")
+	b.ReportMetric(float64(processedCount), "processed")
+	b.ReportMetric(float64(len(testPacket)), "pkt_bytes")
+}
+
 // BenchmarkQueueDepthWithLoad simulates high load scenarios
 func BenchmarkQueueDepthWithLoad(b *testing.B) {
 	depths := []int{128, 256, 512, 1024, 2048}

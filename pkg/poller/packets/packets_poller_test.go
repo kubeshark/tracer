@@ -130,7 +130,6 @@ func newTestPoller(t *testing.T) *PacketsPoller {
 	p := &PacketsPoller{
 		maxCPUs:       maxCPUs,
 		pktsMaps:      make([]map[uint64]*pktBuffer, maxCPUs),
-		pktsMapsMu:    make([]sync.Mutex, maxCPUs),
 		stopPoll:      make(chan struct{}),
 		stopCleanup:   make(chan struct{}),
 		tai:           tai.NewTaiInfo(),
@@ -983,25 +982,6 @@ func TestEnqueuePacket_DropsWhenQueueFull(t *testing.T) {
 		t.Fatalf("expected PacketsDropped to increment from %d to %d, got %d",
 			beforeDropped, beforeDropped+1, afterDropped)
 	}
-}
-
-func TestReturnPktBuffer_DiscardsOversizedBuffer(t *testing.T) {
-	// Get a buffer from the pool
-	pkt := pktBufferPool.Get().(*pktBuffer)
-	pkt.reset()
-
-	// Grow the buffer beyond maxPktBufCap
-	pkt.buf = make([]byte, maxPktBufCap+1)
-
-	// Return it - should be discarded (not returned to pool)
-	returnPktBuffer(pkt)
-
-	// Get another buffer from pool - it should be a new one with default capacity
-	pkt2 := pktBufferPool.Get().(*pktBuffer)
-	if cap(pkt2.buf) > maxPktBufCap {
-		t.Fatalf("expected new buffer with cap <= %d, got cap %d", maxPktBufCap, cap(pkt2.buf))
-	}
-	pktBufferPool.Put(pkt2)
 }
 
 func TestGetExtendedStats_IncludesPacketsDropped(t *testing.T) {

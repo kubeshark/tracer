@@ -159,13 +159,6 @@ struct
     __type(value, struct tls_chunk);
 } heap SEC(".maps");
 
-#define PKT_RINGBUF_MAX_LEN (64 * 1024)          // 64KB
-#define PKT_PART_LEN (4 * 1024)
-#define PKT_MAX_LEN (64 * 1024)
-#define CAPTURE_RINGBUF_SIZE (64 * 1024 * 1024)  // 64MB
-#define PACKET_DIRECTION_RECEIVED 0
-#define PACKET_DIRECTION_SENT 1
-
 struct pkt_event_hdr
 {
     __u64 timestamp;
@@ -176,6 +169,13 @@ struct pkt_event_hdr
     __u8 direction;
     __u8 __pad;
 };
+
+#define PKT_PART_LEN (4 * 1024)
+#define PKT_MAX_LEN (64 * 1024)
+#define PKT_RINGBUF_MAX_LEN (PKT_MAX_LEN + sizeof(struct pkt_event_hdr))  // header + 64KB payload
+#define CAPTURE_RINGBUF_SIZE (64 * 1024 * 1024)  // 64MB
+#define PACKET_DIRECTION_RECEIVED 0
+#define PACKET_DIRECTION_SENT 1
 
 struct socket_cookie_data
 {
@@ -232,7 +232,7 @@ struct configuration
     BPF_RINGBUF(_name, CAPTURE_RINGBUF_SIZE)
 
 #define BPF_OUTPUT_LARGE(_name) \
-    BPF_RINGBUF(_name, CAPTURE_RINGBUF_SIZE)
+    BPF_OUTPUT(_name)
 #else
 #define BPF_OUTPUT(_name) \
     BPF_PERF_OUTPUT(_name)
