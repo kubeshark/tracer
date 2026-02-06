@@ -78,7 +78,7 @@ func (f *fakeRingbufReader) Read() (any, error) {
 
 	s := f.samples[f.idx]
 	f.idx++
-	return ringbuf.Record{RawSample: s}, nil
+	return &ringbuf.Record{RawSample: s}, nil
 }
 
 func (f *fakeRingbufReader) Close() error {
