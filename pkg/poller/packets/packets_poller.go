@@ -1,16 +1,17 @@
 package packets
 
 import (
-	"encoding/binary"
-	"fmt"
+	"bytes"
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/perf"
+	"github.com/cilium/ebpf/ringbuf"
 	"github.com/go-errors/errors"
 
 	"github.com/kubeshark/gopacket"
@@ -22,63 +23,53 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	defaultPktBufCap = 64 * 1024
+	maxRingbufPktLen = 64 * 1024
+	workerQueueDepth = 512
+
+	stalePktCleanupInterval = 30 * time.Second
+	stalePktThreshold       = 30 * time.Second
+)
+
+// Ringbuf variable-size packet record header (must match C struct pkt_event_hdr)
+type ringbufPktEventHdr struct {
+	Timestamp uint64
+	CgroupID  uint64
+	ID        uint64
+	Len       uint32
+	IPHdrType uint16
+	Direction uint8
+	_Pad      uint8
+}
+
+const ringbufPktEventHdrSize = int(unsafe.Sizeof(ringbufPktEventHdr{}))
+
+type ringbufReader interface {
+	Read() (any, error)
+	Close() error
+}
+
+type ringbufReaderWrapper struct {
+	r   *ringbuf.Reader
+	rec ringbuf.Record // reused across reads to avoid per-read allocations
+}
+
+func (w *ringbufReaderWrapper) Read() (any, error) {
+	if err := w.r.ReadInto(&w.rec); err != nil {
+		return nil, err
+	}
+	return &w.rec, nil
+}
+func (w *ringbufReaderWrapper) Close() error { return w.r.Close() }
+
 type perfReader interface {
 	ReadInto(r *perf.Record) error
 	Close() error
 	SetDeadline(t time.Time)
 }
 
-// Buffer pool for pktBuffer objects to avoid large allocations
-var pktBufferPool = sync.Pool{
-	New: func() interface{} {
-		return &pktBuffer{
-			layerParser: decodedpacket.NewLayerParser(),
-		}
-	},
-}
-
-// Worker pool for packet processing
-type packetJob struct {
-	pkt  gopacket.Packet
-	pkts *pktBuffer
-}
-
-// startWorkerPool starts worker goroutines for packet processing
-func (p *PacketsPoller) startWorkerPool() {
-	p.packetJobs = make(chan packetJob, runtime.NumCPU()*1024) // Buffered channel for jobs
-	p.workerPool = make([]chan struct{}, runtime.NumCPU())
-
-	for i := 0; i < runtime.NumCPU(); i++ {
-		p.workerPool[i] = make(chan struct{})
-		go func(workerID int) {
-			defer close(p.workerPool[workerID])
-			for job := range p.packetJobs {
-				p.gopacketWriter(job.pkt, p.dissectionDisabled)
-				pktBufferPool.Put(job.pkts)
-			}
-		}(i)
-	}
-}
-
-// stopWorkerPool stops all worker goroutines
-func (p *PacketsPoller) stopWorkerPool() {
-	close(p.packetJobs)
-	// Wait for all workers to finish
-	for _, done := range p.workerPool {
-		<-done
-	}
-}
-
-// preWarmPool pre-warms the pktBuffer pool with some initial objects
-func preWarmPool() {
-	// Pre-allocate a few pktBuffer objects to reduce initial allocation pressure
-	for i := 0; i < 512; i++ {
-		// Use pool's Get to create properly initialized pktBuffer (with layerParser)
-		pkt := pktBufferPool.Get().(*pktBuffer)
-		pktBufferPool.Put(pkt)
-	}
-}
-
+// Must match C struct pkt (perf backend payload).
 type tracerPacketsData struct {
 	Timestamp uint64
 	CgroupID  uint64
@@ -94,52 +85,71 @@ type tracerPacketsData struct {
 }
 
 type pktBuffer struct {
-	id             uint64
-	num            uint16
-	len            uint32
-	buf            [64 * 1024]byte
-	layerParser    *decodedpacket.LayerParser
-	reusableRecord perf.Record
-	firstSeen      time.Time // Timestamp when buffer was first created for incomplete packet tracking
+	id        uint64
+	num       uint16
+	buf       []byte
+	timestamp uint64
+	cgroupID  uint64
+	direction uint8
+
+	layerParser *decodedpacket.LayerParser
+	firstSeen   time.Time
 }
 
-// reset resets the pktBuffer for reuse
 func (p *pktBuffer) reset() {
 	p.id = 0
 	p.num = 0
-	// Only clear the portion of the buffer that was actually used
-	// This is more efficient than clearing the entire 64KB buffer
-	if p.len > 0 {
-		clear(p.buf[:p.len])
-		p.len = 0
-	}
+	p.timestamp = 0
+	p.cgroupID = 0
+	p.direction = 0
+	p.firstSeen = time.Time{}
+	p.buf = p.buf[:0]
+}
+
+var pktBufferPool = sync.Pool{
+	New: func() any {
+		return &pktBuffer{
+			buf:         make([]byte, 0, defaultPktBufCap),
+			layerParser: decodedpacket.NewLayerParser(),
+		}
+	},
 }
 
 type PacketsPoller struct {
-	ethernetDecoder gopacket.Decoder
-	ethhdrContent   []byte
-	// Worker pool fields
-	packetJobs chan packetJob
-	workerPool []chan struct{}
-	// Per-CPU packet maps to avoid contention
-	pktsMaps []map[uint64]*pktBuffer // one map per CPU
+	// Readers
+	chunksReader perfReader
+	ringReader   ringbufReader
+	useRingbuf   bool
+
+	// Assembly state (perf only)
+	pktsMaps []map[uint64]*pktBuffer
 	maxCPUs  int
-	// Cleanup mechanism
-	stopCleanup chan struct{} // Signal channel to stop cleanup goroutine
-	// Original fields
-	chunksReader    perfReader
+
+	// Worker pool (sharded, preserves ordering within shard)
+	workers     []chan *pktBuffer
+	workerCount int
+	workersWg   sync.WaitGroup
+
+	// Control
+	stopPoll    chan struct{}
+	stopCleanup chan struct{}
+	runWg       sync.WaitGroup
+
+	// Writers
 	gopacketWriter  bpf.GopacketWriter
 	rawPacketWriter rawpacket.RawPacketWriter
+
+	// Stats
 	receivedPackets uint64
 	lostChunks      uint64
-	lastLostChunks  uint64
-	lastLostCheck   time.Time
-	lastStatsTime   time.Time
-	lastStats       PacketsPollerStats
-	tai             tai.TaiInfo
 	stats           PacketsPollerStats
 
-	dissectionDisabled bool
+	lastLostChunks uint64
+	lastLostCheck  time.Time
+
+	dissectionDisabled uint32
+
+	tai tai.TaiInfo
 }
 
 type PacketsPollerStats struct {
@@ -148,6 +158,7 @@ type PacketsPollerStats struct {
 	ChunksLost     uint64
 	PacketsGot     uint64
 	PacketsError   uint64
+	PacketsDropped uint64 // Packets dropped due to full worker queue (backpressure)
 	BytesProcessed uint64
 }
 
@@ -157,300 +168,110 @@ func NewPacketsPoller(
 	rawPacketWriter rawpacket.RawPacketWriter,
 	perfBufferSize int,
 ) (*PacketsPoller, error) {
-	var err error
-
-	ethernetDecoder := gopacket.DecodersByLayerName["Ethernet"]
-	if ethernetDecoder == nil {
-		return nil, errors.New("Failed to get Ethernet decoder")
-	}
-
-	ethhdrContent := make([]byte, 14)
-
-	// Get number of CPUs for per-CPU maps
-	maxCPUs := runtime.NumCPU()
-
-	poller := &PacketsPoller{
-		ethernetDecoder: ethernetDecoder,
-		ethhdrContent:   ethhdrContent,
+	p := &PacketsPoller{
 		gopacketWriter:  gopacketWriter,
 		rawPacketWriter: rawPacketWriter,
-		maxCPUs:         maxCPUs,
-		pktsMaps:        make([]map[uint64]*pktBuffer, maxCPUs),
-		stopCleanup:     make(chan struct{}),
-		tai:             tai.NewTaiInfo(),
-		lastStatsTime:   time.Now(),
 
-		dissectionDisabled: false,
+		stopPoll: make(chan struct{}),
+
+		tai:           tai.NewTaiInfo(),
+		lastLostCheck: time.Now(),
 	}
 
-	// Initialize per-CPU maps
-	for i := 0; i < maxCPUs; i++ {
-		poller.pktsMaps[i] = make(map[uint64]*pktBuffer)
-	}
+	// Decide backend - try ringbuf first (newer kernels), fall back to perf
+	if rr, err := ringbuf.NewReader(perfBuffer); err == nil {
+		p.useRingbuf = true
+		p.ringReader = &ringbufReaderWrapper{r: rr}
+		log.Info().Msg("PacketsPoller: using ringbuf backend")
+	} else {
+		// Perf backend requires chunk assembly state
+		maxCPUs := max(runtime.NumCPU(), 1)
+		p.maxCPUs = maxCPUs
+		p.pktsMaps = make([]map[uint64]*pktBuffer, maxCPUs)
+		p.stopCleanup = make(chan struct{})
 
-	poller.chunksReader, err = perf.NewReader(perfBuffer, perfBufferSize)
-	if err != nil {
-		return nil, errors.Wrap(err, 0)
-	}
-
-	// Pre-warm the pool to reduce initial allocation pressure
-	preWarmPool()
-
-	// Start worker pool for packet processing
-	poller.startWorkerPool()
-
-	return poller, nil
-}
-
-func (p *PacketsPoller) Stop() error {
-	// Signal cleanup goroutine to stop
-	close(p.stopCleanup)
-
-	// Clean up all pending buffers in pktsMaps before shutdown
-	for i := 0; i < p.maxCPUs; i++ {
-		for _, pkts := range p.pktsMaps[i] {
-			pktBufferPool.Put(pkts)
-		}
-		p.pktsMaps[i] = nil
-	}
-
-	p.stopWorkerPool()
-	return p.chunksReader.Close()
-}
-
-// cleanupStalePackets periodically removes incomplete packets that have been waiting too long
-// this can happen only because of bug in bpf code
-func (p *PacketsPoller) cleanupStalePackets() {
-	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
-	defer ticker.Stop()
-
-	const staleThreshold = 30 * time.Second // Consider packets stale after 30 seconds
-
-	for {
-		select {
-		case <-ticker.C:
-			threshold := time.Now().Add(-staleThreshold)
-			cleanedCount := 0
-			loggedCount := 0
-
-			for i := 0; i < p.maxCPUs; i++ {
-				for id, pkts := range p.pktsMaps[i] {
-					if pkts.firstSeen.Before(threshold) {
-						// Log detailed info for first 10 cleaned packets
-						if loggedCount < 10 {
-							// XXX logStalePacketDetails(pkts, id, i)
-							loggedCount++
-						}
-						pktBufferPool.Put(pkts)
-						delete(p.pktsMaps[i], id)
-						cleanedCount++
-					}
-				}
-			}
-
-			if cleanedCount > 0 {
-				log.Warn().Int("cleaned", cleanedCount).Msg("Cleaned up stale incomplete packets")
-			}
-		case <-p.stopCleanup:
-			return
-		}
-	}
-}
-
-func (p *PacketsPoller) Start() {
-	go p.poll()
-	go p.cleanupStalePackets() // Start background cleanup goroutine
-}
-
-func (p *PacketsPoller) GetLostChunks() uint64 {
-	return p.lostChunks
-}
-
-func (p *PacketsPoller) GetReceivedPackets() uint64 {
-	return p.receivedPackets
-}
-
-func (p *PacketsPoller) GetExtendedStats() interface{} {
-	return p.stats
-}
-
-func (p *PacketsPoller) Pause() {
-	p.dissectionDisabled = true
-}
-
-func (p *PacketsPoller) Resume() {
-	p.dissectionDisabled = false
-}
-
-// formatBytes formats bytes into human readable format with K/M suffixes
-func formatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-// logPeriodicStats logs statistics every 5 seconds
-func (p *PacketsPoller) logPeriodicStats() {
-	now := time.Now()
-	elapsed := now.Sub(p.lastStatsTime).Seconds()
-
-	if elapsed >= 5.0 {
-		// Calculate deltas
-		chunksDelta := p.stats.ChunksGot - p.lastStats.ChunksGot
-		packetsDelta := p.stats.PacketsGot - p.lastStats.PacketsGot
-		bytesDelta := p.stats.BytesProcessed - p.lastStats.BytesProcessed
-
-		// Calculate rates per second
-		chunksPerSec := float64(chunksDelta) / elapsed
-		packetsPerSec := float64(packetsDelta) / elapsed
-		bytesPerSec := float64(bytesDelta) / elapsed
-
-		log.Debug().
-			Float64("chunks_per_sec", chunksPerSec).
-			Float64("packets_per_sec", packetsPerSec).
-			Str("bytes_per_sec", formatBytes(uint64(bytesPerSec))).
-			Msg("PacketsPoller stats")
-
-		// Update last stats and time
-		p.lastStats = p.stats
-		p.lastStatsTime = now
-	}
-}
-
-func (p *PacketsPoller) poll() {
-	// tracerPktsChunk is generated by bpf2go.
-
-	go p.pollChunksPerfBuffer()
-}
-
-func (p *PacketsPoller) handlePktChunk(chunk *pktBuffer) (bool, error) {
-	data := chunk.reusableRecord.RawSample
-	cpu := chunk.reusableRecord.CPU
-	if len(data) == 4 {
-		// zero packet to reset - return all pktBuffers to pool
-		log.Info().Msg("Resetting plain packets buffer")
-		for i := 0; i < p.maxCPUs; i++ {
-			for _, pkts := range p.pktsMaps[i] {
-				pktBufferPool.Put(pkts)
-			}
+		for i := range maxCPUs {
 			p.pktsMaps[i] = make(map[uint64]*pktBuffer)
 		}
-		pktBufferPool.Put(chunk)
-		return false, nil
-	}
-	const expectedChunkSize = 4148
-	if len(data) != expectedChunkSize {
-		pktBufferPool.Put(chunk)
-		return false, fmt.Errorf("bad pkt chunk: size %v expected: %v", len(data), expectedChunkSize)
-	}
 
-	ptr := (*tracerPacketsData)(unsafe.Pointer(&data[0]))
-
-	if ptr.Num == 0 && ptr.Last != 0 {
-		// Fast path - packet can be processed without copying
-		p.writeRawPacket(ptr.Timestamp, ptr.Data[:ptr.Len])
-		if !p.dissectionDisabled {
-			if _, err := p.writePacket(chunk, ptr); err != nil {
-				pktBufferPool.Put(chunk)
-				return false, fmt.Errorf("write packet failed: %w", err)
-			}
-		} else {
-			pktBufferPool.Put(chunk)
+		pr, err := perf.NewReader(perfBuffer, perfBufferSize)
+		if err != nil {
+			return nil, err
 		}
-		// packet will be released by writePacket
-		return true, nil
+		p.chunksReader = pr
+		log.Info().Msg("PacketsPoller: using perf backend")
 	}
 
-	if cpu < 0 || cpu >= p.maxCPUs {
-		log.Fatal().Int("cpu", cpu).Msg("Invalid CPU number")
-		pktBufferPool.Put(chunk)
-		return false, nil
-	}
-	cpuMap := p.pktsMaps[cpu]
-
-	pkts, ok := cpuMap[ptr.ID]
-	if !ok {
-		// Get pktBuffer from pool and initialize it
-		pkts = pktBufferPool.Get().(*pktBuffer)
-		// Safety: ensure layerParser exists for pre-warmed buffers created before initialization change
-		if pkts.layerParser == nil {
-			pkts.layerParser = decodedpacket.NewLayerParser()
-		}
-		pkts.reset()
-		pkts.id = ptr.ID
-		pkts.firstSeen = time.Now() // Track when incomplete packet was created
-		cpuMap[ptr.ID] = pkts
-	}
-	if ptr.Num != pkts.num {
-		// chunk was lost
-		log.Debug().Msgf("lost packet message id: (%v %v) num: (%v %v) len: %v last: %v dir: %v tot_len: %v cpu: %v", pkts.id, ptr.ID, pkts.num, ptr.Num, ptr.Len, ptr.Last, ptr.Direction, ptr.TotLen, cpu)
-		pktBufferPool.Put(chunk)
-		return false, nil
-	}
-
-	copy(pkts.buf[pkts.len:], ptr.Data[:ptr.Len])
-	pkts.len += uint32(ptr.Len)
-	pktBufferPool.Put(chunk)
-
-	if ptr.Last != 0 {
-		p.receivedPackets++
-
-		binary.BigEndian.PutUint16(p.ethhdrContent[12:14], ptr.IPHdrType)
-
-		p.writeRawPacket(ptr.Timestamp, pkts.buf[:pkts.len])
-		if !p.dissectionDisabled {
-			if _, err := p.writePacket(pkts, ptr); err != nil {
-				pktBufferPool.Put(pkts)
-				return false, fmt.Errorf("write packet failed: %w", err)
-			}
-		} else {
-			pktBufferPool.Put(pkts)
-		}
-		delete(cpuMap, ptr.ID)
-	} else {
-		pkts.num++
-	}
-
-	return true, nil
+	p.startWorkerPool()
+	return p, nil
 }
 
-func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (bool, error) {
+func (p *PacketsPoller) startWorkerPool() {
+	p.workerCount = max(runtime.NumCPU(), 1)
+	p.workers = make([]chan *pktBuffer, p.workerCount)
+
+	for i := 0; i < p.workerCount; i++ {
+		ch := make(chan *pktBuffer, workerQueueDepth)
+		p.workers[i] = ch
+		p.workersWg.Add(1)
+
+		go func(c <-chan *pktBuffer) {
+			defer p.workersWg.Done()
+			for pkt := range c {
+				p.processPacket(pkt)
+			}
+		}(ch)
+	}
+}
+
+func (p *PacketsPoller) stopWorkerPool() {
+	for _, ch := range p.workers {
+		close(ch)
+	}
+	p.workersWg.Wait()
+}
+
+func (p *PacketsPoller) Pause()  { atomic.StoreUint32(&p.dissectionDisabled, 1) }
+func (p *PacketsPoller) Resume() { atomic.StoreUint32(&p.dissectionDisabled, 0) }
+
+func (p *PacketsPoller) dissectionOff() bool {
+	return atomic.LoadUint32(&p.dissectionDisabled) != 0
+}
+
+func (p *PacketsPoller) toUnixTime(ts uint64) time.Time {
+	if ts == 0 {
+		return time.Now()
+	}
+	// compat_get_uprobe_timestamp() returns TAI-ish time; adjust to Unix.
+	return time.Unix(0, int64(ts)-int64(p.tai.GetTAIOffset()))
+}
+
+// IMPORTANT: raw writing is done in poll goroutine (single-threaded) to preserve master behavior.
+func (p *PacketsPoller) writeRawPacket(bpfTimestamp uint64, pkt []byte) {
+	if p.rawPacketWriter == nil {
+		return
+	}
+	ts := p.toUnixTime(bpfTimestamp)
+	p.rawPacketWriter(uint64(ts.UnixNano()), pkt)
+}
+
+func (p *PacketsPoller) processPacket(pkt *pktBuffer) {
+	// By construction, we only enqueue when gopacketWriter != nil and dissection is ON.
+	// Still keep this defensive.
 	if p.gopacketWriter == nil {
-
-		pktBufferPool.Put(pktBuf)
-		return false, nil
+		returnPktBuffer(pkt)
+		return
 	}
 
-	// Calculate timestamp once
-	var timestamp time.Time
-	if ptr.Timestamp != 0 {
-		timestamp = time.Unix(0, int64(ptr.Timestamp)-int64(p.tai.GetTAIOffset()))
-	} else {
-		timestamp = time.Now()
-	}
+	timestamp := p.toUnixTime(pkt.timestamp)
 
-	var pkt []byte
-	if pktBuf.len > 0 {
-		pkt = pktBuf.buf[:pktBuf.len]
-	} else {
-		pkt = ptr.Data[:ptr.Len]
-	}
-
-	// Use LayerParser for efficient packet decoding
 	ci := gopacket.CaptureInfo{
 		Timestamp:      timestamp,
-		CaptureLength:  len(pkt),
-		Length:         len(pkt),
+		CaptureLength:  len(pkt.buf),
+		Length:         len(pkt.buf),
 		CaptureBackend: gopacket.CaptureBackendEbpf,
-		CgroupID:       ptr.CgroupID,
-		Direction:      unixpacket.PacketDirection(ptr.Direction),
+		CgroupID:       pkt.cgroupID,
+		Direction:      unixpacket.PacketDirection(pkt.direction),
 	}
 
 	decodeOptions := gopacket.DecodeOptions{
@@ -460,102 +281,450 @@ func (p *PacketsPoller) writePacket(pktBuf *pktBuffer, ptr *tracerPacketsData) (
 		DecodeStreamsAsDatagrams: false,
 	}
 
-	packet, parseErr := pktBuf.layerParser.CreatePacket(pkt, ptr.CgroupID, unixpacket.PacketDirection(ptr.Direction), ci, decodeOptions)
-	if parseErr != nil {
-		log.Debug().Err(parseErr).Msg("DecodingLayerParser failed")
-		p.stats.PacketsError++
-		pktBufferPool.Put(pktBuf)
-		// gopacket.NewPacket is recovers in case of errors, so we can return nil
-		return false, nil
+	if pkt.layerParser == nil {
+		pkt.layerParser = decodedpacket.NewLayerParser()
 	}
-	p.stats.PacketsGot++
-	p.stats.BytesProcessed += uint64(len(pkt))
 
-	// Send packet job to worker pool
-	p.packetJobs <- packetJob{pkt: packet, pkts: pktBuf}
-	return true, nil
-}
-
-func (p *PacketsPoller) writeRawPacket(timestamp uint64, pkt []byte) {
-	if p.rawPacketWriter == nil {
+	packet, err := pkt.layerParser.CreatePacket(
+		pkt.buf,
+		pkt.cgroupID,
+		unixpacket.PacketDirection(pkt.direction),
+		ci,
+		decodeOptions,
+	)
+	if err != nil {
+		atomic.AddUint64(&p.stats.PacketsError, 1)
+		returnPktBuffer(pkt)
 		return
 	}
-	var ts time.Time
-	if timestamp != 0 {
-		ts = time.Unix(0, int64(timestamp)-int64(p.tai.GetTAIOffset()))
-	} else {
-		ts = time.Now()
-	}
 
-	p.rawPacketWriter(uint64(ts.UnixNano()), pkt)
+	atomic.AddUint64(&p.stats.PacketsGot, 1)
+	atomic.AddUint64(&p.stats.BytesProcessed, uint64(len(pkt.buf)))
+
+	p.gopacketWriter(packet, p.dissectionOff())
+
+	returnPktBuffer(pkt)
 }
 
-func (p *PacketsPoller) pollChunksPerfBuffer() {
-	log.Info().Msg("Start polling for packet events")
+// flowShard hashes a packet into a worker shard.
+// Goal: keep per-flow ordering (including both directions) while allowing parallelism across flows.
+//
+// We normalize endpoints so A<->B maps to same shard in both directions.
+func flowShard(pkt []byte, cgroupID uint64, shards int) int {
+	if shards <= 1 {
+		return 0
+	}
+	if len(pkt) < 1 {
+		return int(cgroupID % uint64(shards))
+	}
 
-	// remove all existing records
-	p.chunksReader.SetDeadline(time.Unix(1, 0))
-	var emptyRecord perf.Record
+	// FNV-1a
+	h := uint64(1469598103934665603)
+	hash := func(b byte) {
+		h ^= uint64(b)
+		h *= 1099511628211
+	}
+
+	ipVer := pkt[0] >> 4
+	hash(byte(ipVer))
+
+	var a, b []byte
+
+	switch ipVer {
+	case 4:
+		if len(pkt) < 20 {
+			return int(cgroupID % uint64(shards))
+		}
+		// src(12:16), dst(16:20)
+		s := pkt[12:16]
+		d := pkt[16:20]
+		// normalize order
+		if bytes.Compare(s, d) <= 0 {
+			a, b = s, d
+		} else {
+			a, b = d, s
+		}
+	case 6:
+		if len(pkt) < 40 {
+			return int(cgroupID % uint64(shards))
+		}
+		// src(8:24), dst(24:40)
+		s := pkt[8:24]
+		d := pkt[24:40]
+		if bytes.Compare(s, d) <= 0 {
+			a, b = s, d
+		} else {
+			a, b = d, s
+		}
+	default:
+		return int(cgroupID % uint64(shards))
+	}
+
+	for _, bb := range a {
+		hash(bb)
+	}
+	for _, bb := range b {
+		hash(bb)
+	}
+
+	return int(h % uint64(shards))
+}
+
+// enqueuePacket tries to send pkt to the worker; if the queue is full it drops
+// the packet (non-blocking) to provide backpressure and prevent OOM.
+func (p *PacketsPoller) enqueuePacket(shard int, pkt *pktBuffer) {
+	ch := p.workers[shard]
+	select {
+	case ch <- pkt:
+		// Enqueued successfully
+	default:
+		// Queue full - drop packet to prevent memory buildup and blocking
+		atomic.AddUint64(&p.stats.PacketsDropped, 1)
+		returnPktBuffer(pkt)
+	}
+}
+
+func returnPktBuffer(pkt *pktBuffer) {
+	pktBufferPool.Put(pkt)
+}
+
+func (p *PacketsPoller) cleanupStalePackets() {
+	ticker := time.NewTicker(stalePktCleanupInterval)
+	defer ticker.Stop()
+
 	for {
-		err := p.chunksReader.ReadInto(&emptyRecord)
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			break
-		} else if err != nil {
-			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+		select {
+		case <-ticker.C:
+			threshold := time.Now().Add(-stalePktThreshold)
+			cleaned := 0
+
+			for cpu := 0; cpu < p.maxCPUs; cpu++ {
+				m := p.pktsMaps[cpu]
+				for id, pb := range m {
+					if !pb.firstSeen.IsZero() && pb.firstSeen.Before(threshold) {
+						returnPktBuffer(pb)
+						delete(m, id)
+						cleaned++
+					}
+				}
+			}
+
+			if cleaned > 0 {
+				log.Warn().Int("cleaned", cleaned).Msg("PacketsPoller: cleaned stale perf-assembly packets")
+			}
+
+		case <-p.stopCleanup:
+			return
+		}
+	}
+}
+
+func (p *PacketsPoller) poll() {
+	if p.useRingbuf {
+		p.pollRingbuf()
+	} else {
+		p.pollPerf()
+	}
+}
+
+func (p *PacketsPoller) pollRingbuf() {
+	for {
+		select {
+		case <-p.stopPoll:
+			return
+		default:
+		}
+
+		recAny, err := p.ringReader.Read()
+		if err != nil {
+			if errors.Is(err, ringbuf.ErrClosed) {
+				return
+			}
+			log.Fatal().Err(err).Msg("ringbuf read failed")
+			return
+		}
+
+		rec, ok := recAny.(*ringbuf.Record)
+		if !ok {
+			log.Fatal().Msgf("Unexpected ringbuf record type: %T", recAny)
+			return
+		}
+		raw := rec.RawSample
+
+		atomic.AddUint64(&p.stats.ChunksGot, 1)
+
+		// Reset marker (4 bytes) - no state to reset in ringbuf mode
+		if len(raw) == 4 {
+			continue
+		}
+
+		if len(raw) < ringbufPktEventHdrSize {
+			continue
+		}
+
+		hdr := (*ringbufPktEventHdr)(unsafe.Pointer(&raw[0]))
+		pktLen := int(hdr.Len)
+
+		if pktLen < 0 || pktLen > maxRingbufPktLen {
+			continue
+		}
+		if ringbufPktEventHdrSize+pktLen > len(raw) {
+			continue
+		}
+
+		payload := raw[ringbufPktEventHdrSize : ringbufPktEventHdrSize+pktLen]
+
+		pkt := pktBufferPool.Get().(*pktBuffer)
+		pkt.reset()
+
+		if cap(pkt.buf) < len(payload) {
+			pkt.buf = make([]byte, 0, len(payload))
+		}
+		pkt.buf = pkt.buf[:len(payload)]
+		copy(pkt.buf, payload)
+
+		pkt.timestamp = hdr.Timestamp
+		pkt.cgroupID = hdr.CgroupID
+		pkt.direction = hdr.Direction
+
+		atomic.AddUint64(&p.receivedPackets, 1)
+
+		// Raw write is always allowed (even if dissection disabled), and serialized here.
+		p.writeRawPacket(pkt.timestamp, pkt.buf)
+
+		// Restore master behavior: do NOT decode / do NOT write gopacket when dissection is disabled.
+		if p.dissectionOff() || p.gopacketWriter == nil {
+			returnPktBuffer(pkt)
+			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			continue
+		}
+
+		shard := flowShard(pkt.buf, pkt.cgroupID, p.workerCount)
+		p.enqueuePacket(shard, pkt)
+		atomic.AddUint64(&p.stats.ChunksHandled, 1)
+	}
+}
+
+func (p *PacketsPoller) pollPerf() {
+	log.Info().Msg("PacketsPoller: start polling perf buffer")
+
+	// Drain old samples
+	p.chunksReader.SetDeadline(time.Unix(1, 0))
+	var empty perf.Record
+	for {
+		if err := p.chunksReader.ReadInto(&empty); err != nil {
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				break
+			}
+			log.Fatal().Err(err).Msg("perf drain failed")
 			return
 		}
 	}
 	p.chunksReader.SetDeadline(time.Time{})
 
-	for {
-		// Log periodic statistics every 5 seconds
-		p.logPeriodicStats()
+	expected := int(unsafe.Sizeof(tracerPacketsData{}))
 
-		if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != p.lostChunks {
-			log.Warn().Msg(fmt.Sprintf("Buffer is full, dropped %d chunks", p.lostChunks-p.lastLostChunks))
-			p.lastLostChunks = p.lostChunks
-			p.lastLostCheck = time.Now()
+	for {
+		select {
+		case <-p.stopPoll:
+			return
+		default:
 		}
 
-		// Get a pktBuffer from the pool to use its reusableRecord
-		readBuffer := pktBufferPool.Get().(*pktBuffer)
-		readBuffer.reset()
-
-		err := p.chunksReader.ReadInto(&readBuffer.reusableRecord)
-		if err != nil {
-			// Return the buffer to pool before handling error
-			pktBufferPool.Put(readBuffer)
+		var rec perf.Record
+		if err := p.chunksReader.ReadInto(&rec); err != nil {
 			if errors.Is(err, perf.ErrClosed) {
-				log.Info().Err(err).Msg("perf buffer is closed")
 				return
 			}
-
-			log.Fatal().Err(err).Msg("Error reading chunks from pkts perf, aborting!")
+			log.Fatal().Err(err).Msg("perf read failed")
 			return
 		}
-		if readBuffer.reusableRecord.LostSamples != 0 {
-			p.lostChunks += readBuffer.reusableRecord.LostSamples
-			p.stats.ChunksLost += readBuffer.reusableRecord.LostSamples
-			// Cleanup per-CPU packet state for the CPU that experienced the loss
-			cpu := readBuffer.reusableRecord.CPU
+
+		if rec.LostSamples > 0 {
+			atomic.AddUint64(&p.lostChunks, rec.LostSamples)
+			atomic.AddUint64(&p.stats.ChunksLost, rec.LostSamples)
+
+			cpu := rec.CPU
 			if cpu >= 0 && cpu < p.maxCPUs {
-				for _, pkts := range p.pktsMaps[cpu] {
-					pktBufferPool.Put(pkts)
+				for _, pb := range p.pktsMaps[cpu] {
+					returnPktBuffer(pb)
 				}
 				p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
 			}
-			// Return buffer to pool before continuing
-			pktBufferPool.Put(readBuffer)
+
+			lost := atomic.LoadUint64(&p.lostChunks)
+			if time.Since(p.lastLostCheck) > time.Minute && p.lastLostChunks != lost {
+				log.Warn().Msgf("Perf buffer dropped %d chunks", lost-p.lastLostChunks)
+				p.lastLostChunks = lost
+				p.lastLostCheck = time.Now()
+			}
 			continue
 		}
-		p.stats.ChunksGot++
 
-		var ok bool
-		if ok, err = p.handlePktChunk(readBuffer); err != nil {
-			log.Error().Err(err).Msg("handle chunk failed")
-		} else if ok {
-			p.stats.ChunksHandled++
+		raw := rec.RawSample
+		atomic.AddUint64(&p.stats.ChunksGot, 1)
+
+		// Reset marker - clear all CPU maps
+		if len(raw) == 4 {
+			for cpu := 0; cpu < p.maxCPUs; cpu++ {
+				for _, pb := range p.pktsMaps[cpu] {
+					returnPktBuffer(pb)
+				}
+				p.pktsMaps[cpu] = make(map[uint64]*pktBuffer)
+			}
+			continue
 		}
 
+		if len(raw) < expected {
+			continue
+		}
+
+		ptr := (*tracerPacketsData)(unsafe.Pointer(&raw[0]))
+
+		cpu := rec.CPU
+		if cpu < 0 || cpu >= p.maxCPUs {
+			continue
+		}
+
+		cpuMap := p.pktsMaps[cpu]
+
+		pb, ok := cpuMap[ptr.ID]
+		if !ok {
+			pb = pktBufferPool.Get().(*pktBuffer)
+			pb.reset()
+			pb.id = ptr.ID
+			pb.num = 0
+			pb.timestamp = ptr.Timestamp
+			pb.cgroupID = ptr.CgroupID
+			pb.direction = ptr.Direction
+			pb.firstSeen = time.Now()
+			cpuMap[ptr.ID] = pb
+		}
+
+		// Ordering check
+		if ptr.Num != pb.num {
+			// Drop assembly state for this packet ID
+			delete(cpuMap, ptr.ID)
+			returnPktBuffer(pb)
+			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			continue
+		}
+
+		need := int(ptr.Len)
+		if need < 0 || need > len(ptr.Data) {
+			delete(cpuMap, ptr.ID)
+			returnPktBuffer(pb)
+			atomic.AddUint64(&p.stats.ChunksHandled, 1)
+			continue
+		}
+
+		// Append chunk
+		if cap(pb.buf) < len(pb.buf)+need {
+			newCap := len(pb.buf) + need
+			nb := make([]byte, len(pb.buf), newCap)
+			copy(nb, pb.buf)
+			pb.buf = nb
+		}
+		oldLen := len(pb.buf)
+		pb.buf = pb.buf[:oldLen+need]
+		copy(pb.buf[oldLen:], ptr.Data[:need])
+
+		if ptr.Last != 0 {
+			atomic.AddUint64(&p.receivedPackets, 1)
+			delete(cpuMap, ptr.ID)
+
+			// Raw write (serialized here)
+			p.writeRawPacket(ptr.Timestamp, pb.buf)
+
+			// Restore master behavior: if dissection disabled, do not decode/write.
+			if p.dissectionOff() || p.gopacketWriter == nil {
+				returnPktBuffer(pb)
+			} else {
+				shard := flowShard(pb.buf, pb.cgroupID, p.workerCount)
+				p.enqueuePacket(shard, pb)
+			}
+		} else {
+			pb.num++
+		}
+
+		atomic.AddUint64(&p.stats.ChunksHandled, 1)
+	}
+}
+
+func (p *PacketsPoller) Start() {
+	if p.useRingbuf {
+		p.runWg.Add(1)
+	} else {
+		p.runWg.Add(2)
+	}
+
+	go func() {
+		defer p.runWg.Done()
+		p.poll()
+	}()
+
+	// Cleanup goroutine only needed for perf backend (handles stale chunk assembly)
+	if !p.useRingbuf {
+		go func() {
+			defer p.runWg.Done()
+			p.cleanupStalePackets()
+		}()
+	}
+}
+
+func (p *PacketsPoller) Stop() error {
+	// Signal goroutines
+	close(p.stopPoll)
+	if p.stopCleanup != nil {
+		close(p.stopCleanup)
+	}
+
+	// Close readers to unblock Read/ReadInto
+	if p.useRingbuf {
+		if p.ringReader != nil {
+			_ = p.ringReader.Close()
+		}
+	} else {
+		if p.chunksReader != nil {
+			_ = p.chunksReader.Close()
+		}
+	}
+
+	// Wait for poll/cleanup loops to exit (prevents enqueue-after-close panics)
+	p.runWg.Wait()
+
+	// Return any still-assembled perf packets to pool (perf mode only)
+	if !p.useRingbuf {
+		for cpu := 0; cpu < p.maxCPUs; cpu++ {
+			for _, pb := range p.pktsMaps[cpu] {
+				returnPktBuffer(pb)
+			}
+			p.pktsMaps[cpu] = nil
+		}
+	}
+
+	// Stop workers last (they release pktBuffers)
+	p.stopWorkerPool()
+
+	return nil
+}
+
+func (p *PacketsPoller) GetReceivedPackets() uint64 {
+	return atomic.LoadUint64(&p.receivedPackets)
+}
+
+func (p *PacketsPoller) GetLostChunks() uint64 {
+	return atomic.LoadUint64(&p.lostChunks)
+}
+
+func (p *PacketsPoller) GetExtendedStats() any {
+	return PacketsPollerStats{
+		ChunksGot:      atomic.LoadUint64(&p.stats.ChunksGot),
+		ChunksHandled:  atomic.LoadUint64(&p.stats.ChunksHandled),
+		ChunksLost:     atomic.LoadUint64(&p.stats.ChunksLost),
+		PacketsGot:     atomic.LoadUint64(&p.stats.PacketsGot),
+		PacketsError:   atomic.LoadUint64(&p.stats.PacketsError),
+		PacketsDropped: atomic.LoadUint64(&p.stats.PacketsDropped),
+		BytesProcessed: atomic.LoadUint64(&p.stats.BytesProcessed),
 	}
 }
