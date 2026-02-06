@@ -53,8 +53,9 @@ type TlsPoller struct {
 	tai             tai.TaiInfo
 	stats           TlsPollerStats
 
-	reusableRecord perf.Record
-	reusableBuffer *bytes.Reader
+	reusableRecord        perf.Record
+	reusableRingbufRecord ringbuf.Record
+	reusableBuffer        *bytes.Reader
 
 	reusableChunkBuf []byte
 
@@ -195,7 +196,7 @@ func (p *TlsPoller) pollChunksRingbufBuffer(chunks chan<- *TracerTlsChunk) {
 	log.Info().Msg("Start polling for tls events (ringbuf)")
 
 	for {
-		rec, err := p.ringReader.Read()
+		err := p.ringReader.ReadInto(&p.reusableRingbufRecord)
 		if err != nil {
 			close(chunks)
 			if errors.Is(err, ringbuf.ErrClosed) {
@@ -206,7 +207,7 @@ func (p *TlsPoller) pollChunksRingbufBuffer(chunks chan<- *TracerTlsChunk) {
 			return
 		}
 
-		raw := rec.RawSample
+		raw := p.reusableRingbufRecord.RawSample
 
 		p.stats.ChunksGot++
 

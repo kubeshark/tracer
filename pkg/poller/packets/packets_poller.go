@@ -51,11 +51,17 @@ type ringbufReader interface {
 }
 
 type ringbufReaderWrapper struct {
-	r *ringbuf.Reader
+	r   *ringbuf.Reader
+	rec ringbuf.Record // reused across reads to avoid per-read allocations
 }
 
-func (w *ringbufReaderWrapper) Read() (any, error) { return w.r.Read() }
-func (w *ringbufReaderWrapper) Close() error       { return w.r.Close() }
+func (w *ringbufReaderWrapper) Read() (any, error) {
+	if err := w.r.ReadInto(&w.rec); err != nil {
+		return nil, err
+	}
+	return &w.rec, nil
+}
+func (w *ringbufReaderWrapper) Close() error { return w.r.Close() }
 
 type perfReader interface {
 	ReadInto(r *perf.Record) error
@@ -438,16 +444,12 @@ func (p *PacketsPoller) pollRingbuf() {
 			return
 		}
 
-		var raw []byte
-		switch rec := recAny.(type) {
-		case ringbuf.Record:
-			raw = rec.RawSample
-		case *ringbuf.Record:
-			raw = rec.RawSample
-		default:
+		rec, ok := recAny.(*ringbuf.Record)
+		if !ok {
 			log.Fatal().Msgf("Unexpected ringbuf record type: %T", recAny)
 			return
 		}
+		raw := rec.RawSample
 
 		atomic.AddUint64(&p.stats.ChunksGot, 1)
 
