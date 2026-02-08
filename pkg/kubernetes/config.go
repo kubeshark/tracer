@@ -37,13 +37,25 @@ func SyncConfig(configMap *v1.ConfigMap) (*regexp2.Regexp, []string, uint32) {
 	namespaces := strings.Split(configNamespaces, ",")
 
 	var settings uint32
-	var dissectionEnabled bool
-	var rawCaptureEnabled bool
-	if dissectionEnabled, err = strconv.ParseBool(configMap.Data[CONFIG_DISSECTION_ENABLED]); err != nil {
-		log.Error().Err(err).Str("config", CONFIG_DISSECTION_ENABLED).Send()
+	dissectionEnabled := true
+	rawCaptureEnabled := true
+	if v, ok := configMap.Data[CONFIG_DISSECTION_ENABLED]; ok && v != "" {
+		if parsed, err := strconv.ParseBool(v); err != nil {
+			log.Warn().Err(err).Str("config", CONFIG_DISSECTION_ENABLED).Msg("invalid value, defaulting to true")
+		} else {
+			dissectionEnabled = parsed
+		}
+	} else {
+		log.Warn().Str("config", CONFIG_DISSECTION_ENABLED).Msg("missing or empty, defaulting to true")
 	}
-	if rawCaptureEnabled, err = strconv.ParseBool(configMap.Data[CONFIG_RAW_CAPTURE_ENABLED]); err != nil {
-		log.Error().Err(err).Str("config", CONFIG_RAW_CAPTURE_ENABLED).Send()
+	if v, ok := configMap.Data[CONFIG_RAW_CAPTURE_ENABLED]; ok && v != "" {
+		if parsed, err := strconv.ParseBool(v); err != nil {
+			log.Warn().Err(err).Str("config", CONFIG_RAW_CAPTURE_ENABLED).Msg("invalid value, defaulting to true")
+		} else {
+			rawCaptureEnabled = parsed
+		}
+	} else {
+		log.Warn().Str("config", CONFIG_RAW_CAPTURE_ENABLED).Msg("missing or empty, defaulting to true")
 	}
 	if dissectionEnabled || rawCaptureEnabled {
 		settings |= CONFIGURATION_FLAG_CAPTURE_ENABLED
