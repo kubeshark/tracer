@@ -172,7 +172,7 @@ static __always_inline struct ssl_info lookup_ssl_info(struct pt_regs* ctx, void
 static __always_inline int program_disabled(int program_domain) {
     __u32 zero = 0;
     struct configuration* s = bpf_map_lookup_elem(&settings, &zero);
-    if (s && (s->flags & CONFIGURATION_FLAG_CAPTURE_STOPPED)) {
+    if (s && !(s->flags & CONFIGURATION_FLAG_CAPTURE_ENABLED)) {
         return 1;
     }
 
